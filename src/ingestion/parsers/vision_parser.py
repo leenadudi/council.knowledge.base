@@ -11,15 +11,20 @@ import logging
 import re
 from pathlib import Path
 
-import anthropic
 import pdf2image
 from PIL import Image
 import io
 
 from src.config import Settings, get_settings
+from src.llm.client import TrackedAnthropic
 from src.models import ParsedDocument, ParsedElement
 
 logger = logging.getLogger(__name__)
+
+
+def _make_llm(cfg: Settings) -> TrackedAnthropic:
+    return TrackedAnthropic(cfg, call_site="ingestion.vision_parser")
+
 
 _EXTRACTION_PROMPT = """You are extracting content from a page of a government report.
 
@@ -62,7 +67,7 @@ def parse(file_path: str | Path, settings: Settings | None = None) -> ParsedDocu
     path = Path(file_path)
     logger.info("Parsing %s with Vision LLM (%s)", path.name, cfg.vision_model)
 
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+    client = _make_llm(cfg)
     images = _render_pages(path)
 
     all_elements: list[ParsedElement] = []
@@ -107,7 +112,7 @@ def _encode_image(image: Image.Image) -> str:
 
 
 def _extract_page(
-    client: anthropic.Anthropic,
+    client: TrackedAnthropic,
     cfg: Settings,
     image: Image.Image,
     page_num: int,

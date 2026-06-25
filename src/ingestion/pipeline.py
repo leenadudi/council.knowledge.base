@@ -18,7 +18,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import anthropic
 import voyageai
 
 from src.config import Settings, get_settings
@@ -44,7 +43,6 @@ class IngestionPipeline:
         self.sql_extractor = SQLExtractor(self.cfg)
         self.graph_extractor = GraphExtractor(self.cfg)
         self._voyage = voyageai.Client(api_key=self.cfg.voyage_api_key)
-        self._anthropic = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
 
     def initialize_stores(self) -> None:
         """Set up collection/schema in all three stores."""

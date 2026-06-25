@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Optional
 
-import anthropic
+from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
 from src.models import CONTENT_TYPES
@@ -47,10 +47,14 @@ _PROJECT_KEYWORDS = re.compile(
 )
 
 
+def _make_llm(cfg: Settings) -> TrackedAnthropic:
+    return TrackedAnthropic(cfg, call_site="ingestion.classifier")
+
+
 def classify_chunk(
     chunk_dict: dict,
     element_type: str,
-    client: Optional[anthropic.Anthropic] = None,
+    client: Optional[TrackedAnthropic] = None,
     settings: Optional[Settings] = None,
 ) -> str:
     """
@@ -69,7 +73,7 @@ def classify_chunk(
         return result
 
     # --- LLM fallback for ambiguous chunks ---
-    llm = client or anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+    llm = client or _make_llm(cfg)
     return _llm_classify(text, llm, cfg)
 
 
@@ -80,7 +84,7 @@ def classify_batch(
 ) -> list[str]:
     """Classify a batch of chunks, reusing the same LLM client."""
     cfg = settings or get_settings()
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+    client = _make_llm(cfg)
     return [
         classify_chunk(c, et, client=client, settings=cfg)
         for c, et in zip(chunk_dicts, element_types)
@@ -156,7 +160,7 @@ Text chunk:
 Reply with ONLY the category name, nothing else."""
 
 
-def _llm_classify(text: str, client: anthropic.Anthropic, cfg: Settings) -> str:
+def _llm_classify(text: str, client: TrackedAnthropic, cfg: Settings) -> str:
     try:
         msg = client.messages.create(
             model=cfg.synthesis_model,

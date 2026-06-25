@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, Optional
 
-import anthropic
+from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
 from src.models import Chunk
@@ -65,9 +65,9 @@ Text:
 
 
 class GraphExtractor:
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None, llm: Optional[TrackedAnthropic] = None):
         self.cfg = settings or get_settings()
-        self.client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
+        self.client = llm or TrackedAnthropic(self.cfg, call_site="ingestion.graph_extractor")
 
     def extract_batch(self, chunks: list[Chunk]) -> dict[str, Any]:
         """
@@ -90,7 +90,7 @@ class GraphExtractor:
         try:
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
-                max_tokens=2048,
+                max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = msg.content[0].text
