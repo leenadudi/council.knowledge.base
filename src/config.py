@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     garbled_ratio_threshold: float = 0.10
     text_per_page_threshold: int = 100   # chars/page below which vision LLM kicks in
 
+    # Query clarity gate (soft-launch: logged only, not enforced)
+    # Conservative by design: only flag genuinely unanswerable queries. Most
+    # questions answer well, so a false "did you mean…?" is worse than answering.
+    clarity_gate_enabled: bool = False         # when True, weak queries return suggestions instead of an answer
+    clarity_min_top_score: float = 0.30        # best chunk below this → weak (nothing semantically close). Sole trigger.
+    clarity_min_mean_score: float = 0.25       # recorded for calibration; does not trigger on its own
+    clarity_max_header_ratio: float = 0.80     # recorded for calibration; does not trigger on its own
+
     # App
     app_host: str = "0.0.0.0"
     app_port: int = 8000
