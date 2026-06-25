@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-import anthropic
+from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
 from src.models import Citation, QueryResponse, RetrievalResult
@@ -35,9 +35,9 @@ Answer with citations (cite as [Source: filename, Section: section_name]):
 
 
 class Synthesizer:
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None, llm: Optional[TrackedAnthropic] = None):
         self.cfg = settings or get_settings()
-        self.client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
+        self.client = llm or TrackedAnthropic(self.cfg, call_site="query.synthesizer")
 
     def synthesize(
         self,
@@ -62,6 +62,7 @@ class Synthesizer:
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
                 max_tokens=4096,
+                query_id=query_response.query_id,
                 messages=[{
                     "role": "user",
                     "content": _SYNTHESIS_PROMPT.format(

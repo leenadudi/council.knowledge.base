@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Optional
 
-import anthropic
+from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
 from src.models import QueryPlan
@@ -62,16 +62,17 @@ Return ONLY the JSON object, no explanation.
 
 
 class QueryClassifier:
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None, llm: Optional[TrackedAnthropic] = None):
         self.cfg = settings or get_settings()
-        self.client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
+        self.client = llm or TrackedAnthropic(self.cfg, call_site="query.classifier")
 
-    def classify(self, question: str) -> QueryPlan:
+    def classify(self, question: str, query_id: Optional[str] = None) -> QueryPlan:
         """Classify the question and return a retrieval plan."""
         try:
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
                 max_tokens=1024,
+                query_id=query_id,
                 messages=[{
                     "role": "user",
                     "content": _CLASSIFY_PROMPT.format(question=question),

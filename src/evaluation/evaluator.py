@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Optional
 
-import anthropic
+from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
 from src.models import EvaluationScore, QueryResponse
@@ -61,9 +61,9 @@ Return JSON:
 
 
 class Evaluator:
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Optional[Settings] = None, llm: Optional[TrackedAnthropic] = None):
         self.cfg = settings or get_settings()
-        self.client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
+        self.client = llm or TrackedAnthropic(self.cfg, call_site="evaluation.evaluator")
 
     def evaluate(
         self,
@@ -84,6 +84,7 @@ class Evaluator:
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
                 max_tokens=512,
+                query_id=response.query_id,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = msg.content[0].text

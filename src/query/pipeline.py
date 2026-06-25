@@ -13,6 +13,7 @@ from typing import Optional
 from src.config import Settings, get_settings
 from src.models import QueryResponse, RetrievalResult
 from src.query.classifier import QueryClassifier
+from src.query.clarity import assess_retrieval
 from src.query.retriever import Retriever
 from src.query.synthesizer import Synthesizer
 from src.storage.graph_store import GraphStore
@@ -59,7 +60,7 @@ class QueryPipeline:
         )
 
         # Step 1: Query classification (1 LLM call)
-        plan = self.classifier.classify(question)
+        plan = self.classifier.classify(question, query_id=query_id)
         logger.info(
             "Query plan — sources: %s, execution: %s",
             plan.sources, plan.execution,
@@ -72,6 +73,15 @@ class QueryPipeline:
         if _is_weak_retrieval(results):
             results.extend(self.retriever.fallback_retrieve(question, results))
 
+        # Clarity assessment (soft launch: logged only, gate not enforced).
+        clarity = assess_retrieval(results, self.cfg)
+        if clarity["would_flag"]:
+            logger.info(
+                "CLARITY would_flag — reasons=%s top=%.3f mean=%.3f header_ratio=%.2f q=%r",
+                clarity["reasons"], clarity["top_score"], clarity["mean_score"],
+                clarity["header_ratio"], question[:80],
+            )
+
         # Step 3: Synthesis (1 LLM call)
         response = self.synthesizer.synthesize(question, results, response)
 
@@ -81,7 +91,7 @@ class QueryPipeline:
         # Log the query asynchronously (best-effort)
         if log_query:
             try:
-                self._log_query(response, plan, results)
+                self._log_query(response, plan, results, clarity)
             except Exception as e:
                 logger.warning("Query logging failed: %s", e)
 
@@ -92,6 +102,7 @@ class QueryPipeline:
         response: QueryResponse,
         plan,
         results: list[RetrievalResult],
+        clarity: Optional[dict] = None,
     ) -> None:
         sql_result = next((r for r in results if r.store == "sql"), None)
         vector_candidates = [r for r in results if r.store in ("vector", "vector_fallback")]
@@ -112,6 +123,7 @@ class QueryPipeline:
             "final_answer": response.answer,
             "citations": [c.model_dump() for c in response.citations],
             "total_time_ms": response.total_time_ms,
+            "clarity_assessment": clarity,
         })
 
 
