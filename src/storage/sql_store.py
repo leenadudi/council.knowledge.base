@@ -361,4 +361,9 @@ class SQLStore:
         """
         with self.cursor() as cur:
             cur.execute(sql, (start, end))
-            return [dict(r) for r in cur.fetchall()]
+            rows = []
+            for r in cur.fetchall():
+                row = dict(r)
+                row["est_cost_usd"] = float(row["est_cost_usd"]) if row["est_cost_usd"] is not None else 0.0
+                rows.append(row)
+            return rows
