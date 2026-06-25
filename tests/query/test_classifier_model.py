@@ -31,5 +31,6 @@ def test_classifier_uses_query_classifier_model_setting():
     assert rec.messages.models == ["claude-haiku-4-5"]
 
 
-def test_classifier_model_defaults_to_sonnet():
-    assert Settings(anthropic_api_key="x").query_classifier_model == "claude-sonnet-4-6"
+def test_classifier_model_defaults_to_haiku():
+    # Phase 3 eval gate confirmed Haiku holds accuracy at lower cost.
+    assert Settings(anthropic_api_key="x").query_classifier_model == "claude-haiku-4-5"

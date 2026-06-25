@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     synthesis_provider: str = "anthropic"
 
     # Query classifier model — split from synthesis so the cheap routing task
-    # can use a smaller model (Phase 3). Default matches synthesis (behavior-preserving).
-    query_classifier_model: str = "claude-sonnet-4-6"
+    # uses a smaller model. Phase 3 eval gate (2026-06-25) confirmed Haiku 4.5
+    # holds answer accuracy (5.00→5.00, pass-rate 12/12) at ~3x lower cost.
+    query_classifier_model: str = "claude-haiku-4-5"
 
     # Per-query LLM judge runs on this fraction of queries (1.0 = every query).
     # Background quality monitoring only — sampling has no user-facing effect.
