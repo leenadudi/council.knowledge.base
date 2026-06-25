@@ -9,10 +9,13 @@ import json
 import logging
 import os
 import queue
+import random
 import threading
 import uuid
 
 from flask import Flask, jsonify, render_template, request, Response
+
+from src.config import get_settings
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
@@ -108,9 +111,11 @@ def ask():
     try:
         response = _pipeline.ask(question)
 
-        threading.Thread(
-            target=_run_evaluation, args=(response,), daemon=True
-        ).start()
+        from src.evaluation.evaluator import should_sample
+        if should_sample(get_settings().eval_sample_rate, random.random()):
+            threading.Thread(
+                target=_run_evaluation, args=(response,), daemon=True
+            ).start()
 
         return jsonify(response.model_dump(mode="json"))
     except Exception as e:

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     synthesis_model: str = "claude-sonnet-4-6"
     synthesis_provider: str = "anthropic"
 
+    # Per-query LLM judge runs on this fraction of queries (1.0 = every query).
+    # Background quality monitoring only — sampling has no user-facing effect.
+    eval_sample_rate: float = 0.1
+
     # PostgreSQL
     database_url: str = "postgresql://postgres:password@localhost:5432/harrisburg_kb"
 

@@ -17,6 +17,15 @@ from src.models import EvaluationScore, QueryResponse
 
 logger = logging.getLogger(__name__)
 
+
+def should_sample(rate: float, draw: float) -> bool:
+    """True if this query should be judged. `draw` is a [0,1) random value.
+
+    rate <= 0 never samples; rate >= 1 always samples.
+    """
+    return draw < rate
+
+
 _EVAL_PROMPT = """You are evaluating the quality of an answer produced by a city government knowledge base system.
 
 Question: {question}
