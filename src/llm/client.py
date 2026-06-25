@@ -1,7 +1,6 @@
 """
-TrackedAnthropic — a thin wrapper around the Anthropic SDK that records
-per-call token usage and estimated cost. Pricing, the cost estimator, and the
-UsageRecord live here; the wrapper class is added in a later task.
+LLM client with usage tracking: price tables, cost estimation, UsageRecord,
+TrackedAnthropic wrapper, and a no-op sink (replaced in a later task).
 """
 from __future__ import annotations
 
