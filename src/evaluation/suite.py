@@ -234,7 +234,7 @@ class EvaluationSuite:
 
             try:
                 response = query_pipeline.ask(question, log_query=False)
-                score = evaluator.evaluate(response, context=response.answer)
+                score = evaluator.evaluate(response, retrieved_context=response.answer)
 
                 avg = (score.retrieval_score + score.accuracy_score + score.completeness_score) / 3
                 passed = avg >= 3.0
