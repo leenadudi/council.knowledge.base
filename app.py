@@ -111,11 +111,16 @@ def ask():
     try:
         response = _pipeline.ask(question)
 
-        from src.evaluation.evaluator import should_sample
-        if should_sample(get_settings().eval_sample_rate, random.random()):
-            threading.Thread(
-                target=_run_evaluation, args=(response,), daemon=True
-            ).start()
+        # Background quality monitoring (sampled). Isolated so a failure here can
+        # never turn a successful answer into a 500 — sampling is accuracy-neutral.
+        try:
+            from src.evaluation.evaluator import should_sample
+            if should_sample(get_settings().eval_sample_rate, random.random()):
+                threading.Thread(
+                    target=_run_evaluation, args=(response,), daemon=True
+                ).start()
+        except Exception as e:
+            logger.warning("Eval sampling/spawn failed (ignored): %s", e)
 
         return jsonify(response.model_dump(mode="json"))
     except Exception as e:
