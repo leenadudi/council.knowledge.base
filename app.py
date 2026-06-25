@@ -18,6 +18,11 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger(__name__)
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.exception("Unhandled exception")
+    return jsonify({"error": str(e)}), 500
+
 # ── Ingestion job tracking ────────────────────────────────────────────────
 _jobs: dict[str, dict] = {}  # job_id -> {queue, status, result}
 

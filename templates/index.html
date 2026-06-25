@@ -718,6 +718,52 @@ body {
   max-width: 500px;
 }
 
+.ingest-notice {
+  display: flex;
+  gap: 20px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  max-width: 560px;
+}
+.ingest-notice-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  background: #f1f0ec;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+.ingest-notice-body { display: flex; flex-direction: column; gap: 6px; }
+.ingest-notice-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ingest-notice-text {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.ingest-notice-cta {
+  margin-top: 8px;
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  padding: 7px 14px;
+  width: fit-content;
+  transition: background 0.13s, color 0.13s;
+}
+.ingest-notice-cta:hover { background: var(--primary); color: #fff; }
+
 .ingest-panel {
   background: var(--white);
   border: 1px solid var(--border);
@@ -1324,10 +1370,24 @@ body {
     <section class="tab-section" id="tab-upload">
       <div class="page-header">
         <h1 class="page-title">Ingest Document</h1>
-        <p class="page-subtitle">Upload a PDF — metadata is extracted automatically during ingestion.</p>
+        <p class="page-subtitle">Documents are added to the knowledge base by the system administrator.</p>
       </div>
 
-      <div class="ingest-layout">
+      <div class="ingest-notice">
+        <div class="ingest-notice-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div class="ingest-notice-body">
+          <div class="ingest-notice-title">Document ingestion is managed internally</div>
+          <div class="ingest-notice-text">New documents are processed and added to the knowledge base by the City of Harrisburg administrator. If you have a document you'd like included, please reach out.</div>
+          <a class="ingest-notice-cta" href="mailto:leena@clerkflow.software">Request a document addition</a>
+        </div>
+      </div>
+
+      <div style="display:none">
         <div>
           <div class="ingest-panel">
             <div class="ingest-panel-title">File Upload</div>
