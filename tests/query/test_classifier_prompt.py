@@ -1,0 +1,25 @@
+"""Regression guards for the classifier prompt's SQL/Cypher generation contract.
+
+The retriever executes the classifier-generated `sql_query`/`graph_query` strings
+verbatim with NO parameter binding, so the prompt must constrain generation to
+literal, schema-correct queries. These bugs were observed in production:
+  - `quarter = 1` (quarter is VARCHAR 'Q1', not integer)
+  - filtering `grants` by quarter/year (grants has no such columns)
+  - Cypher with `$department_name` (no params are bound -> query fails)
+"""
+
+from src.query.classifier import _CLASSIFY_PROMPT
+
+
+def test_prompt_states_quarter_is_quoted_string():
+    assert "quarter = 'Q1'" in _CLASSIFY_PROMPT
+    assert "Never write `quarter = 1`" in _CLASSIFY_PROMPT
+
+
+def test_prompt_warns_grants_has_no_quarter_year():
+    assert "grants` table has NO `quarter`" in _CLASSIFY_PROMPT
+
+
+def test_prompt_forbids_unbound_cypher_parameters():
+    assert "$parameters" in _CLASSIFY_PROMPT
+    assert "literal" in _CLASSIFY_PROMPT.lower()

@@ -43,9 +43,18 @@ SQL schema reference:
 - grants(id, department, grant_name, grant_number, amount, start_date, end_date, status, source_file)
 - vacancies(id, department, position_title, status, quarter, year)
 
+Column notes (MUST follow exactly):
+- `quarter` is a STRING like 'Q1', 'Q2', 'Q3', 'Q4' — always quote it: `quarter = 'Q1'`. Never write `quarter = 1`.
+- `year` is an INTEGER: `year = 2026` (no quotes).
+- Only expenditures, metrics, and vacancies have `quarter`/`year` columns. The `grants` table has NO `quarter` or `year` column — never reference them for grants; filter grants by `department` (and `start_date`/`end_date`/`status` if relevant) only.
+
 Graph schema:
 - Nodes: Person(name, title, department), Department(name), Project(name, status), Grant(name, grant_number, amount), Document(filename, quarter, year)
 - Relationships: DIRECTS, MANAGES, REPORTS_TO, HAS_PROJECT, REPORTED_IN, MANAGES_GRANT, MENTIONED_IN
+
+Query generation rules (MUST follow exactly):
+- `sql_query` and `graph_query` are executed verbatim with NO parameter binding. Use literal values inline.
+- `graph_query` (Cypher): never use `$parameters` (e.g. `$department_name`) — they will not be bound and the query will fail. Inline the literal value: `MATCH (p:Person)-[:DIRECTS]->(d:Department {{name: 'Public Works'}}) RETURN p.name, p.title`.
 
 Rules:
 - Numeric/budget questions → sql (required), vector (optional for context)
