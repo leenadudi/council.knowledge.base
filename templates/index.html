@@ -983,6 +983,108 @@ body {
 .upload-result.success { background: var(--green-bg); border: 1px solid rgba(45,106,79,0.2); color: var(--green); }
 .upload-result.error   { background: var(--red-bg); border: 1px solid rgba(160,48,42,0.2); color: var(--red); }
 
+.upload-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.upload-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+.upload-file-item-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  flex: 1;
+}
+.upload-file-item-size {
+  font-family: var(--font-mono);
+  color: var(--subtle);
+  white-space: nowrap;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.batch-progress {
+  display: none;
+  margin-top: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.batch-progress.on { display: block; }
+.batch-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+.batch-progress-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-progress-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--subtle);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.batch-progress-track {
+  height: 5px;
+  background: var(--border-2);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.batch-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 99px;
+  width: 0%;
+  transition: width 0.35s ease;
+}
+.batch-file-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.batch-file-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  padding: 1px 0;
+}
+.batch-file-row-icon { width: 14px; text-align: center; flex-shrink: 0; font-size: 11px; }
+.batch-file-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: var(--subtle); }
+.batch-file-row-chunks { font-family: var(--font-mono); font-size: 10.5px; color: var(--subtle); flex-shrink: 0; }
+.batch-file-row.active .batch-file-row-name { color: var(--ink); font-weight: 500; }
+.batch-file-row.done .batch-file-row-name { color: var(--green); }
+.batch-file-row.done .batch-file-row-icon { color: var(--green); }
+.batch-file-row.error .batch-file-row-name { color: var(--red); }
+.batch-file-row.error .batch-file-row-icon { color: var(--red); }
+
 .ingest-log {
   display: none;
   margin-top: 12px;
@@ -1469,37 +1571,38 @@ body {
             <div class="ingest-panel-title">File Upload</div>
 
             <div class="upload-zone-new" id="upload-zone">
-              <input type="file" id="upload-input" accept=".pdf" aria-label="Choose file">
+              <input type="file" id="upload-input" accept=".pdf" multiple aria-label="Choose files">
               <div class="upload-zone-icon">
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#6b6760" stroke-width="1.4">
                   <path d="M10 13V4M6 7l4-4 4 4"/>
                   <path d="M3 14v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2"/>
                 </svg>
               </div>
-              <div class="upload-zone-text">Drop a PDF here or click to browse</div>
-              <div class="upload-zone-hint">PDF only · up to 50 MB</div>
+              <div class="upload-zone-text">Drop PDFs here or click to browse</div>
+              <div class="upload-zone-hint">PDF only · multiple files supported · up to 50 MB each</div>
             </div>
 
-            <div class="upload-selected-row" id="upload-selected">
-              <span class="upload-filename" id="upload-filename"></span>
-              <span class="upload-filesize" id="upload-filesize"></span>
-            </div>
+            <div class="upload-file-list" id="upload-file-list"></div>
 
             <button class="btn-primary-block" id="upload-btn" disabled>
-              Add to Knowledge Base
+              <span id="upload-btn-text">Add to Knowledge Base</span>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M3 8h10M9 4l4 4-4 4"/>
               </svg>
             </button>
 
             <button class="btn-secondary-block" id="clear-btn">Clear</button>
+          </div>
 
-            <div class="requirements-box">
-              <div class="req-item">
-                <span class="req-dot" id="req-file"></span>
-                PDF file selected
-              </div>
+          <div class="batch-progress" id="batch-progress">
+            <div class="batch-progress-header">
+              <span class="batch-progress-label" id="batch-progress-label">Processing…</span>
+              <span class="batch-progress-count" id="batch-progress-count"></span>
             </div>
+            <div class="batch-progress-track">
+              <div class="batch-progress-fill" id="batch-progress-fill"></div>
+            </div>
+            <div class="batch-file-status" id="batch-file-status"></div>
           </div>
 
           <div class="upload-result" id="upload-result"></div>
@@ -2176,57 +2279,74 @@ function renderDocumentRows(docs) {
 })();
 
 // ── Ingest Document ───────────────────────────────────────
-let uploadFile = null;
+let uploadFiles = [];
 
 const uploadZone  = document.getElementById('upload-zone');
 const uploadInput = document.getElementById('upload-input');
 const uploadBtn   = document.getElementById('upload-btn');
+const uploadBtnText = document.getElementById('upload-btn-text');
 
-function updateRequirements() {
-  const hasFile = uploadFile !== null;
-  document.getElementById('req-file').classList.toggle('done', hasFile);
-  uploadBtn.disabled = !hasFile;
+function setUploadFiles(fileList) {
+  const pdfs = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length) return;
+  uploadFiles = pdfs;
+  renderFileList();
+  uploadBtn.disabled = false;
+  uploadBtnText.textContent = pdfs.length > 1 ? `Ingest ${pdfs.length} Documents` : 'Add to Knowledge Base';
+  document.getElementById('upload-result').classList.remove('on');
 }
 
-uploadInput.addEventListener('change', () => setUploadFile(uploadInput.files[0]));
+function renderFileList() {
+  const listEl = document.getElementById('upload-file-list');
+  listEl.innerHTML = '';
+  uploadFiles.forEach(f => {
+    const item = document.createElement('div');
+    item.className = 'upload-file-item';
+    item.innerHTML = `<span class="upload-file-item-name">${f.name}</span><span class="upload-file-item-size">${(f.size/1024/1024).toFixed(2)} MB</span>`;
+    listEl.appendChild(item);
+  });
+}
+
+uploadInput.addEventListener('change', () => {
+  if (uploadInput.files.length) setUploadFiles(uploadInput.files);
+});
 
 uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
 uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
 uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (f) setUploadFile(f);
+  if (e.dataTransfer.files.length) setUploadFiles(e.dataTransfer.files);
 });
 
-function setUploadFile(f) {
-  if (!f) return;
-  uploadFile = f;
-  document.getElementById('upload-filename').textContent = f.name;
-  document.getElementById('upload-filesize').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB';
-  document.getElementById('upload-selected').classList.add('on');
-  document.getElementById('upload-result').classList.remove('on');
-  updateRequirements();
-}
-
 document.getElementById('clear-btn').addEventListener('click', () => {
-  uploadFile = null;
+  uploadFiles = [];
   uploadInput.value = '';
-  document.getElementById('upload-selected').classList.remove('on');
+  document.getElementById('upload-file-list').innerHTML = '';
   document.getElementById('upload-result').classList.remove('on');
+  document.getElementById('batch-progress').classList.remove('on');
   document.getElementById('ingest-log').classList.remove('on');
   document.getElementById('ingest-log').innerHTML = '';
-  updateRequirements();
+  uploadBtn.disabled = true;
+  uploadBtnText.textContent = 'Add to Knowledge Base';
 });
 
 uploadBtn.addEventListener('click', async () => {
-  if (!uploadFile) return;
+  if (!uploadFiles.length) return;
   uploadBtn.disabled = true;
+
   const result = document.getElementById('upload-result');
   result.classList.remove('on', 'success', 'error');
+
   const logEl = document.getElementById('ingest-log');
   logEl.innerHTML = '';
   logEl.classList.add('on');
+
+  const progressEl  = document.getElementById('batch-progress');
+  const labelEl     = document.getElementById('batch-progress-label');
+  const countEl     = document.getElementById('batch-progress-count');
+  const fillEl      = document.getElementById('batch-progress-fill');
+  const statusEl    = document.getElementById('batch-file-status');
 
   function appendLog(text) {
     const level = /^(WARNING|ERROR|DEBUG|INFO)/.exec(text)?.[1] || 'INFO';
@@ -2237,8 +2357,24 @@ uploadBtn.addEventListener('click', async () => {
     logEl.scrollTop = logEl.scrollHeight;
   }
 
+  // Build status rows for each file
+  const fileRows = {};
+  statusEl.innerHTML = '';
+  uploadFiles.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'batch-file-row';
+    row.innerHTML = `<span class="batch-file-row-icon">·</span><span class="batch-file-row-name">${f.name}</span><span class="batch-file-row-chunks"></span>`;
+    statusEl.appendChild(row);
+    fileRows[f.name] = row;
+  });
+
+  progressEl.classList.add('on');
+  labelEl.textContent = 'Uploading…';
+  countEl.textContent = `0 / ${uploadFiles.length}`;
+  fillEl.style.width = '0%';
+
   const fd = new FormData();
-  fd.append('file', uploadFile);
+  uploadFiles.forEach(f => fd.append('files', f));
 
   let jobId;
   try {
@@ -2246,11 +2382,14 @@ uploadBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     jobId = data.job_id;
+    if (data.skipped && data.skipped.length) {
+      data.skipped.forEach(s => appendLog(`WARNING  Skipped ${s.filename}: ${s.reason}`));
+    }
   } catch (err) {
     result.className = 'upload-result on error';
     result.textContent = err.message;
+    progressEl.classList.remove('on');
     uploadBtn.disabled = false;
-    updateRequirements();
     return;
   }
 
@@ -2258,20 +2397,56 @@ uploadBtn.addEventListener('click', async () => {
 
   const es = new EventSource(`${API_BASE}/ingest/stream/${jobId}`);
 
-  es.addEventListener('log',  e => appendLog(JSON.parse(e.data)));
+  es.addEventListener('log', e => appendLog(JSON.parse(e.data)));
+
+  es.addEventListener('file_start', e => {
+    const d = JSON.parse(e.data);
+    labelEl.textContent = d.filename;
+    countEl.textContent = `${d.index + 1} / ${d.total}`;
+    const row = fileRows[d.filename];
+    if (row) {
+      row.className = 'batch-file-row active';
+      row.querySelector('.batch-file-row-icon').textContent = '▶';
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  });
+
+  es.addEventListener('file_done', e => {
+    const d = JSON.parse(e.data);
+    const pct = ((d.index + 1) / d.total) * 100;
+    fillEl.style.width = pct + '%';
+    const row = fileRows[d.filename];
+    if (row) {
+      row.className = 'batch-file-row done';
+      row.querySelector('.batch-file-row-icon').textContent = '✓';
+      row.querySelector('.batch-file-row-chunks').textContent = `${d.chunks} chunks`;
+    }
+  });
+
+  es.addEventListener('file_error', e => {
+    const d = JSON.parse(e.data);
+    const row = fileRows[d.filename];
+    if (row) {
+      row.className = 'batch-file-row error';
+      row.querySelector('.batch-file-row-icon').textContent = '✗';
+    }
+    appendLog(`ERROR  ${d.filename}: ${d.error}`);
+  });
 
   es.addEventListener('done', e => {
     es.close();
-    const data = JSON.parse(e.data);
+    const d = JSON.parse(e.data);
+    fillEl.style.width = '100%';
+    labelEl.textContent = 'Complete';
+    countEl.textContent = `${d.files_ingested} / ${uploadFiles.length}`;
     result.className = 'upload-result on success';
-    result.textContent = `✓ ${data.filename} ingested — ${data.chunks} chunks added.`;
-    appendLog(`INFO  Done — ${data.chunks} chunks stored.`);
-    document.getElementById('req-file').classList.add('done');
-    uploadFile = null;
+    result.textContent = `✓ ${d.files_ingested} document${d.files_ingested !== 1 ? 's' : ''} ingested — ${d.total_chunks} chunks added.`;
+    appendLog(`INFO  Done — ${d.files_ingested} files, ${d.total_chunks} chunks stored.`);
+    uploadFiles = [];
     uploadInput.value = '';
-    document.getElementById('upload-selected').classList.remove('on');
     documentsLoaded = false;
     uploadBtn.disabled = false;
+    uploadBtnText.textContent = 'Add to Knowledge Base';
   });
 
   es.addEventListener('error', e => {
