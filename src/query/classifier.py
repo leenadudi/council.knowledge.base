@@ -70,7 +70,7 @@ class QueryClassifier:
         """Classify the question and return a retrieval plan."""
         try:
             msg = self.client.messages.create(
-                model=self.cfg.synthesis_model,
+                model=self.cfg.query_classifier_model,
                 max_tokens=1024,
                 query_id=query_id,
                 messages=[{
