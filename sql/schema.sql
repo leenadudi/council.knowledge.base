@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS query_logs (
     completeness_score  DECIMAL(3,2),
     user_feedback       VARCHAR(20),
     user_notes          TEXT,
-    correct_answer      TEXT
+    correct_answer      TEXT,
+    clarity_assessment  JSONB
 );
 
 -- Chunk performance tracking for quality improvement
@@ -171,3 +172,21 @@ CREATE INDEX IF NOT EXISTS idx_vacancies_dept_quarter ON vacancies(department, q
 CREATE INDEX IF NOT EXISTS idx_query_logs_timestamp ON query_logs(timestamp);
 CREATE INDEX IF NOT EXISTS idx_chunk_perf_quality ON chunk_performance(quality_score) WHERE quality_score < 2.5;
 CREATE INDEX IF NOT EXISTS idx_eval_results_run ON evaluation_results(run_id);
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  UUID PRIMARY KEY,
+    timestamp           TIMESTAMP DEFAULT NOW(),
+    call_site           VARCHAR(64),
+    model               VARCHAR(64),
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    cache_read_tokens   INTEGER,
+    cache_write_tokens  INTEGER,
+    est_cost_usd        DECIMAL(10,6),
+    latency_ms          INTEGER,
+    query_id            UUID,
+    batch_id            VARCHAR(64)
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_timestamp ON llm_usage (timestamp);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_call_site ON llm_usage (call_site);

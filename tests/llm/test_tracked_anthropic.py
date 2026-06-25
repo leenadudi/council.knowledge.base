@@ -80,11 +80,11 @@ def test_sink_failure_does_not_break_the_call():
     assert resp.content[0].text == "ok"  # call still succeeds
 
 
-def test_default_sink_is_noop_when_not_provided():
+def test_explicit_noop_sink_returns_normally():
     fake = FakeClient(_usage())
     t = TrackedAnthropic(Settings(anthropic_api_key="x"),
-                         call_site="ingestion.classifier", client=fake)
-    # No sink provided -> no exception, call returns normally.
+                         call_site="ingestion.classifier", client=fake,
+                         sink=lambda r: None)
     resp = t.messages.create(model="claude-sonnet-4-6", max_tokens=10,
                              messages=[{"role": "user", "content": "hi"}])
     assert resp.content[0].text == "ok"

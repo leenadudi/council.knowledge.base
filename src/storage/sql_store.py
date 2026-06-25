@@ -6,6 +6,8 @@ import json
 import logging
 import uuid
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 import psycopg2
@@ -16,6 +18,21 @@ from src.config import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 psycopg2.extras.register_uuid()
+
+
+def _json_default(o: Any):
+    """Serialize types pulled from Postgres (Decimal, date) that json can't handle."""
+    if isinstance(o, Decimal):
+        return float(o)
+    if isinstance(o, (datetime, date)):
+        return o.isoformat()
+    if isinstance(o, uuid.UUID):
+        return str(o)
+    return str(o)
+
+
+def _dumps(obj: Any) -> str:
+    return json.dumps(obj, default=_json_default)
 
 
 class SQLStore:
@@ -201,11 +218,13 @@ class SQLStore:
             INSERT INTO query_logs (
                 query_id, question, timestamp, classification, sql_query,
                 chunks_retrieved, stores_queried, sql_results, vector_results,
-                graph_results, final_answer, citations, total_time_ms
+                graph_results, final_answer, citations, total_time_ms,
+                clarity_assessment
             ) VALUES (
                 %(query_id)s, %(question)s, %(timestamp)s, %(classification)s, %(sql_query)s,
                 %(chunks_retrieved)s, %(stores_queried)s, %(sql_results)s, %(vector_results)s,
-                %(graph_results)s, %(final_answer)s, %(citations)s, %(total_time_ms)s
+                %(graph_results)s, %(final_answer)s, %(citations)s, %(total_time_ms)s,
+                %(clarity_assessment)s
             )
         """
         with self.cursor() as cur:
@@ -213,17 +232,33 @@ class SQLStore:
                 "query_id": uuid.UUID(log["query_id"]),
                 "question": log.get("question"),
                 "timestamp": log.get("timestamp"),
-                "classification": json.dumps(log.get("classification")),
+                "classification": _dumps(log.get("classification")),
                 "sql_query": log.get("sql_query"),
-                "chunks_retrieved": json.dumps(log.get("chunks_retrieved")),
+                "chunks_retrieved": _dumps(log.get("chunks_retrieved")),
                 "stores_queried": log.get("stores_queried"),
-                "sql_results": json.dumps(log.get("sql_results")),
-                "vector_results": json.dumps(log.get("vector_results")),
-                "graph_results": json.dumps(log.get("graph_results")),
+                "sql_results": _dumps(log.get("sql_results")),
+                "vector_results": _dumps(log.get("vector_results")),
+                "graph_results": _dumps(log.get("graph_results")),
                 "final_answer": log.get("final_answer"),
-                "citations": json.dumps(log.get("citations")),
+                "citations": _dumps(log.get("citations")),
                 "total_time_ms": log.get("total_time_ms"),
+                "clarity_assessment": _dumps(log.get("clarity_assessment")),
             })
+
+    def insert_llm_usage(self, record: dict[str, Any]) -> None:
+        sql = """
+            INSERT INTO llm_usage (
+                id, call_site, model, input_tokens, output_tokens,
+                cache_read_tokens, cache_write_tokens, est_cost_usd, latency_ms,
+                query_id, batch_id
+            ) VALUES (
+                %(id)s, %(call_site)s, %(model)s, %(input_tokens)s, %(output_tokens)s,
+                %(cache_read_tokens)s, %(cache_write_tokens)s, %(est_cost_usd)s, %(latency_ms)s,
+                %(query_id)s, %(batch_id)s
+            )
+        """
+        with self.cursor() as cur:
+            cur.execute(sql, record)
 
     def update_query_scores(self, query_id: str, scores: dict[str, Any]) -> None:
         with self.cursor() as cur:

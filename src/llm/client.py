@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 import anthropic
 
 from src.config import Settings, get_settings
+from src.storage.sql_store import SQLStore
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ class TrackedAnthropic:
         self.cfg = settings or get_settings()
         self.call_site = call_site
         self._client = client or anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
-        self._sink = sink or _noop_sink  # Task 3 changes this default to pg_usage_sink
+        self._sink = sink or pg_usage_sink(self.cfg)
         self.messages = _Messages(self)
 
     def _create(self, *, query_id: Optional[str] = None,
@@ -147,3 +148,20 @@ class TrackedAnthropic:
         except Exception as e:  # never let recording break a real call
             logger.warning("llm usage recording failed (%s): %s", self.call_site, e)
         return response
+
+
+def pg_usage_sink(cfg: Settings) -> Callable[[UsageRecord], None]:
+    """A sink that writes each record via a fresh short-lived SQLStore.
+
+    A new connection per write keeps this thread-safe (the per-query auto-eval
+    runs in background threads) at the cost of a connection per LLM call, which
+    is negligible at instrumentation volume.
+    """
+    def _sink(record: UsageRecord) -> None:
+        store = SQLStore(cfg)
+        try:
+            store.insert_llm_usage(record.as_dict())
+        finally:
+            store.close()
+
+    return _sink
