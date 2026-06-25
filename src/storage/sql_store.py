@@ -344,3 +344,21 @@ class SQLStore:
         with self.cursor() as cur:
             cur.execute(f"SELECT * FROM query_logs WHERE {where} ORDER BY timestamp DESC", params)
             return [dict(r) for r in cur.fetchall()]
+
+    def usage_report(self, start: str, end: str) -> list[dict[str, Any]]:
+        sql = """
+            SELECT call_site, model,
+                   COUNT(*)                  AS calls,
+                   SUM(input_tokens)         AS input_tokens,
+                   SUM(output_tokens)        AS output_tokens,
+                   SUM(cache_read_tokens)    AS cache_read_tokens,
+                   SUM(cache_write_tokens)   AS cache_write_tokens,
+                   SUM(est_cost_usd)         AS est_cost_usd
+            FROM llm_usage
+            WHERE timestamp >= %s AND timestamp < %s
+            GROUP BY call_site, model
+            ORDER BY est_cost_usd DESC NULLS LAST
+        """
+        with self.cursor() as cur:
+            cur.execute(sql, (start, end))
+            return [dict(r) for r in cur.fetchall()]

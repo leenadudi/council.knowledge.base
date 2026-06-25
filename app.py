@@ -118,6 +118,22 @@ def ask():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/admin/costs", methods=["GET"])
+def admin_costs():
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    start = request.args.get("start", "1970-01-01")
+    end = request.args.get("end", "2100-01-01")
+    rows = _sql_store.usage_report(start, end)
+    total = round(sum(float(r["est_cost_usd"] or 0) for r in rows), 6)
+    return jsonify({
+        "start": start,
+        "end": end,
+        "total_cost_usd": total,
+        "by_call_site": rows,
+    })
+
+
 @app.route("/feedback", methods=["POST"])
 def feedback():
     if not _ready:
@@ -166,37 +182,43 @@ def upload():
     if not _ready:
         return jsonify({"error": "Pipeline not ready"}), 503
 
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    f = request.files["file"]
-    if not f.filename or not f.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Only PDF files are supported"}), 400
-
     import pathlib
     from src.config import get_settings
     from src.ingestion.metadata import extract_file_metadata
     from src.ingestion.pipeline import IngestionPipeline
 
-    # Reject if this exact file was already ingested
-    if _sql_store.is_document_ingested(f.filename):
-        return jsonify({"error": f"'{f.filename}' is already in the knowledge base."}), 409
-
-    # Reject if another document for the same department/quarter/year is already ingested
-    file_meta = extract_file_metadata(f.filename)
-    if file_meta["department"] and file_meta["quarter"] and file_meta["year"]:
-        existing = _sql_store.find_existing_document(
-            file_meta["department"], file_meta["quarter"], file_meta["year"]
-        )
-        if existing:
-            return jsonify({
-                "error": f"{file_meta['department']} {file_meta['quarter']} {file_meta['year']} is already ingested as '{existing}'."
-            }), 409
+    files = request.files.getlist("files")
+    if not files or (len(files) == 1 and not files[0].filename):
+        return jsonify({"error": "No files provided"}), 400
 
     docs_dir = pathlib.Path(get_settings().docs_dir)
     docs_dir.mkdir(parents=True, exist_ok=True)
-    dest = docs_dir / f.filename
-    f.save(str(dest))
+
+    saved: list[tuple[pathlib.Path, str]] = []
+    skipped: list[dict] = []
+
+    for f in files:
+        if not f.filename or not f.filename.lower().endswith(".pdf"):
+            skipped.append({"filename": f.filename or "unknown", "reason": "Not a PDF"})
+            continue
+        if _sql_store.is_document_ingested(f.filename):
+            skipped.append({"filename": f.filename, "reason": "Already in knowledge base"})
+            continue
+        file_meta = extract_file_metadata(f.filename)
+        if file_meta["department"] and file_meta["quarter"] and file_meta["year"]:
+            existing = _sql_store.find_existing_document(
+                file_meta["department"], file_meta["quarter"], file_meta["year"]
+            )
+            if existing:
+                skipped.append({"filename": f.filename, "reason": f"Duplicate of '{existing}'"})
+                continue
+        dest = docs_dir / f.filename
+        f.save(str(dest))
+        saved.append((dest, f.filename))
+
+    if not saved:
+        reasons = "; ".join(f"{s['filename']}: {s['reason']}" for s in skipped)
+        return jsonify({"error": f"All files skipped — {reasons}"}), 409
 
     job_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
@@ -207,20 +229,28 @@ def upload():
         handler.setFormatter(logging.Formatter("%(levelname)s  %(message)s"))
         src_logger = logging.getLogger("src")
         src_logger.addHandler(handler)
+        total = len(saved)
+        files_ingested = 0
+        total_chunks = 0
         try:
-            pipeline = IngestionPipeline(get_settings())
-            pipeline.initialize_stores()
-            chunks = pipeline.ingest_document(dest)
+            for idx, (dest, filename) in enumerate(saved):
+                q.put(("file_start", {"filename": filename, "index": idx, "total": total}))
+                try:
+                    pipeline = IngestionPipeline(get_settings())
+                    pipeline.initialize_stores()
+                    chunks = pipeline.ingest_document(dest)
+                    files_ingested += 1
+                    total_chunks += len(chunks)
+                    q.put(("file_done", {"filename": filename, "chunks": len(chunks), "index": idx, "total": total}))
+                except Exception as exc:
+                    q.put(("file_error", {"filename": filename, "error": str(exc), "index": idx, "total": total}))
             _jobs[job_id]["status"] = "done"
-            q.put(("done", {"filename": f.filename, "chunks": len(chunks)}))
-        except Exception as exc:
-            _jobs[job_id]["status"] = "error"
-            q.put(("error", str(exc)))
+            q.put(("done", {"files_ingested": files_ingested, "total_chunks": total_chunks, "skipped": skipped}))
         finally:
             src_logger.removeHandler(handler)
 
     threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"job_id": job_id})
+    return jsonify({"job_id": job_id, "queued": len(saved), "skipped": skipped})
 
 
 @app.route("/ingest/stream/<job_id>")
