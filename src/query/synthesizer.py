@@ -23,6 +23,7 @@ Rules:
 - If the information needed to answer is not in the provided context, say: "The information needed to answer this question was not found in the knowledge base."
 - Never guess or estimate dollar figures — only report exact numbers from the data.
 - Be concise and factual.
+- When presenting tabular data, always use GFM pipe tables (| Col | Col |\n|---|---|\n| val | val |). Never use ASCII art or plain text alignment.
 
 Question: {question}
 
@@ -60,7 +61,7 @@ class Synthesizer:
         try:
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
-                max_tokens=2048,
+                max_tokens=4096,
                 messages=[{
                     "role": "user",
                     "content": _SYNTHESIS_PROMPT.format(

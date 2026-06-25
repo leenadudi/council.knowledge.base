@@ -405,6 +405,25 @@ body {
   padding: 1px 5px;
   border-radius: 2px;
 }
+.md-table-wrap { overflow-x: auto; margin: 0.75em 0; }
+.md-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  width: 100%;
+}
+.md-table th, .md-table td {
+  border: 1px solid var(--border);
+  padding: 7px 12px;
+  text-align: left;
+}
+.md-table th {
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+.md-table tr:nth-child(even) td { background: #faf9f6; }
 
 .citations-panel {
   border-top: 1px solid var(--border-2);
@@ -711,34 +730,20 @@ body {
 .empty-state-text { font-size: 13px; }
 
 /* ── Ingest Document ─────────────────────────────────── */
-.ingest-layout {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
-  max-width: 500px;
+.ingest-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
 }
 
 .ingest-notice {
-  display: flex;
-  gap: 20px;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 28px 24px;
-  max-width: 560px;
+  padding: 22px 24px;
 }
-.ingest-notice-icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  background: #f1f0ec;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-}
-.ingest-notice-body { display: flex; flex-direction: column; gap: 6px; }
+.ingest-notice-body { display: flex; flex-direction: column; gap: 8px; }
 .ingest-notice-title {
   font-size: 14px;
   font-weight: 600;
@@ -749,8 +754,14 @@ body {
   color: var(--ink-2);
   line-height: 1.6;
 }
+.ingest-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
 .ingest-notice-cta {
-  margin-top: 8px;
   display: inline-block;
   font-size: 12.5px;
   font-weight: 500;
@@ -758,25 +769,64 @@ body {
   text-decoration: none;
   border: 1px solid var(--primary);
   border-radius: 6px;
-  padding: 7px 14px;
-  width: fit-content;
+  padding: 6px 14px;
   transition: background 0.13s, color 0.13s;
 }
 .ingest-notice-cta:hover { background: var(--primary); color: #fff; }
 
 .ingest-coming-soon {
-  margin-top: 10px;
   display: inline-block;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: #7c5c1e;
   background: #fef3c7;
   border: 1px solid #f8d87a;
   border-radius: 6px;
-  padding: 7px 14px;
-  width: fit-content;
+  padding: 6px 12px;
 }
+
+.auth-gate { width: 100%; }
+.auth-gate-inner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 16px;
+}
+.auth-gate-inner svg { flex-shrink: 0; color: var(--subtle); }
+.auth-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.auth-input::placeholder { color: var(--subtle); }
+.auth-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+.auth-btn:hover { opacity: 0.88; }
+.auth-error {
+  font-size: 12px;
+  color: #c0392b;
+  margin-top: 5px;
+  padding-left: 2px;
+}
+#ingest-upload-panel .requirements-title { display: none; }
 
 .ingest-panel {
   background: var(--white);
@@ -1384,39 +1434,50 @@ body {
     <section class="tab-section" id="tab-upload">
       <div class="page-header">
         <h1 class="page-title">Ingest Document</h1>
-        <p class="page-subtitle">Documents are added to the knowledge base by the system administrator.</p>
+        <p class="page-subtitle">Documents are added to the knowledge base by the administrator.</p>
       </div>
 
-      <div class="ingest-notice">
-        <div class="ingest-notice-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-        </div>
-        <div class="ingest-notice-body">
-          <div class="ingest-notice-title">Document ingestion is managed internally</div>
-          <div class="ingest-notice-text">New documents are processed and added to the knowledge base by the City of Harrisburg administrator. If you have a document you'd like included, please reach out.</div>
-          <div class="ingest-coming-soon">✦ Self-service upload coming soon</div>
-          <a class="ingest-notice-cta" href="mailto:leena@clerkflow.software">Request a document addition</a>
-        </div>
-      </div>
+      <div class="ingest-col">
 
-      <div style="display:none">
-        <div>
+        <!-- Public notice -->
+        <div class="ingest-notice" id="ingest-public-notice">
+          <div class="ingest-notice-body">
+            <div class="ingest-notice-title">Document ingestion is managed internally</div>
+            <div class="ingest-notice-text">New documents are processed and added to the knowledge base by the City of Harrisburg administrator. If you have a document you'd like included, please reach out.</div>
+            <div class="ingest-notice-actions">
+              <div class="ingest-coming-soon">✦ Self-service upload coming soon</div>
+              <a class="ingest-notice-cta" href="mailto:leena@clerkflow.software">Request a document addition</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin password gate -->
+        <div class="auth-gate" id="auth-gate">
+          <div class="auth-gate-inner">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input class="auth-input" id="auth-input" type="password" placeholder="Admin password to unlock upload">
+            <button class="auth-btn" id="auth-btn">Unlock</button>
+          </div>
+          <div class="auth-error" id="auth-error"></div>
+        </div>
+
+        <!-- Upload panel (unlocked) -->
+        <div id="ingest-upload-panel" style="display:none">
           <div class="ingest-panel">
             <div class="ingest-panel-title">File Upload</div>
 
             <div class="upload-zone-new" id="upload-zone">
-              <input type="file" id="upload-input" accept=".pdf,.docx,.txt" aria-label="Choose file">
+              <input type="file" id="upload-input" accept=".pdf" aria-label="Choose file">
               <div class="upload-zone-icon">
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#6b6760" stroke-width="1.4">
                   <path d="M10 13V4M6 7l4-4 4 4"/>
                   <path d="M3 14v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2"/>
                 </svg>
               </div>
-              <div class="upload-zone-text">Drop files here or click to browse</div>
-              <div class="upload-zone-hint">PDF, DOCX, TXT · up to 50 MB each</div>
+              <div class="upload-zone-text">Drop a PDF here or click to browse</div>
+              <div class="upload-zone-hint">PDF only · up to 50 MB</div>
             </div>
 
             <div class="upload-selected-row" id="upload-selected">
@@ -1431,10 +1492,9 @@ body {
               </svg>
             </button>
 
-            <button class="btn-secondary-block" id="clear-btn">Clear all</button>
+            <button class="btn-secondary-block" id="clear-btn">Clear</button>
 
             <div class="requirements-box">
-              <div class="requirements-title">Requirements</div>
               <div class="req-item">
                 <span class="req-dot" id="req-file"></span>
                 PDF file selected
@@ -1445,6 +1505,7 @@ body {
           <div class="upload-result" id="upload-result"></div>
           <div class="ingest-log" id="ingest-log" aria-live="polite"></div>
         </div>
+
       </div>
     </section>
 
@@ -1670,6 +1731,18 @@ function renderMarkdown(raw) {
   if (!raw) return '';
   const blocks = raw.split(/\n\n+/);
   return blocks.map(block => {
+    const lines = block.split('\n');
+    // GFM pipe table: at least 2 lines, first and second contain |
+    if (lines.length >= 2 && /\|/.test(lines[0]) && /^\s*\|?[\s\-|:]+\|/.test(lines[1])) {
+      const headers = lines[0].split('|').map(c => c.trim()).filter(c => c.length);
+      const bodyLines = lines.slice(2).filter(l => l.trim() && /\|/.test(l));
+      const thead = `<thead><tr>${headers.map(h => `<th>${applyInline(h)}</th>`).join('')}</tr></thead>`;
+      const tbody = bodyLines.map(l => {
+        const cells = l.split('|').map(c => c.trim()).filter(c => c.length);
+        return `<tr>${cells.map(c => `<td>${applyInline(c)}</td>`).join('')}</tr>`;
+      }).join('');
+      return `<div class="md-table-wrap"><table class="md-table"><${thead}<tbody>${tbody}</tbody></table></div>`;
+    }
     const b = block
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -2066,6 +2139,41 @@ function renderDocumentRows(docs) {
     });
   });
 }
+
+// ── Admin auth gate ───────────────────────────────────────
+(function () {
+  if (sessionStorage.getItem('admin_unlocked') === '1') {
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('ingest-upload-panel').style.display = '';
+  }
+
+  async function tryAuth() {
+    const pw = document.getElementById('auth-input').value;
+    const errEl = document.getElementById('auth-error');
+    errEl.textContent = '';
+    try {
+      const res = await fetch(`${API_BASE}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) {
+        sessionStorage.setItem('admin_unlocked', '1');
+        document.getElementById('auth-gate').style.display = 'none';
+        document.getElementById('ingest-upload-panel').style.display = '';
+      } else {
+        errEl.textContent = 'Incorrect password.';
+      }
+    } catch {
+      errEl.textContent = 'Could not reach server.';
+    }
+  }
+
+  document.getElementById('auth-btn').addEventListener('click', tryAuth);
+  document.getElementById('auth-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') tryAuth();
+  });
+})();
 
 // ── Ingest Document ───────────────────────────────────────
 let uploadFile = null;

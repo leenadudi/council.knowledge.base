@@ -290,6 +290,16 @@ def documents():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/auth", methods=["POST"])
+def auth():
+    data = request.get_json(silent=True) or {}
+    password = (data.get("password") or "").strip()
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "")
+    if admin_pw and password == admin_pw:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False}), 401
+
+
 @app.route("/document-types")
 def document_types():
     if not _ready:
