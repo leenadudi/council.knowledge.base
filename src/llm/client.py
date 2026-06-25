@@ -5,9 +5,17 @@ UsageRecord live here; the wrapper class is added in a later task.
 """
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+
+import anthropic
+
+from src.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 # USD per 1,000,000 tokens: (input, output, cache_read, cache_write).
 # cache_read ~= 0.1x input, cache_write ~= 1.25x input.
@@ -93,3 +101,50 @@ class UsageRecord:
             "query_id": uuid.UUID(self.query_id) if self.query_id else None,
             "batch_id": self.batch_id,
         }
+
+
+def _noop_sink(record: UsageRecord) -> None:
+    return None
+
+
+class _Messages:
+    def __init__(self, parent: "TrackedAnthropic") -> None:
+        self._parent = parent
+
+    def create(self, *, query_id: Optional[str] = None,
+               batch_id: Optional[str] = None, **kwargs: Any):
+        return self._parent._create(query_id=query_id, batch_id=batch_id, **kwargs)
+
+
+class TrackedAnthropic:
+    """Drop-in stand-in for anthropic.Anthropic that records usage per call_site."""
+
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+        *,
+        call_site: str,
+        client: Optional["anthropic.Anthropic"] = None,
+        sink: Optional[Callable[[UsageRecord], None]] = None,
+    ) -> None:
+        self.cfg = settings or get_settings()
+        self.call_site = call_site
+        self._client = client or anthropic.Anthropic(api_key=self.cfg.anthropic_api_key)
+        self._sink = sink or _noop_sink  # Task 3 changes this default to pg_usage_sink
+        self.messages = _Messages(self)
+
+    def _create(self, *, query_id: Optional[str] = None,
+                batch_id: Optional[str] = None, **kwargs: Any):
+        model = kwargs.get("model", "")
+        t0 = time.time()
+        response = self._client.messages.create(**kwargs)
+        latency_ms = int((time.time() - t0) * 1000)
+        try:
+            record = UsageRecord.from_response(
+                call_site=self.call_site, model=model, response=response,
+                latency_ms=latency_ms, query_id=query_id, batch_id=batch_id,
+            )
+            self._sink(record)
+        except Exception as e:  # never let recording break a real call
+            logger.warning("llm usage recording failed (%s): %s", self.call_site, e)
+        return response
