@@ -713,8 +713,9 @@ body {
 /* ── Ingest Document ─────────────────────────────────── */
 .ingest-layout {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr;
   gap: 20px;
+  max-width: 500px;
 }
 
 .ingest-panel {
@@ -733,38 +734,6 @@ body {
   margin-bottom: 20px;
 }
 
-.form-field { margin-bottom: 14px; }
-
-.form-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-2);
-  margin-bottom: 6px;
-}
-.form-label .req { color: var(--accent); margin-left: 2px; }
-
-.form-input {
-  width: 100%;
-  border: 1px solid rgba(26,25,23,0.15);
-  border-radius: var(--radius);
-  padding: 9px 12px;
-  font-size: 13px;
-  color: var(--ink);
-  background: #faf9f6;
-  outline: none;
-  font-family: var(--font-sans);
-  transition: border-color 0.13s;
-}
-.form-input:focus { border-color: var(--primary); }
-.form-input::placeholder { color: var(--subtle); }
-textarea.form-input { resize: vertical; min-height: 80px; }
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
 
 .upload-zone-new {
   border: 2px dashed rgba(26,25,23,0.18);
@@ -1355,50 +1324,10 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     <section class="tab-section" id="tab-upload">
       <div class="page-header">
         <h1 class="page-title">Ingest Document</h1>
-        <p class="page-subtitle">Upload and classify documents to add them to the knowledge base for AI-powered search.</p>
+        <p class="page-subtitle">Upload a PDF — metadata is extracted automatically during ingestion.</p>
       </div>
 
       <div class="ingest-layout">
-        <!-- Left: Metadata form -->
-        <div class="ingest-panel">
-          <div class="ingest-panel-title">Document Metadata</div>
-
-          <div class="form-field">
-            <label class="form-label" for="ingest-title">Document Title <span class="req">*</span></label>
-            <input class="form-input" id="ingest-title" type="text" placeholder="e.g., City Council Meeting Minutes — June 2026">
-          </div>
-
-          <div class="form-field">
-            <label class="form-label" for="ingest-category">Category <span class="req">*</span></label>
-            <select class="form-input" id="ingest-category">
-              <option value="">Select category</option>
-              <option value="Budget">Budget &amp; Finance</option>
-              <option value="Meeting Minutes">Meeting Minutes</option>
-              <option value="Zoning">Zoning Ordinance</option>
-              <option value="Planning">Planning &amp; Development</option>
-              <option value="Policy">Policy Document</option>
-              <option value="Community">Community Initiative</option>
-            </select>
-          </div>
-
-          <div class="form-row">
-            <div class="form-field">
-              <label class="form-label" for="ingest-dept">Originating Department</label>
-              <input class="form-input" id="ingest-dept" type="text" placeholder="e.g., City Clerk">
-            </div>
-            <div class="form-field">
-              <label class="form-label" for="ingest-date">Document Date</label>
-              <input class="form-input" id="ingest-date" type="date">
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label class="form-label" for="ingest-notes">Summary / Notes</label>
-            <textarea class="form-input" id="ingest-notes" placeholder="Brief description of the document content and scope…"></textarea>
-          </div>
-        </div>
-
-        <!-- Right: Upload + Actions -->
         <div>
           <div class="ingest-panel">
             <div class="ingest-panel-title">File Upload</div>
@@ -1432,16 +1361,8 @@ textarea.form-input { resize: vertical; min-height: 80px; }
             <div class="requirements-box">
               <div class="requirements-title">Requirements</div>
               <div class="req-item">
-                <span class="req-dot" id="req-title"></span>
-                Document title
-              </div>
-              <div class="req-item">
-                <span class="req-dot" id="req-category"></span>
-                Category selected
-              </div>
-              <div class="req-item">
                 <span class="req-dot" id="req-file"></span>
-                File uploaded &amp; processed
+                PDF file selected
               </div>
             </div>
           </div>
@@ -2083,17 +2004,10 @@ const uploadInput = document.getElementById('upload-input');
 const uploadBtn   = document.getElementById('upload-btn');
 
 function updateRequirements() {
-  const hasTitle = document.getElementById('ingest-title').value.trim().length > 0;
-  const hasCat   = document.getElementById('ingest-category').value !== '';
-  const hasFile  = uploadFile !== null;
-  document.getElementById('req-title').classList.toggle('done', hasTitle);
-  document.getElementById('req-category').classList.toggle('done', hasCat);
+  const hasFile = uploadFile !== null;
   document.getElementById('req-file').classList.toggle('done', hasFile);
-  uploadBtn.disabled = !(hasTitle && hasCat && hasFile);
+  uploadBtn.disabled = !hasFile;
 }
-
-document.getElementById('ingest-title').addEventListener('input',    updateRequirements);
-document.getElementById('ingest-category').addEventListener('change', updateRequirements);
 
 uploadInput.addEventListener('change', () => setUploadFile(uploadInput.files[0]));
 
@@ -2119,8 +2033,6 @@ function setUploadFile(f) {
 document.getElementById('clear-btn').addEventListener('click', () => {
   uploadFile = null;
   uploadInput.value = '';
-  ['ingest-title','ingest-category','ingest-dept','ingest-date','ingest-notes']
-    .forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('upload-selected').classList.remove('on');
   document.getElementById('upload-result').classList.remove('on');
   document.getElementById('ingest-log').classList.remove('on');
