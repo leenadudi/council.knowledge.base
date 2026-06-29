@@ -51,29 +51,52 @@ def _make_llm(cfg: Settings) -> TrackedAnthropic:
     return TrackedAnthropic(cfg, call_site="ingestion.classifier")
 
 
+def _validate_against_vocab(result: str, vocab) -> str:
+    """Validate a classification result against an allowed vocabulary.
+
+    If vocab is provided, result must be in vocab (falls back to vocab[0]).
+    If vocab is None, result must be in CONTENT_TYPES (falls back to "narrative").
+    """
+    result = (result or "").strip().lower()
+    allowed = vocab if vocab else list(CONTENT_TYPES)
+    if result in allowed:
+        return result
+    return allowed[0] if vocab else "narrative"
+
+
 def classify_chunk(
     chunk_dict: dict,
     element_type: str,
     client: Optional[TrackedAnthropic] = None,
     settings: Optional[Settings] = None,
+    vocab: Optional[list] = None,
 ) -> str:
     """
     Classify a chunk's content type.
 
     Returns one of: narrative, table, metrics, org_data, project, header
+    (or a vocab-specific category when vocab is provided).
 
-    Rule-based classification is applied first; ambiguous cases use an LLM call.
+    When vocab is None: rule-based classification is applied first; ambiguous
+    cases use an LLM call.
+    When vocab is provided: skip rule-based (quarterly-report-specific) and go
+    straight to the LLM with the given vocabulary.
     """
     text = chunk_dict.get("text", "")
     cfg = settings or get_settings()
 
-    # --- Rule-based classification ---
+    llm = client or _make_llm(cfg)
+
+    if vocab is not None:
+        # Vocab supplied — skip rule-based categories and use LLM directly
+        return _llm_classify(text, llm, cfg, vocab=vocab)
+
+    # --- Rule-based classification (vocab=None path, unchanged) ---
     result = _rule_based(text, element_type)
     if result is not None:
         return result
 
     # --- LLM fallback for ambiguous chunks ---
-    llm = client or _make_llm(cfg)
     return _llm_classify(text, llm, cfg)
 
 
@@ -81,12 +104,13 @@ def classify_batch(
     chunk_dicts: list[dict],
     element_types: list[str],
     settings: Optional[Settings] = None,
+    vocab: Optional[list] = None,
 ) -> list[str]:
     """Classify a batch of chunks, reusing the same LLM client."""
     cfg = settings or get_settings()
     client = _make_llm(cfg)
     return [
-        classify_chunk(c, et, client=client, settings=cfg)
+        classify_chunk(c, et, client=client, settings=cfg, vocab=vocab)
         for c, et in zip(chunk_dicts, element_types)
     ]
 
@@ -142,15 +166,10 @@ def _numeric_ratio(text: str) -> float:
     return numeric_chars / len(cleaned)
 
 
-_LLM_CLASSIFY_PROMPT = """Classify this text chunk from a city government quarterly report.
+_LLM_CLASSIFY_PROMPT_HEADER = """Classify this text chunk from a city government document.
 
 Valid categories:
-- narrative: descriptive text, summaries, background, goals, community engagement
-- table: budget table, expenditure table, grant information, vacancy/hiring updates, structured grid of data
-- metrics: counts, statistics, performance numbers (inspections, tonnage, call volume)
-- org_data: people names, titles, reporting relationships, org chart content
-- project: capital project descriptions, construction updates, special project details
-- header: section title or heading with little body content
+{categories}
 
 Text chunk:
 ---
@@ -159,22 +178,44 @@ Text chunk:
 
 Reply with ONLY the category name, nothing else."""
 
+# Default category descriptions for the standard CONTENT_TYPES vocabulary
+_DEFAULT_CATEGORY_LINES = (
+    "- narrative: descriptive text, summaries, background, goals, community engagement\n"
+    "- table: budget table, expenditure table, grant information, vacancy/hiring updates, structured grid of data\n"
+    "- metrics: counts, statistics, performance numbers (inspections, tonnage, call volume)\n"
+    "- org_data: people names, titles, reporting relationships, org chart content\n"
+    "- project: capital project descriptions, construction updates, special project details\n"
+    "- header: section title or heading with little body content"
+)
 
-def _llm_classify(text: str, client: TrackedAnthropic, cfg: Settings) -> str:
+
+def _llm_classify(
+    text: str,
+    client: TrackedAnthropic,
+    cfg: Settings,
+    vocab: Optional[list] = None,
+) -> str:
+    # Build the category list shown to the LLM
+    if vocab:
+        categories = "\n".join(f"- {v}" for v in vocab)
+        default_fallback = vocab[0] if vocab else "narrative"
+    else:
+        categories = _DEFAULT_CATEGORY_LINES
+        default_fallback = "narrative"
+
+    prompt = _LLM_CLASSIFY_PROMPT_HEADER.format(
+        categories=categories,
+        text=text[:1000],
+    )
+
     try:
         msg = client.messages.create(
             model=cfg.synthesis_model,
             max_tokens=10,
-            messages=[{
-                "role": "user",
-                "content": _LLM_CLASSIFY_PROMPT.format(text=text[:1000]),
-            }],
+            messages=[{"role": "user", "content": prompt}],
         )
         result = msg.content[0].text.strip().lower()
-        if result in CONTENT_TYPES:
-            return result
-        logger.warning("LLM returned unexpected content type: %s — defaulting to narrative", result)
-        return "narrative"
+        return _validate_against_vocab(result, vocab)
     except Exception as e:
-        logger.error("LLM classification failed: %s — defaulting to narrative", e)
-        return "narrative"
+        logger.error("LLM classification failed: %s — defaulting to %s", e, default_fallback)
+        return default_fallback
