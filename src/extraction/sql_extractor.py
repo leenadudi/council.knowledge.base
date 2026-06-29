@@ -177,6 +177,8 @@ class SQLExtractor:
             data = validated.model_dump()
             # keep only the doc_type's declared sql_targets, drop low-confidence rows
             return {
+                # missing-confidence rows are dropped intentionally: schemas mandate
+                # "confidence"; this differs from _sanitize_rows which defaults to "high"
                 k: [r for r in v if r.get("confidence") in ("high", "medium")]
                 for k, v in data.items()
                 if k in doc_type.sql_targets and v
