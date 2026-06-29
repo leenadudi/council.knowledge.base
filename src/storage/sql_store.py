@@ -166,6 +166,34 @@ class SQLStore:
                 "parser_used": parser_used, "total_chunks": total_chunks,
             })
 
+    def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO resolutions
+              (resolution_number, title, amount, vendor, department, adopted_date,
+               status, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("resolution_number"), r.get("title"), r.get("amount"),
+                    r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
+                    r.get("status"), source_chunk_id, source_file,
+                ))
+
+    def insert_vote_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO votes
+              (resolution_number, council_member, vote, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("resolution_number"), r.get("council_member"),
+                    r.get("vote"), source_chunk_id, source_file,
+                ))
+
     def delete_structured_rows(self, source_file: str) -> None:
         """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
         with self.cursor() as cur:

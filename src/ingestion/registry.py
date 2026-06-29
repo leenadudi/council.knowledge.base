@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.models import DocumentType, ChunkingHints
 from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+from src.ingestion.schemas.resolution import ResolutionExtraction
 
 _QUARTERLY_REPORT = DocumentType(
     name="quarterly_report",
@@ -16,6 +17,19 @@ _QUARTERLY_REPORT = DocumentType(
     graph_targets=["Department", "Person", "Project", "Grant"],
     chunking=ChunkingHints(),  # use default section-aware chunking
     extraction_schema=QuarterlyReportExtraction,
+)
+
+_RESOLUTION = DocumentType(
+    name="resolution",
+    description=("A formal City Council action authorizing a contract, expenditure, or policy. "
+                 "Has a RESOLUTION NO., WHEREAS reasoning clauses, a RESOLVED authorization, "
+                 "an adoption date, and a vote record by council member."),
+    identifying_signals=["RESOLUTION NO", "WHEREAS", "RESOLVED", "BE IT RESOLVED"],
+    content_vocab=["legal_authorization", "whereas_clause", "vote_record", "narrative", "header"],
+    sql_targets=["resolutions", "votes"],
+    graph_targets=["Resolution", "Vendor", "CouncilMember"],
+    chunking=ChunkingHints(keep_together=["whereas", "resolved"]),
+    extraction_schema=ResolutionExtraction,
 )
 
 _REGISTRY: dict[str, DocumentType] = {
@@ -35,4 +49,5 @@ def all_document_types() -> list[DocumentType]:
     return list(_REGISTRY.values())
 
 
-KNOWN_TYPE_NAMES: list[str] = list(_REGISTRY.keys())
+register(_RESOLUTION)
+KNOWN_TYPE_NAMES: list[str] = list(_REGISTRY.keys())  # recompute after all registrations

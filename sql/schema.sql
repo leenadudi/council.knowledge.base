@@ -190,3 +190,33 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 
 CREATE INDEX IF NOT EXISTS idx_llm_usage_timestamp ON llm_usage (timestamp);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_call_site ON llm_usage (call_site);
+
+-- City Council resolutions: formal authorization actions
+CREATE TABLE IF NOT EXISTS resolutions (
+    id                 SERIAL PRIMARY KEY,
+    resolution_number  VARCHAR(50),
+    title              TEXT,
+    amount             DECIMAL(15,2),
+    vendor             VARCHAR(255),
+    department         VARCHAR(100),
+    adopted_date       DATE,
+    status             VARCHAR(50),
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+-- Individual council member votes on resolutions
+CREATE TABLE IF NOT EXISTS votes (
+    id                 SERIAL PRIMARY KEY,
+    resolution_number  VARCHAR(50),
+    council_member     VARCHAR(120),
+    vote               VARCHAR(10),
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_resolutions_number ON resolutions(resolution_number);
+CREATE INDEX IF NOT EXISTS idx_resolutions_vendor ON resolutions(vendor);
+CREATE INDEX IF NOT EXISTS idx_votes_resolution ON votes(resolution_number);
