@@ -21,7 +21,7 @@ _QUARTER_RE = re.compile(r"_Q(\d)\s+(\d{4})", re.IGNORECASE)
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
 
 
-def extract_file_metadata(source_file: str) -> dict:
+def filename_hint(source_file: str) -> dict:
     """
     Return {department, quarter, year} extracted from the filename.
     Falls back to sensible defaults if the pattern doesn't match.
@@ -73,17 +73,19 @@ def build_chunk_metadata(
     total_chunks: int,
     content_type: str,
     parser_used: str,
+    profile,                       # DocumentProfile
+    needs_review: bool = False,
 ) -> dict:
-    """
-    Assemble the full metadata dict for a chunk, ready for storage.
-    """
-    file_meta = extract_file_metadata(source_file)
+    """Assemble chunk metadata. Type/department/period come from the profile,
+    NOT the filename. Filename is retained only as source_file."""
+    # period may be "Q1 2026" or a date/year — split out quarter/year best-effort
+    quarter, year = _split_period(profile.period)
     return {
         "source_file": source_file,
-        "department": file_meta["department"],
-        "document_type": "quarterly_report",
-        "quarter": file_meta["quarter"],
-        "year": file_meta["year"],
+        "department": profile.department or "Unknown Department",
+        "document_type": profile.document_type,
+        "quarter": quarter,
+        "year": year,
         "section": chunk_dict.get("section", ""),
         "content_type": content_type,
         "page_number": chunk_dict.get("page_number", 1),
@@ -91,4 +93,19 @@ def build_chunk_metadata(
         "ingestion_timestamp": datetime.utcnow().isoformat(),
         "chunk_index": chunk_index,
         "total_chunks_in_doc": total_chunks,
+        "needs_review": needs_review,
     }
+
+
+def _split_period(period: str) -> tuple:
+    """Best-effort: pull a quarter (Qn) and a 4-digit year out of a period string."""
+    quarter = ""
+    year = None
+    if period:
+        qm = re.search(r"Q([1-4])", period, re.IGNORECASE)
+        if qm:
+            quarter = f"Q{qm.group(1)}"
+        ym = re.search(r"\b(20\d{2})\b", period)
+        if ym:
+            year = int(ym.group(1))
+    return quarter, year
