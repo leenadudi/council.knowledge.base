@@ -197,7 +197,7 @@ class SQLStore:
     def delete_structured_rows(self, source_file: str) -> None:
         """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants"]:
+            for table in ["expenditures", "metrics", "grants", "resolutions", "votes"]:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
             cur.execute("""
                 DELETE FROM vacancies WHERE source_chunk_id IN (

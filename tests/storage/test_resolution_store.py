@@ -41,9 +41,9 @@ def test_insert_resolution_rows(store):
     store.insert_resolution_rows(rows, chunk_id, source_file)
 
     # Verify row was inserted
-    result = store.execute_query(
-        f"SELECT * FROM resolutions WHERE source_file = '{source_file}'"
-    )
+    with store.cursor() as cur:
+        cur.execute("SELECT * FROM resolutions WHERE source_file = %s", (source_file,))
+        result = [dict(r) for r in cur.fetchall()]
     assert len(result) == 1
     assert result[0]["resolution_number"] == "2026-R-99"
     assert float(result[0]["amount"]) == 75000.0
@@ -71,9 +71,9 @@ def test_insert_vote_rows(store):
     ]
     store.insert_vote_rows(rows, chunk_id, source_file)
 
-    result = store.execute_query(
-        f"SELECT * FROM votes WHERE source_file = '{source_file}' ORDER BY council_member"
-    )
+    with store.cursor() as cur:
+        cur.execute("SELECT * FROM votes WHERE source_file = %s ORDER BY council_member", (source_file,))
+        result = [dict(r) for r in cur.fetchall()]
     assert len(result) == 2
     assert result[0]["council_member"] == "Jane Smith"
     assert result[0]["vote"] == "yes"
@@ -102,9 +102,9 @@ def test_insert_resolution_rows_null_optional_fields(store):
     ]
     store.insert_resolution_rows(rows, chunk_id, source_file)
 
-    result = store.execute_query(
-        f"SELECT * FROM resolutions WHERE source_file = '{source_file}'"
-    )
+    with store.cursor() as cur:
+        cur.execute("SELECT * FROM resolutions WHERE source_file = %s", (source_file,))
+        result = [dict(r) for r in cur.fetchall()]
     assert len(result) == 1
     assert result[0]["amount"] is None
     assert result[0]["adopted_date"] is None
