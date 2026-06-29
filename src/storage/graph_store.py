@@ -62,6 +62,9 @@ class GraphStore:
             "CREATE CONSTRAINT IF NOT EXISTS FOR (g:Grant) REQUIRE g.grant_number IS UNIQUE",
             "CREATE CONSTRAINT IF NOT EXISTS FOR (doc:Document) REQUIRE doc.filename IS UNIQUE",
             "CREATE CONSTRAINT IF NOT EXISTS FOR (c:Chunk) REQUIRE c.chunk_id IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (r:Resolution) REQUIRE r.resolution_number IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (v:Vendor) REQUIRE v.name IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (cm:CouncilMember) REQUIRE cm.name IS UNIQUE",
         ]
         for stmt in constraints:
             try:
@@ -113,6 +116,32 @@ class GraphStore:
                 grant.status = g.status
         """
         self._run(cypher, {"grants": valid})
+
+    def upsert_resolutions(self, resolutions: list[dict[str, Any]]) -> None:
+        self._run("""
+            UNWIND $rows AS row
+            MERGE (r:Resolution {resolution_number: row.resolution_number})
+            SET r.title = row.title, r.amount = row.amount,
+                r.status = row.status, r.adopted_date = row.adopted_date
+            WITH r, row WHERE row.vendor IS NOT NULL AND row.vendor <> ''
+            MERGE (v:Vendor {name: row.vendor})
+            MERGE (r)-[:AWARDS_CONTRACT_TO]->(v)
+        """, {"rows": resolutions})
+
+    def upsert_vendors(self, vendors: list[dict[str, Any]]) -> None:
+        self._run("UNWIND $rows AS row MERGE (:Vendor {name: row.name})", {"rows": vendors})
+
+    def upsert_council_members(self, members: list[dict[str, Any]]) -> None:
+        self._run("UNWIND $rows AS row MERGE (:CouncilMember {name: row.name})", {"rows": members})
+
+    def upsert_votes(self, votes: list[dict[str, Any]]) -> None:
+        self._run("""
+            UNWIND $rows AS row
+            MERGE (c:CouncilMember {name: row.council_member})
+            MERGE (r:Resolution {resolution_number: row.resolution_number})
+            MERGE (c)-[v:VOTED]->(r)
+            SET v.vote = row.vote
+        """, {"rows": votes})
 
     def upsert_document(self, filename: str, quarter: str, year: int, department: str) -> None:
         self._run(
