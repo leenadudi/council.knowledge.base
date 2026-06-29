@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
+import anthropic
 import voyageai
 
 from src.config import Settings, get_settings
@@ -71,7 +72,7 @@ class IngestionPipeline:
             p for p in pdfs
             if not (skip_existing and self.sql_store.is_document_ingested(p.name))
         ]
-        workers = max_workers or self.cfg.ingest_workers
+        workers = min(max_workers or self.cfg.ingest_workers, max(1, len(todo)))
         logger.info(
             "Ingesting %d/%d documents with %d workers",
             len(todo), len(pdfs), workers,
@@ -97,13 +98,14 @@ class IngestionPipeline:
                 return self.ingest_document(path)
             except Exception as e:
                 msg = str(e).lower()
-                if "rate" in msg or "429" in msg:
+                if isinstance(e, anthropic.RateLimitError) or "429" in msg or "rate limit" in msg:
                     wait = 2 ** i
                     logger.warning(
                         "Rate-limit hit for %s (attempt %d/%d) — retrying in %ds",
                         path.name, i + 1, attempts, wait,
                     )
-                    time.sleep(wait)
+                    if i < attempts - 1:
+                        time.sleep(wait)
                     continue
                 raise
         raise RuntimeError(f"Giving up on {path.name} after {attempts} attempts")
