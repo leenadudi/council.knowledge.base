@@ -60,6 +60,18 @@ def test_upsert_resolution_no_vendor(graph: GraphStore):
 
 
 @pytest.mark.integration
+def test_upsert_resolution_absent_vendor(graph: GraphStore):
+    """A resolution where the vendor key is absent entirely should not create a Vendor node or edge."""
+    graph.upsert_resolutions([{"resolution_number": "2026-R-102", "title": "Absent Vendor",
+                               "amount": None, "status": "pending",
+                               "adopted_date": None}])
+    rows = graph.execute_cypher(
+        "MATCH (r:Resolution {resolution_number:'2026-R-102'})-[:AWARDS_CONTRACT_TO]->(v:Vendor) "
+        "RETURN v.name AS vendor")
+    assert rows == []
+
+
+@pytest.mark.integration
 def test_upsert_vendors_standalone(graph: GraphStore):
     graph.upsert_vendors([{"name": "StandaloneVendor"}])
     rows = graph.execute_cypher(

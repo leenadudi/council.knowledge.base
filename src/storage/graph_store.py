@@ -118,6 +118,9 @@ class GraphStore:
         self._run(cypher, {"grants": valid})
 
     def upsert_resolutions(self, resolutions: list[dict[str, Any]]) -> None:
+        valid = [r for r in resolutions if r.get("resolution_number") is not None]
+        if not valid:
+            return
         self._run("""
             UNWIND $rows AS row
             MERGE (r:Resolution {resolution_number: row.resolution_number})
@@ -126,7 +129,7 @@ class GraphStore:
             WITH r, row WHERE row.vendor IS NOT NULL AND row.vendor <> ''
             MERGE (v:Vendor {name: row.vendor})
             MERGE (r)-[:AWARDS_CONTRACT_TO]->(v)
-        """, {"rows": resolutions})
+        """, {"rows": valid})
 
     def upsert_vendors(self, vendors: list[dict[str, Any]]) -> None:
         self._run("UNWIND $rows AS row MERGE (:Vendor {name: row.name})", {"rows": vendors})
@@ -135,13 +138,16 @@ class GraphStore:
         self._run("UNWIND $rows AS row MERGE (:CouncilMember {name: row.name})", {"rows": members})
 
     def upsert_votes(self, votes: list[dict[str, Any]]) -> None:
+        valid = [v for v in votes if v.get("resolution_number") is not None and v.get("council_member") is not None]
+        if not valid:
+            return
         self._run("""
             UNWIND $rows AS row
             MERGE (c:CouncilMember {name: row.council_member})
             MERGE (r:Resolution {resolution_number: row.resolution_number})
             MERGE (c)-[v:VOTED]->(r)
             SET v.vote = row.vote
-        """, {"rows": votes})
+        """, {"rows": valid})
 
     def upsert_document(self, filename: str, quarter: str, year: int, department: str) -> None:
         self._run(
