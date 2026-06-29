@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from src.llm.client import TrackedAnthropic
@@ -106,13 +107,23 @@ def classify_batch(
     settings: Optional[Settings] = None,
     vocab: Optional[list] = None,
 ) -> list[str]:
-    """Classify a batch of chunks, reusing the same LLM client."""
+    """Classify a batch of chunks concurrently, reusing the same LLM client.
+
+    Uses a ThreadPoolExecutor capped at cfg.ingest_workers to run per-chunk
+    classify_chunk calls in parallel while preserving input order.
+    Empty input returns [] immediately.
+    """
+    if not chunk_dicts:
+        return []
     cfg = settings or get_settings()
     client = _make_llm(cfg)
-    return [
-        classify_chunk(c, et, client=client, settings=cfg, vocab=vocab)
-        for c, et in zip(chunk_dicts, element_types)
-    ]
+    workers = max(1, min(cfg.ingest_workers, len(chunk_dicts)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(
+            lambda pair: classify_chunk(pair[0], pair[1], client=client, settings=cfg, vocab=vocab),
+            list(zip(chunk_dicts, element_types)),
+        ))
+    return results
 
 
 def _rule_based(text: str, element_type: str) -> Optional[str]:

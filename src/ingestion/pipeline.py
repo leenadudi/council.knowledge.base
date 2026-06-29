@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -52,20 +53,60 @@ class IngestionPipeline:
         self.graph_store.ensure_constraints()
         logger.info("All stores initialized")
 
-    def ingest_directory(self, docs_dir: str | Path, skip_existing: bool = True) -> None:
-        """Ingest all PDFs in a directory."""
+    def ingest_directory(
+        self,
+        docs_dir: str | Path,
+        skip_existing: bool = True,
+        max_workers: int | None = None,
+    ) -> None:
+        """Ingest all PDFs in a directory using a bounded worker pool.
+
+        Pre-filters already-ingested docs when skip_existing=True, then submits
+        each remaining PDF to a ThreadPoolExecutor. Per-document failures are
+        caught and logged so one bad document never aborts the batch.
+        """
         path = Path(docs_dir)
         pdfs = sorted(path.glob("*.pdf"))
-        logger.info("Found %d PDF documents in %s", len(pdfs), path)
+        todo = [
+            p for p in pdfs
+            if not (skip_existing and self.sql_store.is_document_ingested(p.name))
+        ]
+        workers = max_workers or self.cfg.ingest_workers
+        logger.info(
+            "Ingesting %d/%d documents with %d workers",
+            len(todo), len(pdfs), workers,
+        )
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(self._ingest_one_safe, p): p for p in todo}
+            for fut in as_completed(futures):
+                p = futures[fut]
+                try:
+                    fut.result()
+                except Exception as e:
+                    logger.error("Failed to ingest %s: %s", p.name, e, exc_info=True)
 
-        for pdf in pdfs:
-            if skip_existing and self.sql_store.is_document_ingested(pdf.name):
-                logger.info("Skipping already-ingested: %s", pdf.name)
-                continue
+    def _ingest_one_safe(self, path: Path, attempts: int = 3):
+        """Call ingest_document with bounded exponential backoff on rate-limit errors.
+
+        On a 429/rate-limit error, sleeps 2**i seconds and retries.
+        Non-rate-limit errors are re-raised immediately.
+        Raises RuntimeError after exhausting all attempts.
+        """
+        for i in range(attempts):
             try:
-                self.ingest_document(pdf)
+                return self.ingest_document(path)
             except Exception as e:
-                logger.error("Failed to ingest %s: %s", pdf.name, e, exc_info=True)
+                msg = str(e).lower()
+                if "rate" in msg or "429" in msg:
+                    wait = 2 ** i
+                    logger.warning(
+                        "Rate-limit hit for %s (attempt %d/%d) — retrying in %ds",
+                        path.name, i + 1, attempts, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+        raise RuntimeError(f"Giving up on {path.name} after {attempts} attempts")
 
     def ingest_document(self, file_path: str | Path, category_hint: Optional[str] = None) -> list[Chunk]:
         """Full ingestion pipeline for a single document.
