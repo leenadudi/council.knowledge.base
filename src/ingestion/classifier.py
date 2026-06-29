@@ -198,7 +198,7 @@ def _llm_classify(
     # Build the category list shown to the LLM
     if vocab:
         categories = "\n".join(f"- {v}" for v in vocab)
-        default_fallback = vocab[0] if vocab else "narrative"
+        default_fallback = vocab[0]
     else:
         categories = _DEFAULT_CATEGORY_LINES
         default_fallback = "narrative"
