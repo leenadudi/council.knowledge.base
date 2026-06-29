@@ -55,13 +55,16 @@ def _dig(obj, path: str):
     tokens = re.split(r"\.", path)
     current = obj
     for token in tokens:
-        # Check for array index: key[N]
-        m = re.fullmatch(r"(\w+)\[(\d+)\]", token)
-        if m:
-            key, idx = m.group(1), int(m.group(2))
-            current = current[key][idx]
-        else:
-            current = current[token]
+        try:
+            # Check for array index: key[N]
+            m = re.fullmatch(r"(\w+)\[(\d+)\]", token)
+            if m:
+                key, idx = m.group(1), int(m.group(2))
+                current = current[key][idx]
+            else:
+                current = current[token]
+        except (KeyError, IndexError, TypeError) as e:
+            raise KeyError(f"_dig failed for path {path!r} at token {token!r}: {e}") from e
     return current
 
 
@@ -126,9 +129,9 @@ def test_golden_case(expected_path):
     from src.extraction.sql_extractor import SQLExtractor
     from src.evaluation.ingestion_judge import judge_extraction
 
-    spec = json.load(open(expected_path))
+    spec = json.load(open(expected_path, encoding="utf-8"))
     src_dir = os.path.dirname(expected_path)
-    source_text = open(os.path.join(src_dir, spec["source_text_file"])).read()
+    source_text = open(os.path.join(src_dir, spec["source_text_file"]), encoding="utf-8").read()
 
     # --- 1. Profile / classify -----------------------------------------------
     parsed = _parsed_from_text(source_text, source_file=spec["source_text_file"])
@@ -197,3 +200,10 @@ def test_dig_string_value():
 def test_dig_date_value():
     obj = {"resolutions": [{"adopted_date": "2026-03-03"}]}
     assert _dig(obj, "resolutions[0].adopted_date") == "2026-03-03"
+
+
+def test_dig_missing_key_raises_with_context():
+    """A missing path should raise KeyError with the path name in the message."""
+    obj = {"resolutions": [{"amount": 40000.0}]}
+    with pytest.raises(KeyError, match="resolutions"):
+        _dig(obj, "resolutions[0].missing_key")

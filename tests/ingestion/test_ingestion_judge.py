@@ -81,6 +81,7 @@ def test_judge_extraction_parses_json_embedded_in_prose():
     )
 
     assert result["score"] == 4
+    assert result["complete"] is True
     assert result["hallucinated"] is False
 
 
@@ -128,4 +129,19 @@ def test_judge_extraction_returns_safe_default_on_partial_json():
     result = judge_extraction(source_text="doc", extracted={}, client=client)
 
     assert result["score"] == 0
+    assert result["reasoning"] == "unparseable"
+
+
+def test_judge_extraction_returns_safe_default_on_brace_matched_invalid_json():
+    """Brace-matched but invalid JSON → JSONDecodeError path → safe default, no raise."""
+    from src.evaluation.ingestion_judge import judge_extraction
+
+    # Has a closing brace so brace-slice succeeds, but json.loads fails
+    client = _FakeClient('{"score": 3, "complete": tru}')
+
+    result = judge_extraction(source_text="doc", extracted={}, client=client)
+
+    assert result["score"] == 0
+    assert result["complete"] is False
+    assert result["hallucinated"] is True
     assert result["reasoning"] == "unparseable"
