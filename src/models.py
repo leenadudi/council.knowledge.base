@@ -28,6 +28,38 @@ STORAGE_ROUTING: dict[str, dict[str, bool]] = {
 
 
 # ---------------------------------------------------------------------------
+# Agentic ingestion models
+# ---------------------------------------------------------------------------
+
+class DocumentProfile(BaseModel):
+    document_type: str
+    department: str
+    period: str = ""                       # "Q1 2026", "2026", an adopted date, etc.
+    title: str = ""
+    identifying_ids: dict[str, str] = Field(default_factory=dict)
+    confidence: float = Field(ge=0.0, le=1.0)
+    proposed_type: Optional[str] = None    # set when the agent thinks it's a new, unknown type
+
+
+class ChunkingHints(BaseModel):
+    keep_together: list[str] = Field(default_factory=list)   # marker words whose blocks must not split
+    section_headers: Optional[list[str]] = None              # override default section names; None = use defaults
+
+
+class DocumentType(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    name: str
+    description: str
+    identifying_signals: list[str] = Field(default_factory=list)
+    content_vocab: list[str] = Field(default_factory=list)
+    sql_targets: list[str] = Field(default_factory=list)
+    graph_targets: list[str] = Field(default_factory=list)
+    chunking: ChunkingHints = Field(default_factory=ChunkingHints)
+    extraction_schema: Optional[type] = None    # Pydantic model class used as the LLM extraction contract
+    metadata_schema: Optional[type] = None
+
+
+# ---------------------------------------------------------------------------
 # Chunk — the unit of ingestion
 # ---------------------------------------------------------------------------
 
@@ -36,8 +68,6 @@ class ChunkMetadata:
     source_file: str
     department: str
     document_type: str
-    quarter: str
-    year: int
     section: str
     content_type: str
     page_number: int
@@ -45,6 +75,9 @@ class ChunkMetadata:
     ingestion_timestamp: str
     chunk_index: int
     total_chunks_in_doc: int
+    quarter: str = ""
+    year: Optional[int] = None
+    needs_review: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +93,7 @@ class ChunkMetadata:
             "ingestion_timestamp": self.ingestion_timestamp,
             "chunk_index": self.chunk_index,
             "total_chunks_in_doc": self.total_chunks_in_doc,
+            "needs_review": self.needs_review,
         }
 
 

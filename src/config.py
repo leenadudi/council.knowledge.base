@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     langsmith_project: str = "harrisburg-kb"
     langchain_tracing_v2: str = "false"
 
+    # Agentic profiler (document type/owner/period classification)
+    profiler_model: str = "claude-haiku-4-5"   # cheap routing task, eval-validated
+    profiler_max_pages: int = 3                 # only the first N pages are read to classify
+    profile_confidence_threshold: float = 0.55  # below this → quarantine (vector-only)
+
+    # Parallel ingestion (bounded worker pool over independent documents)
+    ingest_workers: int = 5                     # cap to stay under API/DB rate limits
+
     # Ingestion
     docs_dir: str = "/tmp/docs"
     max_chunk_size: int = 1500
