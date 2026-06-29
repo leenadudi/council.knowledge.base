@@ -88,6 +88,8 @@ DocumentType(
 
 **Consequence:** existing quarterly reports are **re-ingested** through the new path so their metadata is content-derived. Output should match or improve on today's regex result; the existing query eval suite is the regression guard (§4.6).
 
+**On source categories:** the documents are grouped by category in their source viewer (Budgets, Legislation, Minutes, Misc. Documents, Resolutions), but that grouping is **not attached to the files** — it does not travel to the ingestion pipeline. The profiler must therefore classify type from document *content*; we cannot lean on the folder. **Optional future win:** if a filename→category manifest can be exported from the viewer, the profiler can accept it as a strong type hint to skip/cheapen content classification for the clean buckets (everything except "Misc. Documents"). Not a dependency for this build.
+
 ### 4.4 Unknown / low-confidence documents — quarantine, don't guess
 
 If the profiler cannot confidently classify a document (confidence below a configurable threshold), or it proposes a brand-new type:
@@ -128,7 +130,8 @@ Test tiers: profiler unit tests, registry validation tests (every `DocumentType`
 - **Profiler runs on `claude-haiku-4-5`** (the cheap routing/classification task, already eval-validated for the query classifier), not Sonnet.
 - Profiler reads only the **first few pages** of a document (type/department/date live on page 1), not the full text.
 - Constraining extraction output to a Pydantic schema can *reduce* output tokens vs. free-form.
-- Net new cost ≈ one Haiku call per document, on a corpus ingested only a few dozen times per quarter. The expensive paths (vision parsing of slide decks; query-time synthesis) are unchanged.
+- Net new cost ≈ one Haiku call per document. The corpus is larger than first assumed — roughly 1,786 documents total (Resolutions ~1,104, Minutes ~267, Legislation ~197, Misc. ~173, Budgets ~45) — but a Haiku-class classification call across ~1,786 docs is still a small one-time cost, and steady-state is only the trickle of new documents. The expensive paths (vision parsing of slide decks; query-time synthesis) are unchanged.
+- At this scale the **bounded-concurrency loader (§4.5) is the difference between a multi-hour and a much shorter one-time ingest** — it matters more here than it would for a few dozen documents.
 
 ## 5. Components / files
 
