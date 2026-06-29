@@ -147,6 +147,44 @@ class SQLExtractor:
             logger.error("SQL extraction failed for batch of %d chunks: %s", len(chunks), e)
             return {}
 
+    def extract_for_type(self, chunks, doc_type) -> dict[str, list[dict[str, Any]]]:
+        """
+        Extract structured data against the document type's Pydantic extraction_schema.
+        Returns only the keys in doc_type.sql_targets, keeping high/medium-confidence rows.
+        On any exception, logs a warning and returns {}.
+        """
+        if not chunks or doc_type is None or doc_type.extraction_schema is None:
+            return {}
+        text = "\n\n---\n\n".join(c.text for c in chunks)
+        schema_json = json.dumps(doc_type.extraction_schema.model_json_schema())
+        prompt = (
+            f"You are a precise data extractor for City of Harrisburg '{doc_type.name}' documents.\n"
+            f"Extract structured data matching THIS JSON schema (return an object with these keys):\n"
+            f"{schema_json}\n\n"
+            "Rules: include a verbatim 'source_text' for every row; set 'confidence' to high|medium|low "
+            "and omit low-confidence rows; dollar amounts as plain numbers; dates YYYY-MM-DD or null. "
+            "Return ONLY the JSON object.\n\nText:\n---\n" + text + "\n---"
+        )
+        try:
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model,
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            validated = doc_type.extraction_schema.model_validate_json(raw)
+            data = validated.model_dump()
+            # keep only the doc_type's declared sql_targets, drop low-confidence rows
+            return {
+                k: [r for r in v if r.get("confidence") in ("high", "medium")]
+                for k, v in data.items()
+                if k in doc_type.sql_targets and v
+            }
+        except Exception as e:
+            logger.warning("schema-driven extraction failed for %s: %s", doc_type.name, e)
+            return {}
+
     def extract_chunks_batched(
         self, chunks: list[Chunk]
     ) -> dict[str, list[dict[str, Any]]]:
