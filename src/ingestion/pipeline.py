@@ -123,6 +123,18 @@ class IngestionPipeline:
         start = time.time()
         logger.info("Ingesting: %s", path.name)
 
+        # Idempotent cleanup: clear prior data when re-ingesting an existing document.
+        # Gated on is_document_ingested so first-time ingestion is a no-op.
+        # graph clear is best-effort (graph writes are already wrapped in try/except).
+        if self.sql_store.is_document_ingested(path.name):
+            logger.info("Re-ingest: clearing prior data for %s", path.name)
+            self.vector_store.delete_by_source_file(path.name)
+            self.sql_store.delete_structured_rows(path.name)
+            try:
+                self.graph_store.clear_document_data(path.name)
+            except Exception as e:
+                logger.warning("graph clear failed for %s: %s", path.name, e)
+
         # Step 1: Detect document kind (parser selection — clean text vs. complex PDF)
         doc_kind = detector.detect(path, self.cfg)
 

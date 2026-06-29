@@ -194,7 +194,7 @@ def upload():
 
     import pathlib
     from src.config import get_settings
-    from src.ingestion.metadata import extract_file_metadata
+    from src.ingestion.metadata import filename_hint
     from src.ingestion.pipeline import IngestionPipeline
 
     files = request.files.getlist("files")
@@ -214,7 +214,7 @@ def upload():
         if _sql_store.is_document_ingested(f.filename):
             skipped.append({"filename": f.filename, "reason": "Already in knowledge base"})
             continue
-        file_meta = extract_file_metadata(f.filename)
+        file_meta = filename_hint(f.filename)
         if file_meta["department"] and file_meta["quarter"] and file_meta["year"]:
             existing = _sql_store.find_existing_document(
                 file_meta["department"], file_meta["quarter"], file_meta["year"]
