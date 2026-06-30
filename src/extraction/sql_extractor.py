@@ -147,19 +147,40 @@ class SQLExtractor:
             logger.error("SQL extraction failed for batch of %d chunks: %s", len(chunks), e)
             return {}
 
-    def extract_for_type(self, chunks, doc_type) -> dict[str, list[dict[str, Any]]]:
+    def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
         """
         Extract structured data against the document type's Pydantic extraction_schema.
         Returns only the keys in doc_type.sql_targets, keeping high/medium-confidence rows.
         On any exception, logs a warning and returns {}.
+
+        When doc_type.anchor_field is set and profile supplies the matching identifier,
+        an anchor block is injected into the prompt and a deterministic guard collapses
+        the primary table to exactly one row keyed to that identifier.
         """
         if not chunks or doc_type is None or doc_type.extraction_schema is None:
             return {}
+
+        # --- anchor setup ---
+        anchor_field = getattr(doc_type, "anchor_field", None)
+        anchor_value = None
+        anchor_block = ""
+        if anchor_field and profile is not None:
+            anchor_value = (profile.identifying_ids or {}).get(anchor_field)
+            if anchor_value:
+                anchor_block = (
+                    f"\nThis document is a SINGLE {doc_type.name}. Its {anchor_field} is "
+                    f"\"{anchor_value}\" (department: {profile.department or 'unknown'}, "
+                    f"period: {profile.period or 'unknown'}). Extract exactly ONE primary record "
+                    f"for THIS document plus its vote record. Do NOT invent additional "
+                    f"{doc_type.name}s or split it into multiple records.\n"
+                )
+
         text = "\n\n---\n\n".join(c.text for c in chunks)
         schema_json = json.dumps(doc_type.extraction_schema.model_json_schema())
         prompt = (
             f"You are a precise data extractor for City of Harrisburg '{doc_type.name}' documents.\n"
-            f"Extract structured data matching THIS JSON schema (return an object with these keys):\n"
+            + anchor_block
+            + f"Extract structured data matching THIS JSON schema (return an object with these keys):\n"
             f"{schema_json}\n\n"
             "Rules: include a verbatim 'source_text' for every row; set 'confidence' to high|medium|low "
             "and omit low-confidence rows; dollar amounts as plain numbers; dates YYYY-MM-DD or null. "
@@ -176,13 +197,26 @@ class SQLExtractor:
             validated = doc_type.extraction_schema.model_validate_json(raw)
             data = validated.model_dump()
             # keep only the doc_type's declared sql_targets, drop low-confidence rows
-            return {
+            result = {
                 # missing-confidence rows are dropped intentionally: schemas mandate
                 # "confidence"; this differs from _sanitize_rows which defaults to "high"
                 k: [r for r in v if r.get("confidence") in ("high", "medium")]
                 for k, v in data.items()
                 if k in doc_type.sql_targets and v
             }
+            # deterministic anchor guard: collapse the primary table to exactly one
+            # row keyed to the profiler's identifier (kills hallucinated duplicates).
+            if anchor_value and doc_type.sql_targets:
+                primary = doc_type.sql_targets[0]
+                rows = result.get(primary) or []
+                if rows:
+                    match = next(
+                        (r for r in rows if str(r.get(anchor_field)) == str(anchor_value)),
+                        rows[0],
+                    )
+                    match[anchor_field] = anchor_value
+                    result[primary] = [match]
+            return result
         except Exception as e:
             logger.warning("schema-driven extraction failed for %s: %s", doc_type.name, e)
             return {}
