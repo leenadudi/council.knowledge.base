@@ -96,3 +96,32 @@ def test_timeline_leap_day_safe_end_date():
     tl = DashboardAggregator(store)._build_timeline()
     # 2025-02-29 doesn't exist; should fall back to 2025-02-28
     assert tl["grants"][0]["end"] == "2025-02-28"
+
+
+def test_build_assembles_payload_and_isolates_panel_errors():
+    store = _FakeStore({
+        "FROM grants WHERE": [{"active": 0, "expiring": 0}],
+        "GROUP BY department": [{"department": "Codes", "revised_budget": 1.0, "ytd_expended": 0.5}],
+        "FROM expenditures": [{"ytd": 0, "budget": 0}],
+        "MAX(year)": [{"year": None}],
+        "FROM resolutions": [],
+        "document_type='unclassified'": [{"c": 0}],
+        "FROM documents ORDER BY": [{"department": "Codes", "quarter": "Q1", "year": 2026, "document_type": "quarterly_report"}],
+    })
+    out = DashboardAggregator(store).build()
+    assert set(out) >= {"generated_at", "kpis", "timeline", "tables"}
+    assert out["tables"]["spending_by_dept"][0]["department"] == "Codes"
+
+
+class _BoomStore:
+    from contextlib import contextmanager as _cm
+    @_cm
+    def cursor(self):
+        raise RuntimeError("db down")
+        yield  # pragma: no cover
+
+
+def test_build_never_raises_records_errors():
+    out = DashboardAggregator(_BoomStore()).build()
+    assert out["kpis"] is None and out["timeline"] is None and out["tables"] is None
+    assert "kpis" in out["errors"]

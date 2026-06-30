@@ -155,3 +155,62 @@ class DashboardAggregator:
             ]
 
         return {"grants": grants, "reports": reports, "resolutions": resolutions, "spending": spending}
+
+    # -- Tables ---------------------------------------------------------------
+    def _build_tables(self) -> dict:
+        with self.sql.cursor() as cur:
+            cur.execute(
+                "SELECT grant_name, department, amount, start_date, end_date, status "
+                "FROM grants ORDER BY start_date DESC NULLS LAST LIMIT 200"
+            )
+            grants = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT department, COALESCE(SUM(revised_budget),0) AS revised_budget, "
+                "COALESCE(SUM(ytd_expended),0) AS ytd_expended FROM expenditures "
+                "GROUP BY department ORDER BY ytd_expended DESC"
+            )
+            spending_by_dept = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT department, quarter, year, document_type FROM documents "
+                "ORDER BY year DESC, quarter DESC LIMIT 200"
+            )
+            reports = [dict(r) for r in cur.fetchall()]
+
+        def clean(rows):
+            for row in rows:
+                for k, v in list(row.items()):
+                    if hasattr(v, "isoformat"):
+                        row[k] = v.isoformat()
+                    elif isinstance(v, (int, float)) or v is None or isinstance(v, str):
+                        pass
+                    else:
+                        row[k] = float(v)  # Decimal
+            return rows
+
+        return {
+            "grants": clean(grants),
+            "spending_by_dept": clean(spending_by_dept),
+            "reports": clean(reports),
+        }
+
+    # -- Error isolation helper -----------------------------------------------
+    def _safe(self, name: str, fn, errors: dict):
+        try:
+            return fn()
+        except Exception as e:
+            logger.warning("dashboard panel %s failed: %s", name, e)
+            errors[name] = str(e)
+            return None
+
+    # -- Top-level assembly ---------------------------------------------------
+    def build(self) -> dict:
+        errors: dict = {}
+        out = {
+            "generated_at": self.now.isoformat(),
+            "kpis": self._safe("kpis", self._build_kpis, errors),
+            "timeline": self._safe("timeline", self._build_timeline, errors),
+            "tables": self._safe("tables", self._build_tables, errors),
+        }
+        if errors:
+            out["errors"] = errors
+        return out
