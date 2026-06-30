@@ -79,3 +79,69 @@ class DashboardAggregator:
             "resolutions_count": int(res.get("c", 0) or 0),
             "unclassified_docs": int(unc.get("c", 0) or 0),
         }
+
+    # -- Timeline -------------------------------------------------------------
+    def _build_timeline(self) -> dict:
+        def iso(d):
+            return d.isoformat() if hasattr(d, "isoformat") else (str(d) if d else None)
+
+        with self.sql.cursor() as cur:
+            cur.execute(
+                "SELECT id, grant_name, department, start_date, end_date, status, amount "
+                "FROM grants WHERE start_date IS NOT NULL ORDER BY start_date"
+            )
+            grants = []
+            for r in cur.fetchall():
+                start = r["start_date"]
+                end = r["end_date"] or (start.replace(year=start.year + 1) if start else None)
+                grants.append({
+                    "id": f"grant-{r['id']}",
+                    "label": r.get("grant_name") or "Grant",
+                    "department": r.get("department"),
+                    "start": iso(start),
+                    "end": iso(end),
+                    "status": r.get("status"),
+                    "amount": float(r["amount"]) if r.get("amount") is not None else None,
+                })
+
+            cur.execute(
+                "SELECT id, department, quarter, year, document_type FROM documents "
+                "WHERE year IS NOT NULL AND quarter IS NOT NULL AND quarter <> '' "
+                "ORDER BY year, quarter"
+            )
+            reports = []
+            for r in cur.fetchall():
+                reports.append({
+                    "id": f"report-{r['id']}",
+                    "department": r.get("department"),
+                    "date": quarter_start(int(r["year"]), r.get("quarter")).isoformat(),
+                    "quarter": r.get("quarter"),
+                    "year": int(r["year"]),
+                    "document_type": r.get("document_type"),
+                })
+
+            cur.execute(
+                "SELECT id, resolution_number, title, adopted_date, amount, status "
+                "FROM resolutions WHERE adopted_date IS NOT NULL ORDER BY adopted_date"
+            )
+            resolutions = []
+            for r in cur.fetchall():
+                resolutions.append({
+                    "id": f"res-{r['id']}",
+                    "label": r.get("resolution_number") or r.get("title") or "Resolution",
+                    "date": iso(r["adopted_date"]),
+                    "amount": float(r["amount"]) if r.get("amount") is not None else None,
+                    "status": r.get("status"),
+                })
+
+            cur.execute(
+                "SELECT year, quarter, COALESCE(SUM(ytd_expended), 0) AS ytd "
+                "FROM expenditures WHERE year IS NOT NULL "
+                "GROUP BY year, quarter ORDER BY year, quarter"
+            )
+            spending = [
+                {"period": f"{r['year']} {r['quarter']}", "ytd_expended": float(r["ytd"] or 0)}
+                for r in cur.fetchall()
+            ]
+
+        return {"grants": grants, "reports": reports, "resolutions": resolutions, "spending": spending}

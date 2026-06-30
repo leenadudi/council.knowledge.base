@@ -47,3 +47,26 @@ def test_kpis_shape_and_coverage():
     assert kpis["report_coverage"] == {"filed": 8, "total_departments": 14}
     assert kpis["resolutions_count"] == 0
     assert kpis["unclassified_docs"] == 1
+
+
+def test_timeline_shapes_dates_and_handles_empty_resolutions():
+    store = _FakeStore({
+        "FROM grants": [
+            {"id": 1, "grant_name": "NEHA-FDA", "department": "Health Office",
+             "start_date": datetime.date(2025, 1, 1), "end_date": datetime.date(2026, 1, 1),
+             "status": "active", "amount": 14000.0},
+        ],
+        "FROM documents": [
+            {"id": 10, "department": "Codes", "quarter": "Q2", "year": 2025, "document_type": "quarterly_report"},
+        ],
+        "FROM resolutions": [],  # empty today
+        "GROUP BY year, quarter": [
+            {"year": 2025, "quarter": "Q1", "ytd": 100000.0},
+            {"year": 2025, "quarter": "Q2", "ytd": 150000.0},
+        ],
+    })
+    tl = DashboardAggregator(store)._build_timeline()
+    assert tl["grants"][0]["start"] == "2025-01-01" and tl["grants"][0]["end"] == "2026-01-01"
+    assert tl["reports"][0]["date"] == "2025-04-01"  # Q2 → Apr 1
+    assert tl["resolutions"] == []
+    assert tl["spending"][1]["period"] == "2025 Q2" and tl["spending"][1]["ytd_expended"] == 150000.0
