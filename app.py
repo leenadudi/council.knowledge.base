@@ -202,6 +202,7 @@ def dashboard_data():
     try:
         return jsonify(DashboardAggregator(_sql_store).build())
     except Exception as e:
+        logger.exception("Dashboard data failed")
         return jsonify({"error": str(e)}), 500
 
 
