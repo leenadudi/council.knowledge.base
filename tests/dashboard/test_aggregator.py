@@ -29,7 +29,7 @@ def test_quarter_start_mapping():
 def test_kpis_shape_and_coverage():
     now = datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc)
     store = _FakeStore({
-        "FROM grants WHERE": [{"active": 12, "expiring": 3}],
+        "FROM grants": [{"active": 12, "expiring": 3}],
         "FROM expenditures": [{"ytd": 4200000.0, "budget": 9000000.0}],
         "MAX(year)": [{"year": 2026}],
         "MAX(quarter)": [{"quarter": "Q1"}],
@@ -41,6 +41,8 @@ def test_kpis_shape_and_coverage():
     kpis = DashboardAggregator(store, now=now)._build_kpis()
     assert kpis["active_grants"] == 12
     assert kpis["grants_expiring_soon"] == 3
+    assert kpis["ytd_spend"] == 4200000.0
+    assert kpis["revised_budget"] == 9000000.0
     assert kpis["latest_period"] == {"year": 2026, "quarter": "Q1"}
     assert kpis["report_coverage"] == {"filed": 8, "total_departments": 14}
     assert kpis["resolutions_count"] == 0

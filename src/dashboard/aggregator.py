@@ -26,7 +26,7 @@ class DashboardAggregator:
             cur.execute("SELECT MAX(year) AS year FROM documents")
             row = cur.fetchone()
             year = row and row.get("year")
-            if not year:
+            if year is None:
                 return None
             cur.execute("SELECT MAX(quarter) AS quarter FROM documents WHERE year = %s", (year,))
             q = cur.fetchone()
@@ -42,7 +42,7 @@ class DashboardAggregator:
                      COUNT(*) FILTER (WHERE LOWER(status) = ANY(%s) OR end_date >= %s) AS active,
                      COUNT(*) FILTER (WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)
                                        AND end_date IS NOT NULL AND end_date <= %s) AS expiring
-                   FROM grants WHERE TRUE""",
+                   FROM grants""",
                 (statuses, today, statuses, today, soon),
             )
             g = cur.fetchone() or {}
