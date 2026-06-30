@@ -83,7 +83,17 @@ class DashboardAggregator:
     # -- Timeline -------------------------------------------------------------
     def _build_timeline(self) -> dict:
         def iso(d):
-            return d.isoformat() if hasattr(d, "isoformat") else (str(d) if d else None)
+            if d is None:
+                return None
+            if hasattr(d, "isoformat"):
+                return d.isoformat()
+            raise TypeError(f"Expected date/datetime, got {type(d)}: {d!r}")
+
+        def _plus_one_year(d: datetime.date) -> datetime.date:
+            try:
+                return d.replace(year=d.year + 1)
+            except ValueError:
+                return d.replace(year=d.year + 1, day=28)
 
         with self.sql.cursor() as cur:
             cur.execute(
@@ -93,7 +103,7 @@ class DashboardAggregator:
             grants = []
             for r in cur.fetchall():
                 start = r["start_date"]
-                end = r["end_date"] or (start.replace(year=start.year + 1) if start else None)
+                end = r["end_date"] if r["end_date"] is not None else (_plus_one_year(start) if start else None)
                 grants.append({
                     "id": f"grant-{r['id']}",
                     "label": r.get("grant_name") or "Grant",

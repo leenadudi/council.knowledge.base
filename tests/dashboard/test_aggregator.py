@@ -1,5 +1,6 @@
 # tests/dashboard/test_aggregator.py
 import datetime
+import decimal
 from contextlib import contextmanager
 from src.dashboard.aggregator import DashboardAggregator, quarter_start
 
@@ -54,7 +55,10 @@ def test_timeline_shapes_dates_and_handles_empty_resolutions():
         "FROM grants": [
             {"id": 1, "grant_name": "NEHA-FDA", "department": "Health Office",
              "start_date": datetime.date(2025, 1, 1), "end_date": datetime.date(2026, 1, 1),
-             "status": "active", "amount": 14000.0},
+             "status": "active", "amount": decimal.Decimal("14000.00")},
+            {"id": 2, "grant_name": "EPA-Water", "department": "Public Works",
+             "start_date": datetime.date(2025, 3, 15), "end_date": None,
+             "status": "pending", "amount": 5000.0},
         ],
         "FROM documents": [
             {"id": 10, "department": "Codes", "quarter": "Q2", "year": 2025, "document_type": "quarterly_report"},
@@ -66,7 +70,29 @@ def test_timeline_shapes_dates_and_handles_empty_resolutions():
         ],
     })
     tl = DashboardAggregator(store)._build_timeline()
+    # Fix 1/2: explicit dates pass through iso() correctly
     assert tl["grants"][0]["start"] == "2025-01-01" and tl["grants"][0]["end"] == "2026-01-01"
+    # Fix 5: Decimal amount is coerced to float
+    assert isinstance(tl["grants"][0]["amount"], float) and tl["grants"][0]["amount"] == 14000.0
+    # Fix 2/3: null end_date falls back to start + 1 year
+    assert tl["grants"][1]["end"] == "2026-03-15"
     assert tl["reports"][0]["date"] == "2025-04-01"  # Q2 → Apr 1
     assert tl["resolutions"] == []
     assert tl["spending"][1]["period"] == "2025 Q2" and tl["spending"][1]["ytd_expended"] == 150000.0
+
+
+def test_timeline_leap_day_safe_end_date():
+    """Fix 3: start_date of Feb 29 (leap year) must not crash when deriving +1yr end."""
+    store = _FakeStore({
+        "FROM grants": [
+            {"id": 3, "grant_name": "Leap-Grant", "department": "Admin",
+             "start_date": datetime.date(2024, 2, 29), "end_date": None,
+             "status": "active", "amount": 1000.0},
+        ],
+        "FROM documents": [],
+        "FROM resolutions": [],
+        "GROUP BY year, quarter": [],
+    })
+    tl = DashboardAggregator(store)._build_timeline()
+    # 2025-02-29 doesn't exist; should fall back to 2025-02-28
+    assert tl["grants"][0]["end"] == "2025-02-28"
