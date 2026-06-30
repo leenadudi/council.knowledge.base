@@ -98,7 +98,7 @@ def test_timeline_leap_day_safe_end_date():
     assert tl["grants"][0]["end"] == "2025-02-28"
 
 
-def test_build_assembles_payload_and_isolates_panel_errors():
+def test_build_assembles_happy_path_payload():
     store = _FakeStore({
         "FROM grants WHERE": [{"active": 0, "expiring": 0}],
         "GROUP BY department": [{"department": "Codes", "revised_budget": 1.0, "ytd_expended": 0.5}],
@@ -124,4 +124,4 @@ class _BoomStore:
 def test_build_never_raises_records_errors():
     out = DashboardAggregator(_BoomStore()).build()
     assert out["kpis"] is None and out["timeline"] is None and out["tables"] is None
-    assert "kpis" in out["errors"]
+    assert set(out["errors"].keys()) == {"kpis", "timeline", "tables"}
