@@ -26,6 +26,7 @@ from src.config import Settings, get_settings
 from src.extraction.graph_extractor import GraphExtractor
 from src.extraction.sql_extractor import SQLExtractor
 from src.ingestion import chunker, classifier, detector, metadata
+from src.ingestion.names import normalize_person_name
 from src.ingestion.parsers import unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
@@ -190,7 +191,7 @@ class IngestionPipeline:
         self._embed_chunks(chunks)
 
         # Step 8: Route to stores (quarantined docs go to the vector store only)
-        self._store_chunks(chunks, path.name, doc_type, quarantined)
+        self._store_chunks(chunks, path.name, doc_type, quarantined, profile)
 
         # Record ingestion — period (quarter/year) and department come from the profile
         quarter, year = metadata._split_period(profile.period)
@@ -250,7 +251,7 @@ class IngestionPipeline:
             logger.error("Embedding failed: %s", e)
             raise
 
-    def _store_chunks(self, chunks: list[Chunk], source_file: str, doc_type, quarantined: bool) -> None:
+    def _store_chunks(self, chunks: list[Chunk], source_file: str, doc_type, quarantined: bool, profile=None) -> None:
         """Route chunks to the vector store (always) and — for confidently-typed
         documents — to the SQL and graph stores per the document type's targets.
 
@@ -287,7 +288,7 @@ class IngestionPipeline:
         # routes_to_sql() filter, which is a quarterly_report-era per-chunk gate):
         # registry types declare targets at the type level, and extract_for_type's
         # Pydantic schema + confidence filter already does the precision filtering.
-        extracted = self.sql_extractor.extract_for_type(chunks, doc_type)
+        extracted = self.sql_extractor.extract_for_type(chunks, doc_type, profile=profile)
         if extracted:
             self._write_typed_data(extracted, chunks, source_file, doc_type)
 
@@ -296,6 +297,12 @@ class IngestionPipeline:
         derive graph nodes from the same extracted dict. Graph failures are
         logged but never fail the SQL+vector writes."""
         chunk_id = chunks[0].chunk_id  # representative chunk for source reference
+
+        # Normalize council member names before SQL insert and graph derivation so
+        # both stores use canonical names and the member set dedupes correctly.
+        for v in extracted.get("votes", []):
+            if v.get("council_member"):
+                v["council_member"] = normalize_person_name(v["council_member"])
 
         # SQL — only keys the type declares as sql_targets; insert methods ignore
         # extra dict keys (e.g. source_text/confidence) via explicit column lists.
