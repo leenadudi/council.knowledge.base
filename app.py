@@ -16,6 +16,7 @@ import uuid
 from flask import Flask, jsonify, render_template, request, Response
 
 from src.config import get_settings
+from src.dashboard.aggregator import DashboardAggregator
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
@@ -184,6 +185,23 @@ def department_staff(department: str):
         return jsonify({"department": department, "staff": staff})
     except Exception as e:
         logger.exception("Staff lookup failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/dashboard")
+def dashboard():
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    return render_template("dashboard.html")
+
+
+@app.route("/dashboard/data")
+def dashboard_data():
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    try:
+        return jsonify(DashboardAggregator(_sql_store).build())
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
