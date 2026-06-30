@@ -636,7 +636,17 @@ function renderTimeline(tl) {
     groupOrder:   "id",
   };
 
-  new vis.Timeline(document.getElementById("timeline"), items, groups, options);
+  var timeline = new vis.Timeline(document.getElementById("timeline"), items, groups, options);
+
+  if (!grants.length) {
+    groups.update({ id: "grants", content: "Grants <span style='color:#9a978f;font-style:italic;font-size:11px'>— none yet</span>" });
+  }
+  if (!reports.length) {
+    groups.update({ id: "reports", content: "Reports <span style='color:#9a978f;font-style:italic;font-size:11px'>— none yet</span>" });
+  }
+  if (!resolutions.length) {
+    groups.update({ id: "resolutions", content: "Resolutions <span style='color:#9a978f;font-style:italic;font-size:11px'>— none yet</span>" });
+  }
 }
 
 /* ── Spending chart ─────────────────────────────────────── */
@@ -714,9 +724,16 @@ function renderTables(t) {
 
   var html = "";
 
+  var grantRows = (t.grants || []).map(function(r) {
+    return Object.assign({}, r, { amount: fmtMoney(r.amount) });
+  });
+  var spendRows = (t.spending_by_dept || []).map(function(r) {
+    return Object.assign({}, r, { revised_budget: fmtMoney(r.revised_budget), ytd_expended: fmtMoney(r.ytd_expended) });
+  });
+
   html += '<div class="detail-section"><h3>Grants</h3>';
   html += buildTable(
-    t.grants,
+    grantRows,
     ["grant_name", "department", "amount",          "start_date", "end_date", "status"],
     ["Grant Name", "Department", "Amount",           "Start",      "End",      "Status"]
   );
@@ -724,7 +741,7 @@ function renderTables(t) {
 
   html += '<div class="detail-section"><h3>Spending by Department</h3>';
   html += buildTable(
-    t.spending_by_dept,
+    spendRows,
     ["department", "revised_budget",  "ytd_expended"],
     ["Department", "Revised Budget",  "YTD Expended"]
   );
@@ -766,8 +783,21 @@ async function load() {
   }
 
   renderKpis(data.kpis);
-  renderTimeline(data.timeline);
-  renderSpend(data.timeline);
+
+  if (typeof vis === "undefined") {
+    showNotice("Charts failed to load (offline?). Timeline unavailable.");
+  } else {
+    try { renderTimeline(data.timeline); } catch(e) { showNotice("Timeline failed to render: " + e.message); }
+  }
+
+  if (typeof Chart === "undefined") {
+    document.getElementById("spend-empty").hidden = false;
+    document.getElementById("spendChart").style.display = "none";
+    showNotice("Charts failed to load (offline?). Spending chart unavailable.");
+  } else {
+    try { renderSpend(data.timeline); } catch(e) { showNotice("Spending chart failed to render: " + e.message); }
+  }
+
   renderTables(data.tables);
 }
 
