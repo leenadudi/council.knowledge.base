@@ -57,6 +57,7 @@ class DocumentType(BaseModel):
     chunking: ChunkingHints = Field(default_factory=ChunkingHints)
     extraction_schema: Optional[type] = None    # Pydantic model class used as the LLM extraction contract
     metadata_schema: Optional[type] = None
+    anchor_field: Optional[str] = None   # identifier that uniquely keys the single primary record in a one-record-per-document type (e.g. "resolution_number")
 
 
 # ---------------------------------------------------------------------------

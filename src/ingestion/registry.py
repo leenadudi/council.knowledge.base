@@ -30,6 +30,7 @@ _RESOLUTION = DocumentType(
     graph_targets=["Resolution", "Vendor", "CouncilMember"],
     chunking=ChunkingHints(keep_together=["whereas", "resolved"]),
     extraction_schema=ResolutionExtraction,
+    anchor_field="resolution_number",
 )
 
 _REGISTRY: dict[str, DocumentType] = {

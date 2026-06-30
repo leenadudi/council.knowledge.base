@@ -16,3 +16,11 @@ def test_every_registered_type_is_wellformed():
         assert dt.name and dt.description
         assert dt.content_vocab, f"{dt.name} has empty content_vocab"
         assert dt.name in KNOWN_TYPE_NAMES
+
+def test_resolution_has_anchor_field():
+    from src.ingestion.registry import get_document_type
+    assert get_document_type("resolution").anchor_field == "resolution_number"
+
+def test_quarterly_report_has_no_anchor_field():
+    from src.ingestion.registry import get_document_type
+    assert get_document_type("quarterly_report").anchor_field is None
