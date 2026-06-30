@@ -4,8 +4,774 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — City of Harrisburg, PA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=Spectral:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/vis-timeline/7.7.3/vis-timeline-graph2d.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-timeline/7.7.3/vis-timeline-graph2d.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:          #f1f0ec;
+  --white:       #ffffff;
+  --ink:         #1a1917;
+  --ink-2:       #4a4845;
+  --muted:       #6b6760;
+  --subtle:      #9a978f;
+  --lighter:     #c8c5bc;
+  --sidebar-bg:  #1b3a5c;
+  --primary:     #1b3a5c;
+  --accent:      #c4691e;
+  --green:       #2d6a4f;
+  --green-bg:    #eaf5ee;
+  --amber-bg:    #fef3e8;
+  --amber:       #8a4310;
+  --red-bg:      #fef0f0;
+  --red:         #a0302a;
+  --purple:      #6530a0;
+  --border:      rgba(26,25,23,0.12);
+  --border-2:    rgba(26,25,23,0.08);
+  --radius:      3px;
+  --font-sans:   'Outfit', system-ui, sans-serif;
+  --font-serif:  'Spectral', Georgia, serif;
+  --font-mono:   'JetBrains Mono', 'SF Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  width: 256px;
+  min-width: 256px;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+}
+
+.sidebar-brand {
+  padding: 32px 24px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brand-icon {
+  width: 36px; height: 36px;
+  background: rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-city {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.sidebar-brand-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  margin-top: 2px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 20px 12px 8px;
+  overflow-y: auto;
+}
+
+.nav-group-label {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  padding: 0 12px;
+  margin-bottom: 12px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+  margin-bottom: 2px;
+  text-decoration: none;
+}
+
+.nav-item:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.85);
+}
+
+.nav-item.active {
+  background: rgba(255,255,255,0.13);
+  color: #ffffff;
+}
+
+.nav-icon { width: 16px; height: 16px; flex-shrink: 0; color: rgba(255,255,255,0.4); }
+.nav-item.active .nav-icon { color: rgba(255,255,255,0.9); }
+.nav-item:hover .nav-icon { color: rgba(255,255,255,0.7); }
+
+.nav-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  display: none;
+}
+.nav-item.active .nav-arrow { display: block; }
+
+.sidebar-footer {
+  padding: 20px 24px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 4px;
+}
+
+.conn-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  flex-shrink: 0;
+}
+.conn-dot.ok    { background: #4ade80; }
+.conn-dot.error { background: #f87171; }
+
+.conn-ver {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.25);
+}
+
+/* ── Main ────────────────────────────────────────────── */
+.main {
+  margin-left: 256px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  height: 46px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.topbar-badge {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+}
+
+.content {
+  flex: 1;
+  padding: 32px 32px 48px;
+  max-width: 1100px;
+}
+
+/* ── Dashboard-specific ──────────────────────────────── */
+.page-header { margin-bottom: 28px; }
+
+.page-title {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 400;
+  color: var(--ink);
+  line-height: 1.25;
+  margin-bottom: 8px;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.section-heading {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--ink);
+  margin: 32px 0 14px;
+}
+
+/* KPI strip */
+.kpi-strip {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.kpi {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  min-width: 160px;
+  flex: 1;
+}
+
+.kpi-v {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--primary);
+  line-height: 1.1;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.kpi-t {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
+
+/* Timeline container */
+.timeline-wrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+#timeline {
+  min-height: 220px;
+}
+
+/* Chart */
+.chart-wrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 20px 14px;
+}
+
+/* Detail tables */
+.detail-section { margin-top: 32px; }
+
+.detail-section h3 {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.table-wrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 480px;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--subtle);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-2);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover td { background: #faf9f6; }
+
+/* Empty / muted state */
+.muted-empty {
+  padding: 28px 20px;
+  font-size: 13px;
+  color: var(--subtle);
+  font-style: italic;
+}
+
+/* Notice / error banner */
+.notice {
+  background: var(--amber-bg);
+  border: 1px solid rgba(138,67,16,0.2);
+  border-radius: var(--radius);
+  padding: 11px 16px;
+  font-size: 13px;
+  color: var(--amber);
+  margin-bottom: 20px;
+}
+
+.notice.error {
+  background: var(--red-bg);
+  border-color: rgba(160,48,42,0.2);
+  color: var(--red);
+}
+
+/* Spinner */
+.spinner-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 18px 0;
+}
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(26,25,23,0.15);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
 </head>
 <body>
-<h1>Dashboard</h1>
+
+<!-- ── Sidebar ─────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.4">
+        <rect x="1.5" y="1.5" width="6" height="6" rx="1"/>
+        <rect x="10.5" y="1.5" width="6" height="6" rx="1"/>
+        <rect x="1.5" y="10.5" width="6" height="6" rx="1"/>
+        <rect x="10.5" y="10.5" width="6" height="6" rx="1"/>
+      </svg>
+    </div>
+    <div>
+      <div class="sidebar-brand-city">City of Harrisburg, PA</div>
+      <div class="sidebar-brand-sub">Knowledge Management</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav" role="navigation">
+    <div class="nav-group-label">Navigation</div>
+
+    <a href="/" class="nav-item" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="7" cy="7" r="5.5"/>
+        <path d="M11 11l3 3"/>
+      </svg>
+      Query
+      <span class="nav-arrow">›</span>
+    </a>
+
+    <a href="/" class="nav-item" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 2.5h7l3 3V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5z"/>
+        <path d="M10 2.5V6h3.5"/>
+        <path d="M5.5 9h5M5.5 11h3"/>
+      </svg>
+      Document Library
+      <span class="nav-arrow">›</span>
+    </a>
+
+    <a href="/" class="nav-item" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 10.5V3.5M5 6l3-3 3 3"/>
+        <path d="M2.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1"/>
+      </svg>
+      Ingest Document
+      <span class="nav-arrow">›</span>
+    </a>
+
+    <a href="/" class="nav-item" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1.5" y="9" width="3.5" height="5.5" rx=".5"/>
+        <rect x="6.25" y="5.5" width="3.5" height="9" rx=".5"/>
+        <rect x="11" y="1.5" width="3.5" height="13" rx=".5"/>
+      </svg>
+      System Overview
+      <span class="nav-arrow">›</span>
+    </a>
+
+    <a href="/dashboard" class="nav-item active" role="button" tabindex="0" aria-current="page">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1.5" y="1.5" width="5.5" height="5.5" rx=".5"/>
+        <rect x="9" y="1.5" width="5.5" height="5.5" rx=".5"/>
+        <rect x="1.5" y="9" width="5.5" height="5.5" rx=".5"/>
+        <rect x="9" y="9" width="5.5" height="5.5" rx=".5"/>
+      </svg>
+      Dashboard
+      <span class="nav-arrow">›</span>
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="conn-row">
+      <span class="conn-dot ok"></span>
+      <span>Connected</span>
+    </div>
+    <div class="conn-ver">v2.4.1 · Production</div>
+  </div>
+</aside>
+
+<!-- ── Main ──────────────────────────────────────────── -->
+<main class="main">
+
+  <div class="topbar">
+    <span class="topbar-title">Municipal Knowledge Management System</span>
+    <span class="topbar-badge">FY 2026</span>
+  </div>
+
+  <div class="content">
+
+    <div class="page-header">
+      <h1 class="page-title">City Timeline Dashboard</h1>
+      <p class="page-subtitle">Grant activity, financial reporting, and resolutions across all departments.</p>
+    </div>
+
+    <!-- Notice banner (errors / fetch failures) -->
+    <div id="notice" class="notice" hidden></div>
+
+    <!-- Spinner while loading -->
+    <div class="spinner-row" id="dash-spinner">
+      <div class="spinner"></div>
+      <span>Loading dashboard data…</span>
+    </div>
+
+    <!-- KPI strip -->
+    <div id="kpis" class="kpi-strip"></div>
+
+    <!-- Timeline -->
+    <h2 class="section-heading">Timeline</h2>
+    <div class="timeline-wrap">
+      <div id="timeline"></div>
+    </div>
+
+    <!-- Spending chart -->
+    <h2 class="section-heading">Spending by Period</h2>
+    <div class="chart-wrap">
+      <canvas id="spendChart" height="120"></canvas>
+      <p class="muted-empty" id="spend-empty" hidden>No spending data yet.</p>
+    </div>
+
+    <!-- Detail tables -->
+    <div id="tables"></div>
+
+  </div><!-- /content -->
+</main>
+
+<script>
+/* ── helpers ──────────────────────────────────────────── */
+function fmtMoney(v) {
+  if (v == null || v === "") return "—";
+  return "$" + Number(v).toLocaleString();
+}
+
+function showNotice(msg, isError) {
+  const n = document.getElementById("notice");
+  n.hidden = false;
+  n.textContent = msg;
+  if (isError) n.classList.add("error");
+}
+
+function hideSpinner() {
+  document.getElementById("dash-spinner").style.display = "none";
+}
+
+/* ── KPI strip ──────────────────────────────────────────── */
+function renderKpis(k) {
+  if (!k) return;
+  const cov = k.report_coverage || { filed: 0, total_departments: 0 };
+  const expiring = k.grants_expiring_soon;
+  const grantLabel = k.active_grants != null
+    ? String(k.active_grants) + (expiring ? " (" + expiring + " expiring)" : "")
+    : "—";
+
+  const cards = [
+    ["Active Grants",       grantLabel],
+    ["YTD Spend",           fmtMoney(k.ytd_spend) + " / " + fmtMoney(k.revised_budget)],
+    ["Report Coverage",     cov.filed + " / " + cov.total_departments],
+    ["Resolutions",         k.resolutions_count != null ? k.resolutions_count : "—"],
+    ["Needs Review",        k.unclassified_docs != null ? k.unclassified_docs : "—"],
+  ];
+
+  document.getElementById("kpis").innerHTML = cards.map(function(c) {
+    return '<div class="kpi"><div class="kpi-v">' + c[1] +
+           '</div><div class="kpi-t">' + c[0] + '</div></div>';
+  }).join("");
+}
+
+/* ── Timeline ──────────────────────────────────────────── */
+function renderTimeline(tl) {
+  if (!tl) return;
+
+  var grants     = tl.grants      || [];
+  var reports    = tl.reports     || [];
+  var resolutions = tl.resolutions || [];
+
+  var groups = new vis.DataSet([
+    { id: "grants",      content: "Grants"      },
+    { id: "reports",     content: "Reports"     },
+    { id: "resolutions", content: "Resolutions" },
+  ]);
+
+  var items = new vis.DataSet();
+
+  grants.forEach(function(g) {
+    items.add({
+      group:   "grants",
+      id:      "g-" + g.id,
+      content: g.label || ("Grant " + g.id),
+      start:   g.start,
+      end:     g.end,
+      type:    "range",
+      title:   (g.department || "") + " &bull; " + fmtMoney(g.amount) + " &bull; " + (g.status || ""),
+    });
+  });
+
+  reports.forEach(function(r) {
+    items.add({
+      group:   "reports",
+      id:      "r-" + r.id,
+      content: r.department || ("Dept " + r.id),
+      start:   r.date,
+      type:    "point",
+      title:   (r.quarter || "") + " " + (r.year || "") + " &bull; " + (r.document_type || ""),
+    });
+  });
+
+  resolutions.forEach(function(x) {
+    items.add({
+      group:   "resolutions",
+      id:      "res-" + x.id,
+      content: x.label || ("Resolution " + x.id),
+      start:   x.date,
+      type:    "point",
+      title:   fmtMoney(x.amount) + " &bull; " + (x.status || ""),
+    });
+  });
+
+  var options = {
+    stack:        true,
+    zoomable:     true,
+    moveable:     true,
+    orientation:  { axis: "top" },
+    height:       "auto",
+    minHeight:    180,
+    groupOrder:   "id",
+  };
+
+  new vis.Timeline(document.getElementById("timeline"), items, groups, options);
+}
+
+/* ── Spending chart ─────────────────────────────────────── */
+function renderSpend(tl) {
+  var spending = (tl && tl.spending) || [];
+
+  if (!spending.length) {
+    document.getElementById("spend-empty").hidden = false;
+    document.getElementById("spendChart").style.display = "none";
+    return;
+  }
+
+  new Chart(document.getElementById("spendChart"), {
+    type: "bar",
+    data: {
+      labels:   spending.map(function(x) { return x.period; }),
+      datasets: [{
+        label:           "YTD Expended",
+        data:            spending.map(function(x) { return x.ytd_expended; }),
+        backgroundColor: "rgba(27,58,92,0.75)",
+        borderColor:     "rgba(27,58,92,1)",
+        borderWidth:     1,
+        borderRadius:    2,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              return " " + fmtMoney(ctx.parsed.y);
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: function(v) { return "$" + Number(v).toLocaleString(); },
+            font: { family: "'JetBrains Mono', monospace", size: 11 },
+          },
+          grid: { color: "rgba(26,25,23,0.06)" },
+        },
+        x: {
+          ticks: { font: { family: "'Outfit', sans-serif", size: 12 } },
+          grid:  { display: false },
+        },
+      },
+    },
+  });
+}
+
+/* ── Tables ─────────────────────────────────────────────── */
+function buildTable(rows, cols, labels) {
+  if (!rows || !rows.length) {
+    return '<div class="muted-empty">No data yet.</div>';
+  }
+  var hdrs = labels || cols;
+  var head = '<thead><tr>' + hdrs.map(function(h) {
+    return '<th>' + h + '</th>';
+  }).join("") + '</tr></thead>';
+  var body = '<tbody>' + rows.map(function(r) {
+    return '<tr>' + cols.map(function(c) {
+      var v = r[c];
+      return '<td>' + (v != null ? v : "—") + '</td>';
+    }).join("") + '</tr>';
+  }).join("") + '</tbody>';
+  return '<div class="table-wrap"><table class="data-table">' + head + body + '</table></div>';
+}
+
+function renderTables(t) {
+  if (!t) return;
+
+  var html = "";
+
+  html += '<div class="detail-section"><h3>Grants</h3>';
+  html += buildTable(
+    t.grants,
+    ["grant_name", "department", "amount",          "start_date", "end_date", "status"],
+    ["Grant Name", "Department", "Amount",           "Start",      "End",      "Status"]
+  );
+  html += '</div>';
+
+  html += '<div class="detail-section"><h3>Spending by Department</h3>';
+  html += buildTable(
+    t.spending_by_dept,
+    ["department", "revised_budget",  "ytd_expended"],
+    ["Department", "Revised Budget",  "YTD Expended"]
+  );
+  html += '</div>';
+
+  html += '<div class="detail-section"><h3>Recent Reports</h3>';
+  html += buildTable(
+    t.reports,
+    ["department", "quarter", "year", "document_type"],
+    ["Department", "Quarter", "Year", "Document Type"]
+  );
+  html += '</div>';
+
+  document.getElementById("tables").innerHTML = html;
+}
+
+/* ── Main load ──────────────────────────────────────────── */
+async function load() {
+  var data;
+  try {
+    var r = await fetch("/dashboard/data");
+    data = await r.json();
+  } catch (e) {
+    hideSpinner();
+    showNotice("Dashboard data unavailable. Please try again later.", true);
+    return;
+  }
+
+  hideSpinner();
+
+  if (data.error) {
+    showNotice(data.error, true);
+    return;
+  }
+
+  if (data.errors) {
+    var panels = Object.keys(data.errors).join(", ");
+    showNotice("Some panels failed to load: " + panels + ". Partial data shown.");
+  }
+
+  renderKpis(data.kpis);
+  renderTimeline(data.timeline);
+  renderSpend(data.timeline);
+  renderTables(data.tables);
+}
+
+load();
+</script>
 </body>
 </html>
