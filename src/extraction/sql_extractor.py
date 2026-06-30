@@ -160,33 +160,33 @@ class SQLExtractor:
         if not chunks or doc_type is None or doc_type.extraction_schema is None:
             return {}
 
-        # --- anchor setup ---
-        anchor_field = getattr(doc_type, "anchor_field", None)
-        anchor_value = None
-        anchor_block = ""
-        if anchor_field and profile is not None:
-            anchor_value = (profile.identifying_ids or {}).get(anchor_field)
-            if anchor_value:
-                anchor_block = (
-                    f"\nThis document is a SINGLE {doc_type.name}. Its {anchor_field} is "
-                    f"\"{anchor_value}\" (department: {profile.department or 'unknown'}, "
-                    f"period: {profile.period or 'unknown'}). Extract exactly ONE primary record "
-                    f"for THIS document plus its vote record. Do NOT invent additional "
-                    f"{doc_type.name}s or split it into multiple records.\n"
-                )
-
-        text = "\n\n---\n\n".join(c.text for c in chunks)
-        schema_json = json.dumps(doc_type.extraction_schema.model_json_schema())
-        prompt = (
-            f"You are a precise data extractor for City of Harrisburg '{doc_type.name}' documents.\n"
-            + anchor_block
-            + f"Extract structured data matching THIS JSON schema (return an object with these keys):\n"
-            f"{schema_json}\n\n"
-            "Rules: include a verbatim 'source_text' for every row; set 'confidence' to high|medium|low "
-            "and omit low-confidence rows; dollar amounts as plain numbers; dates YYYY-MM-DD or null. "
-            "Return ONLY the JSON object.\n\nText:\n---\n" + text + "\n---"
-        )
         try:
+            # --- anchor setup ---
+            anchor_field = getattr(doc_type, "anchor_field", None)
+            anchor_value = None
+            anchor_block = ""
+            if anchor_field and profile is not None:
+                anchor_value = (profile.identifying_ids or {}).get(anchor_field)
+                if anchor_value:
+                    anchor_block = (
+                        f"\nThis document is a SINGLE {doc_type.name}. Its {anchor_field} is "
+                        f"\"{anchor_value}\" (department: {profile.department or 'unknown'}, "
+                        f"period: {profile.period or 'unknown'}). Extract exactly ONE primary record "
+                        f"for THIS document plus its vote record. Do NOT invent additional "
+                        f"{doc_type.name}s or split it into multiple records.\n"
+                    )
+
+            text = "\n\n---\n\n".join(c.text for c in chunks)
+            schema_json = json.dumps(doc_type.extraction_schema.model_json_schema())
+            prompt = (
+                f"You are a precise data extractor for City of Harrisburg '{doc_type.name}' documents.\n"
+                + anchor_block
+                + f"Extract structured data matching THIS JSON schema (return an object with these keys):\n"
+                f"{schema_json}\n\n"
+                "Rules: include a verbatim 'source_text' for every row; set 'confidence' to high|medium|low "
+                "and omit low-confidence rows; dollar amounts as plain numbers; dates YYYY-MM-DD or null. "
+                "Return ONLY the JSON object.\n\nText:\n---\n" + text + "\n---"
+            )
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
                 max_tokens=2000,

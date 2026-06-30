@@ -68,3 +68,20 @@ def test_no_anchoring_without_profile():
     out = SQLExtractor(llm=_FakeClient(_PAYLOAD)).extract_for_type(
         [_chunk("...")], get_document_type("resolution"), profile=None)
     assert len(out["resolutions"]) == 2                      # unchanged behavior
+
+
+def test_guard_fallback_forces_anchor_on_rows_0_when_no_match():
+    # Neither row matches "9-2026", so the guard falls back to rows[0] and forces the field.
+    _PAYLOAD_NO_MATCH = json.dumps({
+        "resolutions": [
+            {"resolution_number": "1-2026", "amount": 500.0, "vendor": "ACME",
+             "source_text": "a", "confidence": "high"},
+            {"resolution_number": "2-2026", "amount": 700.0, "vendor": "CORP",
+             "source_text": "b", "confidence": "high"},
+        ],
+        "votes": [],
+    })
+    out = SQLExtractor(llm=_FakeClient(_PAYLOAD_NO_MATCH)).extract_for_type(
+        [_chunk("...")], get_document_type("resolution"), profile=_profile())
+    assert len(out["resolutions"]) == 1
+    assert out["resolutions"][0]["resolution_number"] == "9-2026"
