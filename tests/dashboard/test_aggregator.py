@@ -124,4 +124,43 @@ class _BoomStore:
 def test_build_never_raises_records_errors():
     out = DashboardAggregator(_BoomStore()).build()
     assert out["kpis"] is None and out["timeline"] is None and out["tables"] is None
-    assert set(out["errors"].keys()) == {"kpis", "timeline", "tables"}
+    assert out["departments"] is None and out["resolutions"] is None
+    assert set(out["errors"].keys()) == {"kpis", "timeline", "tables", "departments", "resolutions"}
+
+
+def test_build_departments_shape():
+    store = _FakeStore({
+        "DISTINCT department": [{"department": "Codes"}, {"department": "Fire"}],
+        "FROM expenditures GROUP BY department": [{"department": "Codes", "rb": 100.0, "ytd": 40.0}],
+        "quarterly_report' GROUP BY": [{"department": "Codes", "c": 4}],
+    })
+    depts = DashboardAggregator(store)._build_departments()
+    codes = next(d for d in depts if d["department"] == "Codes")
+    assert codes["revised_budget"] == 100.0 and codes["ytd_expended"] == 40.0 and codes["report_count"] == 4
+    fire = next(d for d in depts if d["department"] == "Fire")
+    assert fire["revised_budget"] == 0 and fire["report_count"] == 0   # no rows -> zeros
+
+
+def test_build_resolutions_shape():
+    import datetime
+    store = _FakeStore({"FROM resolutions ORDER BY": [
+        {"resolution_number": "9-2026", "title": "BUILD Grant", "status": "Passed",
+         "amount": 3000000.0, "vendor": "USDOT", "adopted_date": datetime.date(2026,1,27)}]})
+    r = DashboardAggregator(store)._build_resolutions()[0]
+    assert r["resolution_number"] == "9-2026" and r["amount"] == 3000000.0
+    assert r["adopted_date"] == "2026-01-27"    # ISO string
+
+
+def test_build_includes_new_panels():
+    store = _FakeStore({
+        "FROM grants WHERE": [{"active": 0, "expiring": 0}],
+        "FROM grants": [{"funds": 0}],
+        "FROM expenditures": [{"ytd": 0, "budget": 0}],
+        "MAX(year)": [{"year": None}], "FROM resolutions": [],
+        "document_type='unclassified'": [{"c": 0}],
+        "DISTINCT department": [], "GROUP BY department": [], "quarterly_report' GROUP BY": [],
+        "GROUP BY year, quarter": [], "FROM documents ORDER BY": [],
+    })
+    out = DashboardAggregator(store).build()
+    assert "departments" in out and "resolutions" in out
+    assert "grant_funds_active" in out["kpis"]

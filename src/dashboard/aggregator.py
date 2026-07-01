@@ -42,10 +42,16 @@ class DashboardAggregator:
                      COUNT(*) FILTER (WHERE LOWER(status) = ANY(%s) OR end_date >= %s) AS active,
                      COUNT(*) FILTER (WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)
                                        AND end_date IS NOT NULL AND end_date <= %s) AS expiring
-                   FROM grants""",
+                   FROM grants WHERE TRUE""",
                 (statuses, today, statuses, today, soon),
             )
             g = cur.fetchone() or {}
+            cur.execute(
+                "SELECT COALESCE(SUM(amount),0) AS funds FROM grants "
+                "WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)",
+                (statuses, today),
+            )
+            gf = cur.fetchone() or {}
             cur.execute(
                 "SELECT COALESCE(SUM(ytd_expended),0) AS ytd, COALESCE(SUM(revised_budget),0) AS budget FROM expenditures",
             )
@@ -72,6 +78,7 @@ class DashboardAggregator:
         return {
             "active_grants": int(g.get("active", 0) or 0),
             "grants_expiring_soon": int(g.get("expiring", 0) or 0),
+            "grant_funds_active": float(gf.get("funds", 0) or 0),
             "ytd_spend": float(e.get("ytd", 0) or 0),
             "revised_budget": float(e.get("budget", 0) or 0),
             "latest_period": latest,
@@ -193,6 +200,42 @@ class DashboardAggregator:
             "reports": clean(reports),
         }
 
+    # -- Departments ----------------------------------------------------------
+    def _build_departments(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT DISTINCT department FROM documents "
+                        "WHERE department IS NOT NULL AND department <> '' ORDER BY department")
+            depts = [r["department"] for r in cur.fetchall()]
+            cur.execute("SELECT department, COALESCE(SUM(revised_budget),0) AS rb, "
+                        "COALESCE(SUM(ytd_expended),0) AS ytd FROM expenditures GROUP BY department")
+            spend = {r["department"]: r for r in cur.fetchall()}
+            cur.execute("SELECT department, COUNT(*) AS c FROM documents "
+                        "WHERE document_type='quarterly_report' GROUP BY department")
+            reports = {r["department"]: r["c"] for r in cur.fetchall()}
+        out = []
+        for d in depts:
+            sp = spend.get(d) or {}
+            out.append({
+                "department": d,
+                "revised_budget": float(sp.get("rb") or 0),
+                "ytd_expended": float(sp.get("ytd") or 0),
+                "report_count": int(reports.get(d, 0) or 0),
+            })
+        return out
+
+    # -- Resolutions ----------------------------------------------------------
+    def _build_resolutions(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT resolution_number, title, status, amount, vendor, adopted_date "
+                        "FROM resolutions ORDER BY resolution_number")
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("amount") is not None:
+                r["amount"] = float(r["amount"])
+            if hasattr(r.get("adopted_date"), "isoformat"):
+                r["adopted_date"] = r["adopted_date"].isoformat()
+        return rows
+
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
         try:
@@ -210,6 +253,8 @@ class DashboardAggregator:
             "kpis": self._safe("kpis", self._build_kpis, errors),
             "timeline": self._safe("timeline", self._build_timeline, errors),
             "tables": self._safe("tables", self._build_tables, errors),
+            "departments": self._safe("departments", self._build_departments, errors),
+            "resolutions": self._safe("resolutions", self._build_resolutions, errors),
         }
         if errors:
             out["errors"] = errors
