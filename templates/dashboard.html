@@ -415,6 +415,9 @@ th.sortable.desc::after { content: "↓"; color: var(--accent); }
       </div>
       <div class="rule"></div>
 
+      <!-- notice bar (hidden until populated) -->
+      <div id="dash-notice" class="empty" hidden></div>
+
       <!-- ── KPI OVERVIEW ──────── -->
       <div class="kpi-strip" id="dash-kpis">
       </div>
@@ -665,6 +668,78 @@ th.sortable.desc::after { content: "↓"; color: var(--accent); }
     });
   });
 })();
+</script>
+<script>
+async function loadDashboard() {
+  let d;
+  try { const r = await fetch("/dashboard/data"); d = await r.json(); }
+  catch (e) { return notice("Dashboard data unavailable."); }
+  if (d.error) return notice(d.error);
+  if (d.errors) notice("Some panels failed: " + Object.keys(d.errors).join(", "));
+  renderKpis(d.kpis || {});
+  renderGrants((d.tables && d.tables.grants) || []);
+  renderDepartments(d.departments || []);
+  renderResolutions(d.resolutions || []);
+}
+function notice(msg){ let n=document.getElementById("dash-notice"); if(n){ n.hidden=false; n.textContent=msg; } }
+function money(v){ return v==null ? "—" : "$" + Number(v).toLocaleString(); }
+function cell(v){ return v==null||v==="" ? "—" : v; }
+
+function renderKpis(k){
+  const cov=k.report_coverage||{filed:0,total_departments:0};
+  const cards=[
+    ["Active grants", (k.active_grants??0)+(k.grants_expiring_soon?` <span class="unit">(${k.grants_expiring_soon} exp.)</span>`:""), "info"],
+    ["Grant funds active", money(k.grant_funds_active), "info"],
+    ["YTD spend", money(k.ytd_spend)+' <span class="unit">/ '+money(k.revised_budget)+"</span>", "info"],
+    ["Report coverage", `${cov.filed}<span class="unit">/${cov.total_departments}</span>`, "good"],
+    ["Resolutions", k.resolutions_count??0, "info"],
+  ];
+  const el=document.getElementById("dash-kpis");
+  if(el) el.innerHTML = cards.map(([l,v,c])=>
+    `<div class="kpi ${c}"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div></div>`).join("");
+}
+/* 7-col row for dash-grants-body (Grant, Dept, Status, Award, Match, Rollover, End date) */
+function grantRow(g){
+  return `<tr><td><div class="cell-strong">${cell(g.grant_name)}</div></td><td>${cell(g.department)}</td>
+    <td><span class="pill grey"><span class="tick"></span>${cell(g.status)}</span></td>
+    <td class="num">${money(g.amount)}</td><td>—</td><td class="num">—</td>
+    <td><span class="date-mono">${cell(g.end_date)}</span></td></tr>`;
+}
+/* 9-col row for grants-body (Grant, Source, Dept, Status, Award, Spent, Match, Rollover, End date) */
+function grantRowFull(g){
+  return `<tr><td><div class="cell-strong">${cell(g.grant_name)}</div></td><td>—</td><td>${cell(g.department)}</td>
+    <td><span class="pill grey"><span class="tick"></span>${cell(g.status)}</span></td>
+    <td class="num">${money(g.amount)}</td><td>—</td><td>—</td><td class="num">—</td>
+    <td><span class="date-mono">${cell(g.end_date)}</span></td></tr>`;
+}
+function renderGrants(rows){
+  const html7 = rows.length ? rows.map(grantRow).join("") :
+    `<tr><td colspan="7"><div class="empty">No grants found.</div></td></tr>`;
+  const html9 = rows.length ? rows.map(grantRowFull).join("") :
+    `<tr><td colspan="9"><div class="empty">No grants found.</div></td></tr>`;
+  const db=document.getElementById("dash-grants-body"); if(db) db.innerHTML=html7;
+  const gb=document.getElementById("grants-body"); if(gb) gb.innerHTML=html9;
+}
+function renderDepartments(rows){
+  const el=document.getElementById("departments-cards"); if(!el) return;
+  el.innerHTML = rows.length ? rows.map(r=>
+    `<div class="dept-card"><div class="dc-head"><div class="dc-name">${cell(r.department)}</div></div>
+      <div class="dc-stats">
+        <div class="dc-stat"><div class="v">${r.report_count??0}</div><div class="l">Reports</div></div>
+        <div class="dc-stat"><div class="v">${money(r.ytd_expended)}</div><div class="l">YTD spend</div></div>
+        <div class="dc-stat"><div class="v">${money(r.revised_budget)}</div><div class="l">Budget</div></div>
+      </div></div>`).join("") : `<div class="empty">No departments found.</div>`;
+}
+function renderResolutions(rows){
+  const el=document.getElementById("resolutions-body"); if(!el) return;
+  el.innerHTML = rows.length ? rows.map(r=>
+    `<tr><td class="cell-strong">${cell(r.resolution_number)}</td><td>${cell(r.title)}</td>
+      <td><span class="pill green"><span class="tick"></span>${cell(r.status)}</span></td>
+      <td class="num">${money(r.amount)}</td><td>${cell(r.vendor)}</td>
+      <td><span class="date-mono">${cell(r.adopted_date)}</span></td></tr>`).join("")
+    : `<tr><td colspan="6"><div class="empty">No resolutions ingested yet.</div></td></tr>`;
+}
+loadDashboard();
 </script>
 </body>
 </html>
