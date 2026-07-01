@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     garbled_ratio_threshold: float = 0.10
     text_per_page_threshold: int = 100   # chars/page below which vision LLM kicks in
 
+    # Tesseract OCR (scanned/low-text PDFs)
+    ocr_dpi: int = 200                    # render resolution for OCR
+    ocr_min_chars_per_page: int = 150     # below this, OCR is poor -> fall back to Vision LLM
+
     # Query clarity gate (soft-launch: logged only, not enforced)
     # Conservative by design: only flag genuinely unanswerable queries. Most
     # questions answer well, so a false "did you mean…?" is worse than answering.
