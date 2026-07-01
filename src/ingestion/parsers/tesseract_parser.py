@@ -24,8 +24,8 @@ def _ocr_image(image) -> str:
     Isolated so tests can mock it. Writes a temp PNG (matches the proven CLI invocation)."""
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
         tmp = tf.name
-        image.save(tmp, format="PNG")
     try:
+        image.save(tmp, format="PNG")
         proc = subprocess.run(["tesseract", tmp, "stdout"], capture_output=True, timeout=120)
         if proc.returncode != 0:
             raise RuntimeError(f"tesseract exit {proc.returncode}: {proc.stderr.decode('utf-8','replace')[:200]}")

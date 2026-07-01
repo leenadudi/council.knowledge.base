@@ -1,4 +1,3 @@
-import types
 from src.ingestion.parsers import tesseract_parser as tp
 from src.models import ParsedDocument, ParsedElement
 
@@ -44,3 +43,9 @@ def test_ocr_quality_ok_dense_text_true():
 
 def test_ocr_quality_ok_sparse_text_false():
     assert tp.ocr_quality_ok(_doc("short", pages=1)) is False    # < 150 chars/page
+
+
+def test_ocr_quality_ok_garbled_above_threshold_false():
+    # 200+ chars/page but text is heavily garbled (non-ASCII noise) -> _garbled_ratio fires
+    garble = "ÃÂ©ÃÂ«ÃÂ¿ÃÂ½âÂÂâÂÂÃÂ°ÃÂµ" * 20  # 160 chars, all garble
+    assert tp.ocr_quality_ok(_doc(garble, pages=1)) is False
