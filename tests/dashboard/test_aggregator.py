@@ -151,10 +151,20 @@ def test_build_resolutions_shape():
     assert r["adopted_date"] == "2026-01-27"    # ISO string
 
 
+def test_build_resolutions_none_passthrough():
+    """amount=None and adopted_date=None must pass through as None (UI renders as '—')."""
+    store = _FakeStore({"FROM resolutions ORDER BY": [
+        {"resolution_number": "10-2026", "title": "Pending Resolution", "status": "Pending",
+         "amount": None, "vendor": None, "adopted_date": None}]})
+    r = DashboardAggregator(store)._build_resolutions()[0]
+    assert r["amount"] is None, "None amount must not be coerced to 0.0"
+    assert r["adopted_date"] is None, "None adopted_date must not be coerced"
+
+
 def test_build_includes_new_panels():
     store = _FakeStore({
-        "FROM grants WHERE": [{"active": 0, "expiring": 0}],
-        "FROM grants": [{"funds": 0}],
+        "FILTER (WHERE": [{"active": 0, "expiring": 0}],
+        "SUM(amount)": [{"funds": 500000.0}],
         "FROM expenditures": [{"ytd": 0, "budget": 0}],
         "MAX(year)": [{"year": None}], "FROM resolutions": [],
         "document_type='unclassified'": [{"c": 0}],
@@ -163,4 +173,4 @@ def test_build_includes_new_panels():
     })
     out = DashboardAggregator(store).build()
     assert "departments" in out and "resolutions" in out
-    assert "grant_funds_active" in out["kpis"]
+    assert out["kpis"]["grant_funds_active"] == 500000.0

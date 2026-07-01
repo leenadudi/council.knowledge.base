@@ -42,7 +42,7 @@ class DashboardAggregator:
                      COUNT(*) FILTER (WHERE LOWER(status) = ANY(%s) OR end_date >= %s) AS active,
                      COUNT(*) FILTER (WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)
                                        AND end_date IS NOT NULL AND end_date <= %s) AS expiring
-                   FROM grants WHERE TRUE""",
+                   FROM grants""",
                 (statuses, today, statuses, today, soon),
             )
             g = cur.fetchone() or {}
