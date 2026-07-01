@@ -27,7 +27,7 @@ from src.extraction.graph_extractor import GraphExtractor
 from src.extraction.sql_extractor import SQLExtractor
 from src.ingestion import chunker, classifier, detector, metadata
 from src.ingestion.names import normalize_person_name
-from src.ingestion.parsers import unstructured_parser, vision_parser
+from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
 from src.ingestion.registry import get_document_type
@@ -226,8 +226,16 @@ class IngestionPipeline:
         return profile.confidence < self.cfg.profile_confidence_threshold
 
     def _parse_with_fallback(self, path: Path, doc_kind: str):
-        """Try Unstructured first for clean docs; fall back to Vision LLM if quality fails."""
+        """complex_pdf: Tesseract OCR first, fall back to Vision LLM on poor/failed OCR.
+        clean_text/word: Unstructured, with Vision fallback on quality failure."""
         if doc_kind == "complex_pdf":
+            try:
+                parsed = tesseract_parser.parse(path, self.cfg)
+                if tesseract_parser.ocr_quality_ok(parsed, self.cfg):
+                    return parsed
+                logger.info("OCR quality low for %s — falling back to Vision LLM", path.name)
+            except Exception as e:
+                logger.warning("Tesseract failed for %s: %s — falling back to Vision LLM", path.name, e)
             return vision_parser.parse(path, self.cfg)
 
         if doc_kind in ("clean_text_pdf", "word_doc"):
