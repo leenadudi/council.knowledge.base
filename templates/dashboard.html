@@ -683,7 +683,8 @@ async function loadDashboard() {
 }
 function notice(msg){ let n=document.getElementById("dash-notice"); if(n){ n.hidden=false; n.textContent=msg; } }
 function money(v){ return v==null ? "—" : "$" + Number(v).toLocaleString(); }
-function cell(v){ return v==null||v==="" ? "—" : v; }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cell(v){ return v==null||v==="" ? "—" : esc(v); }
 
 function renderKpis(k){
   const cov=k.report_coverage||{filed:0,total_departments:0};
