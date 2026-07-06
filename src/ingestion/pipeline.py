@@ -280,6 +280,25 @@ class IngestionPipeline:
                 sql_data = self.sql_extractor.extract_chunks_batched(sql_chunks)
                 self._write_sql_data(sql_data, sql_chunks, source_file)
 
+            # Department goals from the report's "Annual Goals" section (chunks that
+            # mention "goal"); written to the goals table. Idempotent via the
+            # delete_structured_rows cleanup on re-ingest.
+            goal_texts = [c.text for c in chunks if "goal" in c.text.lower()]
+            if goal_texts and profile is not None:
+                q, y = metadata._split_period(profile.period)
+                goal_rows = self.sql_extractor.extract_goals(
+                    goal_texts, department=profile.department or "", quarter=q or "", year=y)
+                if goal_rows:
+                    self.sql_store.insert_goal_rows(goal_rows, chunks[0].chunk_id, source_file)
+
+            # Grants: strict external-award extraction (excludes budget/spending lines).
+            grant_texts = [c.text for c in chunks if "grant" in c.text.lower()]
+            if grant_texts and profile is not None:
+                grant_rows = self.sql_extractor.extract_grants(
+                    grant_texts, department=profile.department or "")
+                if grant_rows:
+                    self.sql_store.insert_grant_rows(grant_rows, chunks[0].chunk_id, source_file)
+
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:
                 try:
@@ -290,6 +309,19 @@ class IngestionPipeline:
                 except Exception as e:
                     logger.warning("Graph store write failed (vector+SQL still complete): %s", e)
             return
+
+        # Budget docs are heterogeneous. Only the citywide annual budget
+        # (approved/proposed) has clean department-level appropriation tables worth
+        # extracting; bureau presentations, budget Q&A, and veto letters yield
+        # line-item noise, so those are searchable-only (chunks already embedded above).
+        if doc_type.name == "budget":
+            hay = f"{(profile.title if profile else '') or ''} {source_file}".lower()
+            is_annual = any(k in hay for k in (
+                "annual budget", "approved budget", "proposed budget", "budget proposal"))
+            if not is_annual:
+                logger.info("  → budget '%s' is not the annual budget → searchable-only "
+                            "(no appropriations extraction)", source_file)
+                return
 
         # Other known types (e.g. resolution): schema-driven extraction routed to
         # the type's declared SQL/graph targets. We pass ALL chunks (NOT the
@@ -318,6 +350,18 @@ class IngestionPipeline:
             self.sql_store.insert_resolution_rows(extracted["resolutions"], chunk_id, source_file)
         if "votes" in doc_type.sql_targets and extracted.get("votes"):
             self.sql_store.insert_vote_rows(extracted["votes"], chunk_id, source_file)
+        if "meetings" in doc_type.sql_targets and extracted.get("meetings"):
+            self.sql_store.insert_meeting_rows(extracted["meetings"], chunk_id, source_file)
+        if "meeting_actions" in doc_type.sql_targets and extracted.get("meeting_actions"):
+            # stamp each action with the session date so actions link back to the meeting
+            mdate = (extracted.get("meetings") or [{}])[0].get("meeting_date")
+            for a in extracted["meeting_actions"]:
+                a.setdefault("meeting_date", mdate)
+            self.sql_store.insert_meeting_action_rows(extracted["meeting_actions"], chunk_id, source_file)
+        if "legislation" in doc_type.sql_targets and extracted.get("legislation"):
+            self.sql_store.insert_legislation_rows(extracted["legislation"], chunk_id, source_file)
+        if "appropriations" in doc_type.sql_targets and extracted.get("appropriations"):
+            self.sql_store.insert_appropriation_rows(extracted["appropriations"], chunk_id, source_file)
 
         # Graph — derived from the SAME extracted dict (resolutions/votes → nodes).
         try:

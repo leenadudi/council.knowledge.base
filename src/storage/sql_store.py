@@ -126,12 +126,22 @@ class SQLStore:
                 (%(department)s, %(grant_name)s, %(grant_number)s, %(amount)s,
                  %(start_date)s, %(end_date)s, %(status)s, %(source_chunk_id)s, %(source_file)s)
         """
+        def _norm_date(v):
+            # accept only full YYYY-MM-DD; coerce year-only / garbage to NULL
+            if not v:
+                return None
+            try:
+                datetime.strptime(str(v), "%Y-%m-%d")
+                return str(v)
+            except (ValueError, TypeError):
+                return None
+
         with self.cursor() as cur:
             for row in rows:
                 row.setdefault("grant_number", None)
-                row.setdefault("start_date", None)
-                row.setdefault("end_date", None)
                 row.setdefault("status", None)
+                row["start_date"] = _norm_date(row.get("start_date"))
+                row["end_date"] = _norm_date(row.get("end_date"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
                 cur.execute(sql, row)
@@ -157,7 +167,11 @@ class SQLStore:
                     %(parser_used)s, %(total_chunks)s)
             ON CONFLICT (source_file) DO UPDATE
             SET reingested_at = NOW(), total_chunks = EXCLUDED.total_chunks,
-                parser_used = EXCLUDED.parser_used
+                parser_used = EXCLUDED.parser_used,
+                document_type = EXCLUDED.document_type,
+                department = EXCLUDED.department,
+                quarter = EXCLUDED.quarter,
+                year = EXCLUDED.year
         """
         with self.cursor() as cur:
             cur.execute(sql, {
@@ -194,10 +208,86 @@ class SQLStore:
                     r.get("vote"), source_chunk_id, source_file,
                 ))
 
+    def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO meetings
+              (meeting_date, session_type, president, members_present,
+               members_present_names, members_absent_names, call_to_order, adjourned,
+               source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
+                    r.get("members_present"), r.get("members_present_names"),
+                    r.get("members_absent_names"), r.get("call_to_order"), r.get("adjourned"),
+                    source_chunk_id, source_file,
+                ))
+
+    def insert_meeting_action_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO meeting_actions
+              (meeting_date, item_type, item_number, title, action, committee,
+               source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
+                    r.get("title"), r.get("action"), r.get("committee"),
+                    source_chunk_id, source_file,
+                ))
+
+    def insert_legislation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO legislation
+              (bill_number, title, sponsor, amount, adopted_date, status,
+               source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
+                    r.get("adopted_date") or None, r.get("status"),
+                    source_chunk_id, source_file,
+                ))
+
+    def insert_appropriation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO appropriations
+              (department, fiscal_year, fund, category, amount, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("department"), r.get("fiscal_year"), r.get("fund"),
+                    r.get("category"), r.get("amount"), source_chunk_id, source_file,
+                ))
+
+    def insert_goal_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO goals
+              (department, year, quarter, goal_title, description, target, status,
+               source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("department"), r.get("year"), r.get("quarter"),
+                    r.get("goal_title"), r.get("description"), r.get("target"), r.get("status"),
+                    source_chunk_id, source_file,
+                ))
+
     def delete_structured_rows(self, source_file: str) -> None:
         """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants", "resolutions", "votes"]:
+            for table in ["expenditures", "metrics", "grants", "resolutions", "votes",
+                          "meetings", "meeting_actions", "legislation", "appropriations", "goals"]:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
             cur.execute("""
                 DELETE FROM vacancies WHERE source_chunk_id IN (

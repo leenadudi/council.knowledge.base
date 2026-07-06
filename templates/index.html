@@ -674,11 +674,11 @@ body {
   white-space: nowrap;
 }
 .cat-budget          { background: #e8f0fb; color: var(--primary); }
-.cat-meeting-minutes { background: #f3eefc; color: var(--purple); }
-.cat-zoning          { background: var(--amber-bg); color: var(--amber); }
-.cat-planning        { background: var(--green-bg); color: var(--green); }
-.cat-policy          { background: var(--red-bg); color: var(--red); }
-.cat-community       { background: #fef8e8; color: #7a5e0a; }
+.cat-resolution      { background: var(--green-bg); color: var(--green); }
+.cat-minutes         { background: #f3eefc; color: var(--purple); }
+.cat-legislation     { background: var(--amber-bg); color: var(--amber); }
+.cat-quarterly       { background: #e6f3f1; color: #0f6e63; }
+.cat-unclassified    { background: var(--red-bg); color: var(--red); }
 .cat-default         { background: var(--bg); color: var(--muted); }
 
 .status-badge {
@@ -1048,6 +1048,24 @@ body {
   white-space: nowrap;
   flex-shrink: 0;
 }
+.batch-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid rgba(160,48,42,0.25);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+}
+.batch-stop-btn:hover { background: rgba(160,48,42,0.16); }
+.batch-stop-btn:disabled { opacity: 0.55; cursor: default; }
 .batch-progress-track {
   height: 5px;
   background: var(--border-2);
@@ -1314,6 +1332,80 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ══════════ Civic dashboard tabs (scoped under .civic) ══════════ */
+.civic {
+  --c-white:#fff; --c-ink:#1a1917; --c-ink2:#4a4845; --c-muted:#6b6760;
+  --c-subtle:#9a978f; --c-lighter:#c8c5bc; --c-primary:#1b3a5c; --c-accent:#0f6e63;
+  --c-green:#2d6a4f; --c-green-bg:#eaf5ee; --c-amber:#8a5a00; --c-amber-bg:#fbf2da;
+  --c-red:#a0302a; --c-red-bg:#fef0f0; --c-blue-bg:#eaf0f7;
+  --c-bg:#f1f0ec; --c-border:rgba(26,25,23,0.12); --c-border2:rgba(26,25,23,0.08); --c-rad:3px;
+  --c-serif:'Spectral',Georgia,serif; --c-mono:'JetBrains Mono','SF Mono',ui-monospace,monospace;
+  color:var(--c-ink); font-size:14px; line-height:1.5;
+}
+.civic .page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:8px; }
+.civic .page-title { font-family:var(--c-serif); font-size:27px; font-weight:500; letter-spacing:-0.01em; color:var(--c-ink); margin:0; }
+.civic .page-sub { color:var(--c-muted); font-size:13px; margin-top:3px; }
+.civic .fy-select, .civic .select {
+  font-family:inherit; font-size:12.5px; color:var(--c-ink); background:var(--c-white);
+  border:1px solid var(--c-border); border-radius:var(--c-rad); padding:7px 11px; cursor:pointer;
+}
+.civic .rule { height:1px; background:var(--c-border); margin:20px 0 26px; }
+.civic .kpi-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:40px; }
+.civic .kpi { background:var(--c-white); border:1px solid var(--c-border2); border-radius:var(--c-rad); padding:16px 16px 15px; position:relative; display:flex; flex-direction:column; gap:4px; }
+.civic .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:var(--c-rad) 0 0 var(--c-rad); background:var(--c-lighter); }
+.civic .kpi.good::before { background:var(--c-green); }
+.civic .kpi.info::before { background:var(--c-primary); }
+.civic .kpi-label { font-size:10.5px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--c-muted); }
+.civic .kpi-value { font-family:var(--c-mono); font-size:25px; font-weight:500; line-height:1.1; font-variant-numeric:tabular-nums; }
+.civic .kpi-value .unit { font-size:14px; color:var(--c-subtle); margin-left:1px; }
+.civic .section { margin-bottom:46px; }
+.civic .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.civic .section-title { font-family:var(--c-serif); font-size:19px; font-weight:500; margin:0; }
+.civic .section-note { font-size:12px; color:var(--c-muted); }
+.civic .section-note a, .civic .link { color:var(--c-accent); text-decoration:none; font-weight:500; cursor:pointer; }
+.civic .section-note a:hover, .civic .link:hover { text-decoration:underline; }
+.civic .panel { background:var(--c-white); border:1px solid var(--c-border2); border-radius:var(--c-rad); padding:18px 20px; }
+.civic .panel-label { font-size:10.5px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--c-muted); margin-bottom:14px; }
+.civic .pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:500; padding:2px 9px; border-radius:999px; white-space:nowrap; line-height:1.6; }
+.civic .pill .tick { width:5px; height:5px; border-radius:50%; background:currentColor; }
+.civic .pill.green { background:var(--c-green-bg); color:var(--c-green); }
+.civic .pill.red { background:var(--c-red-bg); color:var(--c-red); }
+.civic .pill.grey { background:rgba(26,25,23,0.06); color:var(--c-muted); }
+.civic .kpi.crit::before { background:var(--c-red); }
+.civic .table-wrap { overflow-x:auto; }
+.civic table.data { width:100%; border-collapse:collapse; font-size:13px; }
+.civic table.data th { text-align:left; font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--c-muted); padding:0 14px 9px; border-bottom:1px solid var(--c-border); white-space:nowrap; }
+.civic table.data td { padding:12px 14px; border-bottom:1px solid var(--c-border2); vertical-align:middle; }
+.civic table.data tr:last-child td { border-bottom:none; }
+.civic table.data tr:hover td { background:rgba(26,25,23,0.015); }
+.civic td.num { font-family:var(--c-mono); text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.civic th.num { text-align:right; }
+.civic .cell-strong { font-weight:500; color:var(--c-ink); }
+.civic .date-mono { font-family:var(--c-mono); font-size:12px; color:var(--c-ink2); white-space:nowrap; }
+.civic .empty { color:var(--c-subtle); font-size:13px; font-style:italic; padding:8px 0; }
+.civic .dept-goals { margin-bottom:16px; }
+.civic .dept-goals .panel-label { font-family:var(--c-serif); font-size:15px; font-weight:500; text-transform:none; letter-spacing:0; color:var(--c-primary); margin-bottom:6px; }
+.civic .goal-item { padding:13px 0; border-bottom:1px solid var(--c-border2); }
+.civic .goal-item:last-child { border-bottom:none; }
+.civic .goal-title { font-weight:600; font-size:13.5px; color:var(--c-ink); }
+.civic .goal-desc { font-size:12.5px; color:var(--c-muted); margin-top:3px; line-height:1.5; }
+.civic .goal-target { display:inline-block; margin-top:7px; font-family:var(--c-mono); font-size:11px; color:var(--c-green); background:var(--c-green-bg); padding:2px 9px; border-radius:999px; }
+.civic .dept-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; }
+.civic .dept-card { background:var(--c-white); border:1px solid var(--c-border2); border-radius:var(--c-rad); padding:18px 20px; display:flex; flex-direction:column; gap:15px; }
+.civic .dc-name { font-family:var(--c-serif); font-size:16px; font-weight:500; line-height:1.25; }
+.civic .dc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; border-top:1px solid var(--c-border2); padding-top:14px; }
+.civic .dc-stat .v { font-family:var(--c-mono); font-size:18px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums; }
+.civic .dc-stat .l { font-size:9.5px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:var(--c-muted); margin-top:6px; }
+.civic .civ-loading { display:flex; align-items:center; justify-content:center; gap:10px; color:var(--c-muted); font-size:13px; padding:26px 0; }
+.civic .civ-spin { width:16px; height:16px; border:2px solid var(--c-border); border-top-color:var(--c-accent); border-radius:50%; animation:civspin .7s linear infinite; flex-shrink:0; }
+@keyframes civspin { to { transform:rotate(360deg); } }
+.civic .kpi.skeleton .kpi-value, .civic .kpi.skeleton .kpi-label { border-radius:3px; background:linear-gradient(90deg,var(--c-border2) 25%,rgba(26,25,23,0.03) 37%,var(--c-border2) 63%); background-size:400% 100%; animation:civshimmer 1.4s ease infinite; color:transparent; }
+.civic .kpi.skeleton .kpi-label { width:60%; height:11px; } .civic .kpi.skeleton .kpi-value { width:80%; height:25px; margin-top:4px; }
+@keyframes civshimmer { 0%{background-position:100% 0;} 100%{background-position:-100% 0;} }
+@media (prefers-reduced-motion: reduce){ .civic .civ-spin, .civic .kpi.skeleton .kpi-value, .civic .kpi.skeleton .kpi-label { animation:none; } }
+@media (max-width:1080px){ .civic .kpi-strip { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:760px){ .civic .kpi-strip { grid-template-columns:repeat(2,1fr); } }
 </style>
 </head>
 <body>
@@ -1336,16 +1428,64 @@ body {
   </div>
 
   <nav class="sidebar-nav" role="navigation">
-    <div class="nav-group-label">Navigation</div>
-
     <div class="nav-item active" data-tab="ask" role="button" tabindex="0" aria-current="page">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
         <circle cx="7" cy="7" r="5.5"/>
         <path d="M11 11l3 3"/>
       </svg>
-      Query
+      Ask a question
       <span class="nav-arrow">›</span>
     </div>
+
+    <div class="nav-group-label" style="margin-top:18px;">Knowledge Base</div>
+
+    <div class="nav-item" data-tab="overview" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1.5" y="1.5" width="5.5" height="5.5" rx=".5"/>
+        <rect x="9" y="1.5" width="5.5" height="5.5" rx=".5"/>
+        <rect x="1.5" y="9" width="5.5" height="5.5" rx=".5"/>
+        <rect x="9" y="9" width="5.5" height="5.5" rx=".5"/>
+      </svg>
+      Dashboard
+      <span class="nav-arrow">›</span>
+    </div>
+
+    <div class="nav-item" data-tab="actions" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3.5 2.5h6l3 3V13a.5.5 0 0 1-.5.5h-8.5A.5.5 0 0 1 3 13V3a.5.5 0 0 1 .5-.5z"/>
+        <path d="M6 7.5h4M6 10h4"/>
+      </svg>
+      Council Actions
+      <span class="nav-arrow">›</span>
+    </div>
+
+    <div class="nav-item" data-tab="minutes" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="2.5" width="10" height="11" rx=".5"/>
+        <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/>
+      </svg>
+      Meetings
+      <span class="nav-arrow">›</span>
+    </div>
+
+    <div class="nav-item" data-tab="money" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 1.5v13M4.5 4.5h5.5a2 2 0 0 1 0 4H6a2 2 0 0 0 0 4h6"/>
+      </svg>
+      Money
+      <span class="nav-arrow">›</span>
+    </div>
+
+    <div class="nav-item" data-tab="departments" role="button" tabindex="0">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2.5" y="6" width="11" height="8" rx=".5"/>
+        <path d="M5.5 6V3.5h5V6M7 9h2M7 11.5h2"/>
+      </svg>
+      Departments
+      <span class="nav-arrow">›</span>
+    </div>
+
+    <div class="nav-group-label" style="margin-top:18px;">Tools</div>
 
     <div class="nav-item" data-tab="documents" role="button" tabindex="0">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1365,27 +1505,6 @@ body {
       Ingest Document
       <span class="nav-arrow">›</span>
     </div>
-
-    <div class="nav-item" data-tab="dashboard" role="button" tabindex="0">
-      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="1.5" y="9" width="3.5" height="5.5" rx=".5"/>
-        <rect x="6.25" y="5.5" width="3.5" height="9" rx=".5"/>
-        <rect x="11" y="1.5" width="3.5" height="13" rx=".5"/>
-      </svg>
-      System Overview
-      <span class="nav-arrow">›</span>
-    </div>
-
-    <a href="/dashboard" class="nav-item" role="button" tabindex="0">
-      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="1.5" y="1.5" width="5.5" height="5.5" rx=".5"/>
-        <rect x="9" y="1.5" width="5.5" height="5.5" rx=".5"/>
-        <rect x="1.5" y="9" width="5.5" height="5.5" rx=".5"/>
-        <rect x="9" y="9" width="5.5" height="5.5" rx=".5"/>
-      </svg>
-      Dashboard
-      <span class="nav-arrow">›</span>
-    </a>
   </nav>
 
   <div class="sidebar-footer">
@@ -1410,8 +1529,8 @@ body {
     <!-- ── Query ──────────────────────────────────── -->
     <section class="tab-section active" id="tab-ask">
       <div class="page-header">
-        <h1 class="page-title">Knowledge Base Query</h1>
-        <p class="page-subtitle">Search across council meeting minutes, policies, budgets, and planning documents using natural language.</p>
+        <h1 class="page-title">Ask about the City of Harrisburg</h1>
+        <p class="page-subtitle">Get cited answers from council records — resolutions, budgets, grants, goals, and meeting minutes. Ask in plain language.</p>
       </div>
 
       <div class="search-bar">
@@ -1442,33 +1561,33 @@ body {
       <div id="suggestions-wrap">
         <div class="section-eyebrow">Suggested Queries</div>
         <div class="query-grid">
-          <button class="query-card" data-q="What are the current zoning regulations for commercial districts?">
+          <button class="query-card" data-q="Which resolutions authorized spending, and how much?">
             <svg class="query-card-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="6.5"/>
               <path d="M8 5v3.5l2 2"/>
             </svg>
-            What are the current zoning regulations for commercial districts?
+            Which resolutions authorized spending, and how much?
           </button>
-          <button class="query-card" data-q="Show me the 2026 budget breakdown by department">
+          <button class="query-card" data-q="What grants does the city currently have?">
             <svg class="query-card-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="6.5"/>
               <path d="M8 5v3.5l2 2"/>
             </svg>
-            Show me the 2026 budget breakdown by department
+            What grants does the city currently have?
           </button>
-          <button class="query-card" data-q="What environmental initiatives are planned for next year?">
+          <button class="query-card" data-q="What are the Bureau of Fire's 2026 goals?">
             <svg class="query-card-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="6.5"/>
               <path d="M8 5v3.5l2 2"/>
             </svg>
-            What environmental initiatives are planned for next year?
+            What are the Bureau of Fire's 2026 goals?
           </button>
-          <button class="query-card" data-q="Meeting minutes from February council session">
+          <button class="query-card" data-q="How much has each department spent against its budget?">
             <svg class="query-card-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="8" cy="8" r="6.5"/>
               <path d="M8 5v3.5l2 2"/>
             </svg>
-            Meeting minutes from February council session
+            How much has each department spent against its budget?
           </button>
         </div>
       </div>
@@ -1609,6 +1728,10 @@ body {
             <div class="batch-progress-header">
               <span class="batch-progress-label" id="batch-progress-label">Processing…</span>
               <span class="batch-progress-count" id="batch-progress-count"></span>
+              <button class="batch-stop-btn" id="batch-stop-btn" type="button" title="Stop after the current file finishes">
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5"/></svg>
+                Stop
+              </button>
             </div>
             <div class="batch-progress-track">
               <div class="batch-progress-fill" id="batch-progress-fill"></div>
@@ -1818,6 +1941,126 @@ body {
       </div>
     </section>
 
+    <!-- ══════════ CIVIC · DASHBOARD OVERVIEW ══════════ -->
+    <section class="tab-section" id="tab-overview" style="max-width:1180px">
+      <div class="civic">
+        <div class="page-head">
+          <div>
+            <h1 class="page-title">Dashboard</h1>
+            <div class="page-sub">The state of the city at a glance — grants, resolutions, departments</div>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div id="civ-notice" class="empty" hidden></div>
+        <div class="kpi-strip" id="civ-kpis"></div>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Grant lifecycle</div>
+            <div class="section-note"><a onclick="activateTab('money');return false;">View all grants →</a></div>
+          </div>
+          <div class="panel" style="padding:18px 20px 8px;">
+            <div class="panel-label">Active grants</div>
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>End date</th></tr></thead>
+                <tbody id="civ-dash-grants-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div class="section-title">Resolutions</div>
+            <div class="section-note"><a onclick="activateTab('actions');return false;">View all →</a></div>
+          </div>
+          <div class="panel" style="padding:18px 20px 8px;">
+            <div class="panel-label">Recent resolutions</div>
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Resolution</th><th>Title</th><th>Status</th><th class="num">Amount</th><th>Vendor</th><th>Adopted</th></tr></thead>
+                <tbody id="civ-dash-res-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ══════════ CIVIC · MONEY (budget vs actual + grants) ══════════ -->
+    <section class="tab-section" id="tab-money" style="max-width:1180px">
+      <div class="civic">
+        <div class="page-head"><div><h1 class="page-title">Money</h1><div class="page-sub">Budget vs. actual spending, council-authorized amounts, and grants</div></div><div class="page-meta"><select class="fy-select civ-dept-select" onchange="civApplyDept(this.value)" aria-label="Filter by department"></select></div></div>
+        <div class="rule"></div>
+        <div class="kpi-strip" id="civ-money-kpis" style="grid-template-columns:repeat(4,1fr);"></div>
+        <div class="panel" style="padding:18px 20px 8px; margin-bottom:20px;">
+          <div class="panel-label">Budget vs. actual — by department (YTD)</div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Department</th><th class="num">Revised budget</th><th class="num">YTD spent</th><th class="num">% used</th><th>Status</th></tr></thead>
+              <tbody id="civ-budget-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="padding:18px 20px 8px;">
+          <div class="panel-label">Grants — external awards</div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>End date</th></tr></thead>
+              <tbody id="civ-grants-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ CIVIC · COUNCIL ACTIONS (resolutions + legislation) ══════════ -->
+    <section class="tab-section" id="tab-actions" style="max-width:1180px">
+      <div class="civic">
+        <div class="page-head"><div><h1 class="page-title">Council Actions</h1><div class="page-sub">Resolutions &amp; legislation — council-wide record of what was authorized and passed</div></div></div>
+        <div class="rule"></div>
+        <div class="panel" style="padding:18px 20px 8px; margin-bottom:20px;">
+          <div class="panel-label">Resolutions — authorizations</div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Resolution</th><th>Title</th><th>Status</th><th class="num">Amount</th><th>Vendor</th><th>Adopted</th></tr></thead>
+              <tbody id="civ-resolutions-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="padding:18px 20px 8px;">
+          <div class="panel-label">Legislation — ordinances &amp; bills</div>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Bill</th><th>Title</th><th>Sponsor</th><th>Status</th><th class="num">Amount</th><th>Adopted</th></tr></thead>
+              <tbody id="civ-legislation-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ CIVIC · MEETINGS ══════════ -->
+    <section class="tab-section" id="tab-minutes" style="max-width:1180px">
+      <div class="civic">
+        <div class="page-head"><div><h1 class="page-title">Meetings</h1><div class="page-sub">Council legislative sessions — attendance and actions taken</div></div></div>
+        <div class="rule"></div>
+        <div id="civ-minutes"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ CIVIC · DEPARTMENTS (+ goals) ══════════ -->
+    <section class="tab-section" id="tab-departments" style="max-width:1180px">
+      <div class="civic">
+        <div class="page-head"><div><h1 class="page-title">Departments</h1><div class="page-sub">Each department's footprint — reporting, spend, and goals</div></div><div class="page-meta"><select class="fy-select civ-dept-select" onchange="civApplyDept(this.value)" aria-label="Filter by department"></select></div></div>
+        <div class="rule"></div>
+        <div class="dept-cards" id="civ-departments-cards"></div>
+        <div class="section-head" style="margin:34px 0 16px;"><div class="section-title">Department goals</div></div>
+        <div id="civ-goals"></div>
+      </div>
+    </section>
+
   </div><!-- .content -->
 
 
@@ -1877,16 +2120,29 @@ function renderMarkdown(raw) {
 
 function catClass(type) {
   if (!type) return 'cat-default';
-  const t = type.toLowerCase().replace(/\s+/g, '-');
+  const t = type.toLowerCase().replace(/\s+/g, '_');
   const map = {
     'budget': 'cat-budget',
-    'meeting-minutes': 'cat-meeting-minutes',
-    'zoning': 'cat-zoning',
-    'planning': 'cat-planning',
-    'policy': 'cat-policy',
-    'community': 'cat-community',
+    'resolution': 'cat-resolution',
+    'minutes': 'cat-minutes',
+    'legislation': 'cat-legislation',
+    'quarterly_report': 'cat-quarterly',
+    'unclassified': 'cat-unclassified',
   };
   return map[t] || 'cat-default';
+}
+function catLabel(type) {
+  if (!type) return '—';
+  const t = type.toLowerCase().replace(/\s+/g, '_');
+  const map = {
+    'budget': 'Budget',
+    'resolution': 'Resolution',
+    'minutes': 'Minutes',
+    'legislation': 'Legislation',
+    'quarterly_report': 'Quarterly Report',
+    'unclassified': 'Unclassified',
+  };
+  return map[t] || type;
 }
 
 // ── Health check ──────────────────────────────────────────
@@ -1921,6 +2177,8 @@ const navItems    = document.querySelectorAll('.nav-item[data-tab]');
 const tabSections = document.querySelectorAll('.tab-section');
 let documentsLoaded = false;
 let dashboardLoaded = false;
+let civicLoaded = false;
+const CIVIC_TABS = ['overview','actions','minutes','money','departments'];
 
 function activateTab(tabId) {
   navItems.forEach(n => {
@@ -1931,6 +2189,7 @@ function activateTab(tabId) {
   tabSections.forEach(s => s.classList.toggle('active', s.id === 'tab-' + tabId));
   if (tabId === 'documents') loadDocuments();
   if (tabId === 'dashboard'  && !dashboardLoaded)  loadDashboard();
+  if (CIVIC_TABS.includes(tabId) && !civicLoaded) { civicLoaded = true; loadCivic(); }
 }
 
 navItems.forEach(item => {
@@ -2083,12 +2342,19 @@ async function sendFeedback(payload) {
 let allDocuments        = [];
 let activeFilter        = 'All';
 let docSearchQuery      = '';
-let documentTypesLoaded = false;
-
-function bindFilterPills() {
-  document.querySelectorAll('.filter-pill').forEach(pill => {
+// Filter pills are built from the document types ACTUALLY present in the library,
+// deduped — not from a hand-maintained registry table (which had drifted to three
+// duplicate "Quarterly Report" rows and knew nothing of the newer types).
+function buildFilterPills() {
+  const container = document.getElementById('filter-pills');
+  if (!container) return;
+  const types = [...new Set(allDocuments.map(d => d.document_type).filter(Boolean))].sort();
+  container.innerHTML =
+    `<button class="filter-pill${activeFilter === 'All' ? ' active' : ''}" data-filter="All">All</button>` +
+    types.map(t => `<button class="filter-pill${activeFilter === t ? ' active' : ''}" data-filter="${t}">${catLabel(t)}</button>`).join('');
+  container.querySelectorAll('.filter-pill').forEach(pill => {
     pill.addEventListener('click', () => {
-      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      container.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
       pill.classList.add('active');
       activeFilter = pill.dataset.filter;
       filterAndRenderDocs();
@@ -2096,31 +2362,7 @@ function bindFilterPills() {
   });
 }
 
-// Bind the static "All" pill on page load
-bindFilterPills();
-
-async function loadDocumentTypes() {
-  try {
-    const res = await fetch(`${API_BASE}/document-types`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const container = document.getElementById('filter-pills');
-    (data.types || []).forEach(({ type_name, display_name }) => {
-      const btn = document.createElement('button');
-      btn.className = 'filter-pill';
-      btn.dataset.filter = type_name;
-      btn.textContent = display_name || type_name;
-      container.appendChild(btn);
-    });
-    bindFilterPills();
-  } catch { /* non-fatal — filters just stay as "All" */ }
-}
-
 async function loadDocuments() {
-  if (!documentTypesLoaded) {
-    documentTypesLoaded = true;
-    await loadDocumentTypes();
-  }
   document.getElementById('docs-spinner').classList.add('on');
   document.getElementById('docs-err').classList.remove('on');
   document.getElementById('doc-table-wrap').style.display = 'none';
@@ -2132,6 +2374,7 @@ async function loadDocuments() {
     const data = await res.json();
     allDocuments = data.documents || [];
     updateLibStats();
+    buildFilterPills();
     filterAndRenderDocs();
   } catch (err) {
     const banner = document.getElementById('docs-err');
@@ -2198,7 +2441,7 @@ function renderDocumentRows(docs) {
         <div class="doc-title-name">${esc(title)}</div>
         ${d.department ? `<div class="doc-title-dept">${esc(d.department)}</div>` : ''}
       </td>
-      <td>${cat ? `<span class="cat-badge ${catClass(cat)}">${esc(cat)}</span>` : '—'}</td>
+      <td>${cat ? `<span class="cat-badge ${catClass(cat)}">${esc(catLabel(cat))}</span>` : '—'}</td>
       <td style="color:var(--subtle);white-space:nowrap;font-size:12px">${date}</td>
       <td style="color:var(--subtle);font-family:var(--font-mono);font-size:12px">${d.total_chunks ?? '—'}</td>
       <td>
@@ -2209,11 +2452,6 @@ function renderDocumentRows(docs) {
       </td>
       <td style="text-align:right">
         <div class="action-btns" style="justify-content:flex-end">
-          <button class="btn-icon" title="Download" aria-label="Download">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M8 3v7M5 7l3 3 3-3"/><path d="M2.5 12.5v1a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5v-1"/>
-            </svg>
-          </button>
           <button class="btn-icon danger" data-file="${esc(d.source_file)}" title="Delete" aria-label="Delete">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M2.5 4.5h11M6 4.5V3h4v1.5M5 4.5l.5 9h5l.5-9"/>
@@ -2291,11 +2529,28 @@ function renderDocumentRows(docs) {
 
 // ── Ingest Document ───────────────────────────────────────
 let uploadFiles = [];
+let currentJobId = null;
 
 const uploadZone  = document.getElementById('upload-zone');
 const uploadInput = document.getElementById('upload-input');
 const uploadBtn   = document.getElementById('upload-btn');
 const uploadBtnText = document.getElementById('upload-btn-text');
+const stopBtn     = document.getElementById('batch-stop-btn');
+const STOP_BTN_HTML = stopBtn.innerHTML;  // icon + "Stop", restored after each run
+
+function resetStopBtn() {
+  stopBtn.disabled = false;
+  stopBtn.innerHTML = STOP_BTN_HTML;
+}
+
+stopBtn.addEventListener('click', async () => {
+  if (!currentJobId) return;
+  stopBtn.disabled = true;
+  stopBtn.textContent = 'Stopping…';
+  try {
+    await fetch(`${API_BASE}/ingest/cancel/${currentJobId}`, { method: 'POST' });
+  } catch (_) { /* the cancelled/error SSE event will reset the UI */ }
+});
 
 function setUploadFiles(fileList) {
   const pdfs = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.pdf'));
@@ -2380,6 +2635,7 @@ uploadBtn.addEventListener('click', async () => {
   });
 
   progressEl.classList.add('on');
+  resetStopBtn();
   labelEl.textContent = 'Uploading…';
   countEl.textContent = `0 / ${uploadFiles.length}`;
   fillEl.style.width = '0%';
@@ -2393,6 +2649,7 @@ uploadBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     jobId = data.job_id;
+    currentJobId = jobId;
     if (data.skipped && data.skipped.length) {
       data.skipped.forEach(s => appendLog(`WARNING  Skipped ${s.filename}: ${s.reason}`));
     }
@@ -2446,6 +2703,8 @@ uploadBtn.addEventListener('click', async () => {
 
   es.addEventListener('done', e => {
     es.close();
+    currentJobId = null;
+    resetStopBtn();
     const d = JSON.parse(e.data);
     fillEl.style.width = '100%';
     labelEl.textContent = 'Complete';
@@ -2460,8 +2719,25 @@ uploadBtn.addEventListener('click', async () => {
     uploadBtnText.textContent = 'Add to Knowledge Base';
   });
 
+  es.addEventListener('cancelled', e => {
+    es.close();
+    currentJobId = null;
+    resetStopBtn();
+    const d = JSON.parse(e.data);
+    labelEl.textContent = 'Stopped';
+    countEl.textContent = `${d.files_ingested} / ${uploadFiles.length}`;
+    result.className = 'upload-result on success';
+    result.textContent = `Ingestion stopped — ${d.files_ingested} document${d.files_ingested !== 1 ? 's' : ''} ingested (${d.total_chunks} chunks), ${d.remaining} not processed.`;
+    appendLog(`WARNING  Ingestion stopped by user — ${d.remaining} file(s) skipped.`);
+    if (d.files_ingested > 0) documentsLoaded = false;
+    uploadBtn.disabled = false;
+    uploadBtnText.textContent = 'Add to Knowledge Base';
+  });
+
   es.addEventListener('error', e => {
     es.close();
+    currentJobId = null;
+    resetStopBtn();
     const msg = e.data ? JSON.parse(e.data) : 'Ingestion failed';
     result.className = 'upload-result on error';
     result.textContent = `Error: ${msg}`;
@@ -2472,6 +2748,8 @@ uploadBtn.addEventListener('click', async () => {
   es.onerror = () => {
     if (es.readyState === EventSource.CLOSED) return;
     es.close();
+    currentJobId = null;
+    resetStopBtn();
     result.className = 'upload-result on error';
     result.textContent = 'Lost connection to server.';
     uploadBtn.disabled = false;
@@ -2540,6 +2818,233 @@ function renderActivityFeed(data) {
         <div class="activity-time">${esc(i.time)}</div>
       </div>
     </div>`).join('');
+}
+</script>
+
+<!-- ══════════ Civic dashboard data binding (fetches /dashboard/data) ══════════ -->
+<script>
+function civSetLoading() {
+  const kpis = document.getElementById('civ-kpis');
+  if (kpis) kpis.innerHTML = Array(5).fill(
+    '<div class="kpi info skeleton"><div class="kpi-label"></div><div class="kpi-value"></div></div>').join('');
+  const spinRow = cols => `<tr><td colspan="${cols}"><div class="civ-loading"><span class="civ-spin"></span> Loading…</div></td></tr>`;
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  set('civ-dash-grants-body', spinRow(7));
+  set('civ-grants-body',      spinRow(8));
+  set('civ-dash-res-body',    spinRow(6));
+  set('civ-resolutions-body', spinRow(6));
+  set('civ-departments-cards','<div class="civ-loading"><span class="civ-spin"></span> Loading…</div>');
+  set('civ-goals','<div class="civ-loading"><span class="civ-spin"></span> Loading…</div>');
+  set('civ-legislation-body', spinRow(6));
+  set('civ-minutes','<div class="civ-loading"><span class="civ-spin"></span> Loading…</div>');
+  set('civ-budget-body', spinRow(5));
+  const mk = document.getElementById('civ-money-kpis');
+  if (mk) mk.innerHTML = Array(4).fill('<div class="kpi info skeleton"><div class="kpi-label"></div><div class="kpi-value"></div></div>').join('');
+}
+
+let _civData = null;          // cached payload so the dept filter re-renders without re-fetching
+let civDept = 'All';          // current department filter
+
+async function loadCivic() {
+  civSetLoading();
+  let d = {};
+  try { const r = await fetch('/dashboard/data'); d = await r.json(); }
+  catch (e) { civNotice('Dashboard data unavailable.'); d = {}; }
+  if (d.error)  { civNotice(d.error); d = {}; }
+  else if (d.errors) civNotice('Some panels failed: ' + Object.keys(d.errors).join(', '));
+  _civData = d;
+  civPopulateDeptFilters(d);
+  civRenderAll();
+}
+
+// canonical department key (mirrors the aggregator) so name variants match
+function civDkey(s){
+  return String(s||'').toLowerCase().replace(/ and /g,' & ')
+    .replace(/^(the |bureau of |department of |office of )/,'')
+    .replace(/[^a-z0-9&]+/g,' ').trim();
+}
+function civMatch(dep){ return civDept === 'All' || civDkey(dep) === civDkey(civDept); }
+
+function civPopulateDeptFilters(d){
+  const names = (d.departments || []).map(x => x.department).filter(Boolean)
+                  .sort((a,b)=> a.localeCompare(b));
+  const opts = '<option value="All">All departments</option>' +
+    names.map(n => `<option value="${civEsc(n)}"${n===civDept?' selected':''}>${civEsc(n)}</option>`).join('');
+  document.querySelectorAll('.civ-dept-select').forEach(sel => {
+    sel.innerHTML = opts; sel.value = civDept;
+  });
+}
+function civApplyDept(val){
+  civDept = val;
+  document.querySelectorAll('.civ-dept-select').forEach(sel => { sel.value = val; });
+  civRenderAll();
+}
+function civRenderAll(){
+  const d = _civData || {};
+  const grants = (d.tables && d.tables.grants) || [];
+  civKpis(d.kpis || {});
+  civGrants(grants);
+  civResolutions(d.resolutions || []);
+  civDepartments(d.departments || []);
+  civGoals(d.goals || []);
+  civLegislation(d.legislation || []);
+  civMeetings(d.meetings || []);
+  civMoneyKpis(d.kpis || {}, d.budget || {}, d.resolutions || []);
+  civBudget(d.budget || {});
+}
+function civNotice(msg){ const n=document.getElementById('civ-notice'); if(n){ n.hidden=false; n.textContent=msg; } }
+function civEsc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function civMoney(v){ return v==null ? '—' : '$' + Number(v).toLocaleString(); }
+function civCell(v){ return v==null||v==='' ? '—' : civEsc(v); }
+
+function civKpis(k){
+  const cov = k.report_coverage || {filed:0,total_departments:0};
+  const cards = [
+    ['Active grants', (k.active_grants??0) + (k.grants_expiring_soon?` <span class="unit">(${k.grants_expiring_soon} exp.)</span>`:''), 'info'],
+    ['Grant funds active', civMoney(k.grant_funds_active), 'info'],
+    ['YTD spend', civMoney(k.ytd_spend)+' <span class="unit">/ '+civMoney(k.revised_budget)+'</span>', 'info'],
+    ['Report coverage', `${cov.filed}<span class="unit">/${cov.total_departments}</span>`, 'good'],
+    ['Resolutions', k.resolutions_count??0, 'info'],
+  ];
+  const el = document.getElementById('civ-kpis');
+  if (el) el.innerHTML = cards.map(([l,v,c]) =>
+    `<div class="kpi ${c}"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div></div>`).join('');
+}
+function civGrantRow(g){
+  return `<tr><td><div class="cell-strong">${civCell(g.grant_name)}</div></td><td>${civCell(g.department)}</td>
+    <td><span class="pill grey"><span class="tick"></span>${civCell(g.status)}</span></td>
+    <td class="num">${civMoney(g.amount)}</td>
+    <td><span class="date-mono">${civCell(g.end_date)}</span></td></tr>`;
+}
+function civGrants(rows){
+  // Dashboard highlight = citywide (unfiltered); Money tab = department-filtered
+  const dash = document.getElementById('civ-dash-grants-body');
+  if (dash) dash.innerHTML = rows.length ? rows.slice(0,8).map(civGrantRow).join('')
+    : '<tr><td colspan="5"><div class="empty">No grants found.</div></td></tr>';
+  const filtered = rows.filter(g => civMatch(g.department));
+  const full = document.getElementById('civ-grants-body');
+  if (full) full.innerHTML = filtered.length ? filtered.map(civGrantRow).join('')
+    : '<tr><td colspan="5"><div class="empty">No grants for this department.</div></td></tr>';
+}
+function civResRow(r){
+  return `<tr><td class="cell-strong">${civCell(r.resolution_number)}</td><td>${civCell(r.title)}</td>
+    <td><span class="pill green"><span class="tick"></span>${civCell(r.status)}</span></td>
+    <td class="num">${civMoney(r.amount)}</td><td>${civCell(r.vendor)}</td>
+    <td><span class="date-mono">${civCell(r.adopted_date)}</span></td></tr>`;
+}
+function civResolutions(rows){
+  // Council Actions is council-wide (not department-filtered): show all resolutions.
+  const empty = '<tr><td colspan="6"><div class="empty">No resolutions ingested yet.</div></td></tr>';
+  const html = rows.length ? rows.map(civResRow).join('') : empty;
+  const dash = document.getElementById('civ-dash-res-body');
+  if (dash) dash.innerHTML = rows.length ? rows.slice(0,8).map(civResRow).join('') : empty;
+  const full = document.getElementById('civ-resolutions-body');
+  if (full) full.innerHTML = html;
+}
+function civMoneyKpis(k, budget, resolutions){
+  const depts = (budget.by_department || []).filter(d => civMatch(d.department));
+  const totBudget = depts.reduce((s,d)=> s + (d.revised_budget||0), 0);
+  const totSpent  = depts.reduce((s,d)=> s + (d.ytd_expended||0), 0);
+  const authorized = resolutions.filter(r => civMatch(r.department)).reduce((s,r)=> s + (r.amount||0), 0);
+  const pct = totBudget ? Math.round(totSpent/totBudget*100) : null;
+  const per = budget.period ? ` <span class="unit">(${budget.period.quarter} ${budget.period.year})</span>` : '';
+  const cards = [
+    ['Revised budget', civMoney(totBudget) + per, 'info'],
+    ['YTD spent', civMoney(totSpent) + (pct!=null?` <span class="unit">(${pct}%)</span>`:''), pct!=null && pct>100 ? 'crit':'info'],
+    ['Council-authorized', civMoney(authorized), 'good'],
+    ['Grant funds active', civMoney(k.grant_funds_active), 'info'],
+  ];
+  const el = document.getElementById('civ-money-kpis');
+  if (el) el.innerHTML = cards.map(([l,v,c]) =>
+    `<div class="kpi ${c}"><div class="kpi-label">${l}</div><div class="kpi-value">${v}</div></div>`).join('');
+}
+function civBudget(budget){
+  const el = document.getElementById('civ-budget-body');
+  if (!el) return;
+  const depts = (budget.by_department || []).filter(d => civMatch(d.department));
+  const lines = (budget.lines || []).filter(l => civMatch(l.department));
+  if (!depts.length) { el.innerHTML = '<tr><td colspan="5"><div class="empty">No budget data for this department in the latest period.</div></td></tr>'; return; }
+  const byDept = {};
+  lines.forEach(l => { (byDept[l.department] = byDept[l.department] || []).push(l); });
+  el.innerHTML = depts.map((d, i) => {
+    const pct = d.revised_budget ? Math.round((d.ytd_expended||0)/d.revised_budget*100) : 0;
+    const over = pct > 100;
+    const pill = over ? '<span class="pill red"><span class="tick"></span>Over budget</span>'
+                      : '<span class="pill green"><span class="tick"></span>On track</span>';
+    const detail = (byDept[d.department] || []).map(l => {
+      const lp = l.revised_budget ? Math.round((l.ytd_expended||0)/l.revised_budget*100) : 0;
+      return `<tr class="budget-detail budget-detail-${i}" hidden>
+        <td style="padding-left:30px;color:var(--c-muted)">${civCell(l.line_item)}</td>
+        <td class="num">${civMoney(l.revised_budget)}</td><td class="num">${civMoney(l.ytd_expended)}</td>
+        <td class="num">${lp}%</td><td></td></tr>`;
+    }).join('');
+    return `<tr class="budget-row" style="cursor:pointer" onclick="civToggleBudget(this, ${i})">
+      <td class="cell-strong"><span class="bcaret">▸</span> ${civCell(d.department)}</td>
+      <td class="num">${civMoney(d.revised_budget)}</td><td class="num">${civMoney(d.ytd_expended)}</td>
+      <td class="num">${pct}%</td><td>${pill}</td></tr>${detail}`;
+  }).join('');
+}
+function civToggleBudget(row, i){
+  let open = false;
+  document.querySelectorAll('.budget-detail-'+i).forEach(r => { r.hidden = !r.hidden; open = !r.hidden; });
+  const car = row.querySelector('.bcaret'); if (car) car.textContent = open ? '▾' : '▸';
+}
+function civLegislation(rows){
+  const el = document.getElementById('civ-legislation-body');
+  if (!el) return;
+  el.innerHTML = rows.length ? rows.map(r =>
+    `<tr><td class="cell-strong">${civCell(r.bill_number)}</td><td>${civCell(r.title)}</td>
+      <td>${civCell(r.sponsor)}</td>
+      <td><span class="pill grey"><span class="tick"></span>${civCell(r.status)}</span></td>
+      <td class="num">${civMoney(r.amount)}</td>
+      <td><span class="date-mono">${civCell(r.adopted_date)}</span></td></tr>`).join('')
+    : '<tr><td colspan="6"><div class="empty">No legislation ingested yet.</div></td></tr>';
+}
+function civMeetings(rows){
+  const el = document.getElementById('civ-minutes');
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<div class="panel"><div class="empty">No meeting minutes ingested yet.</div></div>'; return; }
+  el.innerHTML = rows.map(m => {
+    const acts = (m.actions || []).map(a =>
+      `<div class="goal-item"><div class="goal-title">${civCell(a.item_type)} ${civCell(a.item_number)}</div>
+         <div class="goal-desc">${civEsc(a.action || '')}${a.committee ? ' — ' + civEsc(a.committee) : ''}${a.title ? '<br>' + civEsc(a.title) : ''}</div></div>`).join('');
+    return `<div class="panel dept-goals" style="margin-bottom:16px;">
+      <div class="dc-head" style="align-items:baseline;">
+        <div class="panel-label" style="margin-bottom:2px;">${civCell(m.session_type) || 'Session'} · ${civCell(m.meeting_date)}</div>
+        <div style="font-size:11.5px;color:var(--c-muted);">${m.president ? 'Pres. ' + civEsc(m.president) : ''}${m.members_present != null ? ' · ' + m.members_present + ' present' : ''}${m.call_to_order ? ' · ' + civEsc(m.call_to_order) + '→' + civEsc(m.adjourned || '') : ''}</div>
+      </div>
+      ${acts || '<div class="empty">No recorded actions.</div>'}
+    </div>`;
+  }).join('');
+}
+function civGoals(rows){
+  const el = document.getElementById('civ-goals');
+  if (!el) return;
+  rows = rows.filter(g => civMatch(g.department));
+  if (!rows.length) { el.innerHTML = '<div class="panel"><div class="empty">No goals for this department.</div></div>'; return; }
+  const groups = {};
+  rows.forEach(g => { const k = g.department || '—'; (groups[k] = groups[k] || []).push(g); });
+  el.innerHTML = Object.keys(groups).sort().map(dep => {
+    const items = groups[dep].map(g =>
+      `<div class="goal-item">
+         <div class="goal-title">${civCell(g.goal_title)}</div>
+         ${g.description ? `<div class="goal-desc">${civEsc(g.description)}</div>` : ''}
+         ${g.target ? `<div class="goal-target">🎯 ${civEsc(g.target)}</div>` : ''}
+       </div>`).join('');
+    return `<div class="panel dept-goals"><div class="panel-label">${civEsc(dep)} <span style="color:var(--c-subtle);font-weight:400">· ${groups[dep].length} goals</span></div>${items}</div>`;
+  }).join('');
+}
+function civDepartments(rows){
+  const el = document.getElementById('civ-departments-cards');
+  if (!el) return;
+  rows = rows.filter(r => civMatch(r.department));
+  el.innerHTML = rows.length ? rows.map(r =>
+    `<div class="dept-card"><div class="dc-head"><div class="dc-name">${civCell(r.department)}</div></div>
+      <div class="dc-stats">
+        <div class="dc-stat"><div class="v">${r.report_count??0}</div><div class="l">Reports</div></div>
+        <div class="dc-stat"><div class="v">${r.ytd_expended ? civMoney(r.ytd_expended) : '—'}</div><div class="l">YTD spend</div></div>
+        <div class="dc-stat"><div class="v">${r.revised_budget ? civMoney(r.revised_budget) : '—'}</div><div class="l">Budget</div></div>
+      </div></div>`).join('') : '<div class="empty">No departments found.</div>';
 }
 </script>
 </body>

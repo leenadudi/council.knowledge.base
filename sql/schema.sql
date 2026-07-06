@@ -220,3 +220,84 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS idx_resolutions_number ON resolutions(resolution_number);
 CREATE INDEX IF NOT EXISTS idx_resolutions_vendor ON resolutions(vendor);
 CREATE INDEX IF NOT EXISTS idx_votes_resolution ON votes(resolution_number);
+
+-- City Council legislative session minutes: one row per session
+CREATE TABLE IF NOT EXISTS meetings (
+    id                     SERIAL PRIMARY KEY,
+    meeting_date           DATE,
+    session_type           VARCHAR(60),
+    president              VARCHAR(120),
+    members_present        INTEGER,
+    members_present_names  TEXT,
+    members_absent_names   TEXT,
+    call_to_order          VARCHAR(20),
+    adjourned              VARCHAR(20),
+    source_chunk_id        UUID,
+    source_file            VARCHAR(255),
+    ingested_at            TIMESTAMP DEFAULT NOW()
+);
+
+-- Actions taken during a session on resolutions / ordinances (links minutes -> resolutions/legislation)
+CREATE TABLE IF NOT EXISTS meeting_actions (
+    id                 SERIAL PRIMARY KEY,
+    meeting_date       DATE,
+    item_type          VARCHAR(30),   -- resolution | ordinance | minutes_approval | other
+    item_number        VARCHAR(50),
+    title              TEXT,
+    action             VARCHAR(150),
+    committee          VARCHAR(120),
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date);
+CREATE INDEX IF NOT EXISTS idx_meeting_actions_date ON meeting_actions(meeting_date);
+CREATE INDEX IF NOT EXISTS idx_meeting_actions_item ON meeting_actions(item_type, item_number);
+
+-- City Council legislation (ordinances / bills): twin of resolutions, keyed on bill number
+CREATE TABLE IF NOT EXISTS legislation (
+    id                 SERIAL PRIMARY KEY,
+    bill_number        VARCHAR(50),
+    title              TEXT,
+    sponsor            VARCHAR(255),
+    amount             DECIMAL(15,2),
+    adopted_date       DATE,
+    status             VARCHAR(60),
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+-- Department-level appropriations extracted from budget documents (where a clean table exists)
+CREATE TABLE IF NOT EXISTS appropriations (
+    id                 SERIAL PRIMARY KEY,
+    department         VARCHAR(150),
+    fiscal_year        INTEGER,
+    fund               VARCHAR(100),
+    category           VARCHAR(150),
+    amount             DECIMAL(15,2),
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_legislation_number ON legislation(bill_number);
+CREATE INDEX IF NOT EXISTS idx_appropriations_dept ON appropriations(department, fiscal_year);
+
+-- Department goals stated in quarterly reports ("Annual Goals" sections)
+CREATE TABLE IF NOT EXISTS goals (
+    id                 SERIAL PRIMARY KEY,
+    department         VARCHAR(150),
+    year               INTEGER,
+    quarter            VARCHAR(5),
+    goal_title         TEXT,
+    description        TEXT,
+    target             TEXT,
+    status             TEXT,
+    source_chunk_id    UUID,
+    source_file        VARCHAR(255),
+    ingested_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_goals_dept ON goals(department, year);

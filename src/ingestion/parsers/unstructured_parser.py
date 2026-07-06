@@ -53,7 +53,14 @@ def parse(file_path: str | Path) -> ParsedDocument:
             current_page += 1
             continue
 
-        text = str(elem).strip()
+        # Some elements (images, empty cells, page-number artifacts) carry
+        # text=None. Element.__str__ returns self.text verbatim, so str(elem)
+        # would raise "TypeError: __str__ returned non-string (type NoneType)"
+        # and abort the whole document. Read .text defensively and skip blanks.
+        text = getattr(elem, "text", None)
+        if not isinstance(text, str):
+            continue
+        text = text.strip()
         if not text:
             continue
 

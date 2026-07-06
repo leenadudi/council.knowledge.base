@@ -13,7 +13,7 @@ import random
 import threading
 import uuid
 
-from flask import Flask, jsonify, render_template, request, Response
+from flask import Flask, jsonify, redirect, render_template, request, Response
 
 from src.config import get_settings
 from src.dashboard.aggregator import DashboardAggregator
@@ -190,9 +190,8 @@ def department_staff(department: str):
 
 @app.route("/dashboard")
 def dashboard():
-    if not _ready:
-        return jsonify({"error": _startup_error or "not ready"}), 503
-    return render_template("dashboard.html")
+    # Unified into the main app: the dashboard now lives as tabs on "/".
+    return redirect("/", code=302)
 
 
 @app.route("/dashboard/data")
@@ -251,7 +250,7 @@ def upload():
 
     job_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
-    _jobs[job_id] = {"queue": q, "status": "running"}
+    _jobs[job_id] = {"queue": q, "status": "running", "cancelled": False}
 
     def _run():
         handler = _JobLogHandler(q)
@@ -262,7 +261,13 @@ def upload():
         files_ingested = 0
         total_chunks = 0
         try:
+            cancelled = False
             for idx, (dest, filename) in enumerate(saved):
+                # Cooperative cancellation — checked between files (a single
+                # document's ingest is one long call we don't interrupt).
+                if _jobs.get(job_id, {}).get("cancelled"):
+                    cancelled = True
+                    break
                 q.put(("file_start", {"filename": filename, "index": idx, "total": total}))
                 try:
                     pipeline = IngestionPipeline(get_settings())
@@ -273,13 +278,31 @@ def upload():
                     q.put(("file_done", {"filename": filename, "chunks": len(chunks), "index": idx, "total": total}))
                 except Exception as exc:
                     q.put(("file_error", {"filename": filename, "error": str(exc), "index": idx, "total": total}))
-            _jobs[job_id]["status"] = "done"
-            q.put(("done", {"files_ingested": files_ingested, "total_chunks": total_chunks, "skipped": skipped}))
+            if cancelled:
+                _jobs[job_id]["status"] = "cancelled"
+                q.put(("cancelled", {
+                    "files_ingested": files_ingested,
+                    "total_chunks": total_chunks,
+                    "remaining": total - files_ingested,
+                    "skipped": skipped,
+                }))
+            else:
+                _jobs[job_id]["status"] = "done"
+                q.put(("done", {"files_ingested": files_ingested, "total_chunks": total_chunks, "skipped": skipped}))
         finally:
             src_logger.removeHandler(handler)
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"job_id": job_id, "queued": len(saved), "skipped": skipped})
+
+
+@app.route("/ingest/cancel/<job_id>", methods=["POST"])
+def ingest_cancel(job_id: str):
+    job = _jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Unknown job"}), 404
+    job["cancelled"] = True
+    return jsonify({"status": "cancelling"})
 
 
 @app.route("/ingest/stream/<job_id>")
@@ -295,7 +318,7 @@ def ingest_stream(job_id: str):
                 event_type, data = q.get(timeout=60)
                 payload = json.dumps(data) if not isinstance(data, str) else json.dumps(data)
                 yield f"event: {event_type}\ndata: {payload}\n\n"
-                if event_type in ("done", "error"):
+                if event_type in ("done", "error", "cancelled"):
                     _jobs.pop(job_id, None)
                     break
             except queue.Empty:

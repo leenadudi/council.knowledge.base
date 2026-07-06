@@ -189,7 +189,10 @@ class SQLExtractor:
             )
             msg = self.client.messages.create(
                 model=self.cfg.synthesis_model,
-                max_tokens=2000,
+                # 8000 (not 2000): action-heavy docs like minutes emit long JSON;
+                # a truncated response (stop_reason=max_tokens) is invalid JSON and
+                # silently yields zero rows. Ceiling only — short docs pay for what they use.
+                max_tokens=8000,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = msg.content[0].text.strip()
@@ -220,6 +223,133 @@ class SQLExtractor:
         except Exception as e:
             logger.warning("schema-driven extraction failed for %s: %s", doc_type.name, e)
             return {}
+
+    def extract_goals(self, texts: list[str], department: str = "",
+                      quarter: str = "", year: Optional[int] = None) -> list[dict[str, Any]]:
+        """Extract department goals from a quarterly report's 'Annual Goals' section.
+        `texts` are the chunk texts to read. Returns validated goal rows tagged with
+        department/quarter/year. Never raises — returns [] on any failure."""
+        from src.ingestion.schemas.goals import GoalsExtraction
+        if not texts:
+            return []
+        try:
+            body = "\n\n---\n\n".join(texts)[:14000]
+            schema_json = json.dumps(GoalsExtraction.model_json_schema())
+            prompt = (
+                f"You extract DEPARTMENT GOALS from a City of Harrisburg quarterly report "
+                f"(department: {department or 'unknown'}, period: {quarter or ''} {year or ''}).\n"
+                "The report has an 'Annual Goals' / '20XX Goals' section; each goal is a short "
+                "titled item with a narrative description, sometimes a quantified target and/or a "
+                "progress note.\n"
+                f"Extract goals matching THIS JSON schema:\n{schema_json}\n\n"
+                "Rules: one row per distinct goal; 'goal_title' is the goal's heading/name; "
+                "'description' a 1-2 sentence summary; 'target' ONLY if a quantified aim is stated "
+                "(else ''); 'status' ONLY if progress is stated (else ''); include a verbatim "
+                "'source_text' quote and 'confidence' (high|medium|low); omit low-confidence rows. "
+                "If there is no goals section, return an empty list. Return ONLY the JSON object.\n\n"
+                "Text:\n---\n" + body + "\n---"
+            )
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            validated = GoalsExtraction.model_validate_json(raw)
+            rows = [r for r in validated.model_dump()["goals"]
+                    if r.get("confidence") in ("high", "medium")]
+            for r in rows:
+                r["department"] = department
+                r["quarter"] = quarter
+                r["year"] = year
+            return rows
+        except Exception as e:
+            logger.warning("goal extraction failed for %s: %s", department, e)
+            return []
+
+    def extract_grants(self, texts: list[str], department: str = "") -> list[dict[str, Any]]:
+        """Strictly extract EXTERNAL grant awards (not budget lines/spending) from a
+        quarterly report, using a focused prompt. Returns validated grant rows tagged
+        with department. Never raises — returns [] on failure."""
+        from src.ingestion.schemas.grants import GrantsExtraction
+        if not texts:
+            return []
+        try:
+            body = "\n\n---\n\n".join(texts)[:16000]
+            schema_json = json.dumps(GrantsExtraction.model_json_schema())
+            prompt = (
+                f"You extract GRANTS from a City of Harrisburg quarterly report "
+                f"(department: {department or 'unknown'}).\n"
+                "A GRANT is EXTERNAL funding awarded to (or applied for by) the City from a "
+                "federal, state, county, or private/foundation source — identified by a grant "
+                "or program NAME and a TOTAL AWARD amount.\n"
+                "STRICT EXCLUSIONS — do NOT extract these as grants: budget line items, "
+                "appropriations, revised-budget or YTD-expended figures, department spending, "
+                "salaries, purchases, or internal fund transfers. If a dollar figure is the "
+                "department's budget or spending (not an external award), SKIP it.\n"
+                f"Return goals matching THIS JSON schema:\n{schema_json}\n\n"
+                "Rules: one row per distinct grant; 'grant_name' required; 'amount' is the TOTAL "
+                "award (plain number, no $/commas) or null; 'status' one of active|pending|closed|"
+                "awarded|applied; include a verbatim 'source_text' quote and 'confidence' "
+                "(high|medium|low); OMIT low-confidence rows and anything you are unsure is a real "
+                "external grant. If there are no grants, return an empty list. Return ONLY the JSON.\n\n"
+                "Text:\n---\n" + body + "\n---"
+            )
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model, max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            rows = [r for r in GrantsExtraction.model_validate_json(raw).model_dump()["grants"]
+                    if r.get("confidence") in ("high", "medium")]
+            for r in rows:
+                r["department"] = department
+            return rows
+        except Exception as e:
+            logger.warning("grant extraction failed for %s: %s", department, e)
+            return []
+
+    def extract_meeting(self, texts: list[str], source_file: str = "") -> dict[str, list[dict[str, Any]]]:
+        """Extract ONE meeting record + its actions from a council minutes document,
+        using a focused prompt (more reliable than the generic schema path for minutes).
+        Returns {"meetings": [...], "meeting_actions": [...]}; [] on failure."""
+        from src.ingestion.schemas.minutes import MinutesExtraction
+        if not texts:
+            return {"meetings": [], "meeting_actions": []}
+        try:
+            body = "\n\n---\n\n".join(texts)[:24000]
+            schema_json = json.dumps(MinutesExtraction.model_json_schema())
+            prompt = (
+                "You extract structured data from ONE City of Harrisburg City Council legislative "
+                "session minutes document.\n"
+                "Return an object with two keys:\n"
+                "1. 'meetings' — EXACTLY ONE row: meeting_date (from the header date, format "
+                "YYYY-MM-DD), session_type (e.g. 'Legislative Session'), president (presiding "
+                "officer), members_present (INTEGER count from roll call), members_present_names "
+                "(comma-separated), members_absent_names, call_to_order (e.g. '6:00PM'), adjourned.\n"
+                "2. 'meeting_actions' — ONE row per resolution or ordinance acted on: item_type "
+                "('resolution'|'ordinance'), item_number (e.g. '1-2026'), title (short subject), "
+                "action (e.g. 'read into record','referred to committee','final passage','first reading'), "
+                "committee (if referred).\n"
+                f"Schema:\n{schema_json}\n\n"
+                "Rules: ALWAYS fill meeting_date from the header. Include a verbatim 'source_text' "
+                "and 'confidence' (high|medium|low) per row; omit low-confidence rows. Return ONLY JSON.\n\n"
+                "Minutes text:\n---\n" + body + "\n---"
+            )
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model, max_tokens=8000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            data = MinutesExtraction.model_validate_json(raw).model_dump()
+            keep = lambda rows: [r for r in rows if r.get("confidence") in ("high", "medium")]
+            return {"meetings": keep(data["meetings"]), "meeting_actions": keep(data["meeting_actions"])}
+        except Exception as e:
+            logger.warning("meeting extraction failed for %s: %s", source_file, e)
+            return {"meetings": [], "meeting_actions": []}
 
     def extract_chunks_batched(
         self, chunks: list[Chunk]
@@ -253,7 +383,10 @@ def _parse_extraction_response(raw: str) -> dict[str, list[dict]]:
         return {}
 
     result = {}
-    for key in ("expenditures", "metrics", "grants", "vacancies"):
+    # NOTE: "grants" intentionally excluded — grants now come from the strict
+    # SQLExtractor.extract_grants path (external awards only), not this generic
+    # extractor which over-counted budget/spending figures as grants.
+    for key in ("expenditures", "metrics", "vacancies"):
         rows = data.get(key, [])
         if isinstance(rows, list) and rows:
             result[key] = _sanitize_rows(rows, key)

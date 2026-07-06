@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 from datetime import timezone
 
 logger = logging.getLogger(__name__)
 
 _Q_MONTH = {"Q1": 1, "Q2": 4, "Q3": 7, "Q4": 10}
-_ACTIVE_STATUSES = ("active", "in_progress", "open", "pending")
+_ACTIVE_STATUSES = ("active", "in_progress", "open", "pending", "awarded")
 
 
 def quarter_start(year: int, quarter: str) -> datetime.date:
@@ -52,8 +53,14 @@ class DashboardAggregator:
                 (statuses, today),
             )
             gf = cur.fetchone() or {}
+            # Latest reporting period only (YTD is cumulative within a year), and
+            # exclude Munis subtotal/total rows — otherwise we double-count across
+            # years and sum subtotals into the headline figures.
             cur.execute(
-                "SELECT COALESCE(SUM(ytd_expended),0) AS ytd, COALESCE(SUM(revised_budget),0) AS budget FROM expenditures",
+                "SELECT COALESCE(SUM(ytd_expended),0) AS ytd, COALESCE(SUM(revised_budget),0) AS budget "
+                "FROM expenditures WHERE line_item NOT ILIKE '%total%' AND (year, quarter) = "
+                "(SELECT year, quarter FROM expenditures WHERE year IS NOT NULL "
+                " ORDER BY year DESC, quarter DESC LIMIT 1)",
             )
             e = cur.fetchone() or {}
             cur.execute("SELECT COUNT(*) AS c FROM resolutions")
@@ -201,26 +208,66 @@ class DashboardAggregator:
         }
 
     # -- Departments ----------------------------------------------------------
+    # Actual city departments only — quarterly reports + budgets. Council actions
+    # (resolutions, minutes, legislation) are NOT departments and are excluded.
+    _DEPT_DOC_TYPES = ("quarterly_report", "budget")
+
+    @staticmethod
+    def _dept_key(name: str) -> str:
+        """Canonical grouping key so name variants merge into one department
+        (e.g. 'Parks & Recreation' == 'Bureau of Parks & Recreation')."""
+        k = (name or "").strip().lower().replace(" and ", " & ")
+        for p in ("bureau of ", "department of ", "office of ", "the "):
+            if k.startswith(p):
+                k = k[len(p):]
+                break
+        return re.sub(r"[^a-z0-9&]+", " ", k).strip()
+
     def _build_departments(self) -> list[dict]:
         with self.sql.cursor() as cur:
-            cur.execute("SELECT DISTINCT department FROM documents "
-                        "WHERE department IS NOT NULL AND department <> '' ORDER BY department")
-            depts = [r["department"] for r in cur.fetchall()]
+            cur.execute(
+                "SELECT department, document_type FROM documents "
+                "WHERE department IS NOT NULL AND department <> '' "
+                "AND document_type = ANY(%s)",
+                (list(self._DEPT_DOC_TYPES),),
+            )
+            doc_rows = cur.fetchall()
             cur.execute("SELECT department, COALESCE(SUM(revised_budget),0) AS rb, "
-                        "COALESCE(SUM(ytd_expended),0) AS ytd FROM expenditures GROUP BY department")
-            spend = {r["department"]: r for r in cur.fetchall()}
-            cur.execute("SELECT department, COUNT(*) AS c FROM documents "
-                        "WHERE document_type='quarterly_report' GROUP BY department")
-            reports = {r["department"]: r["c"] for r in cur.fetchall()}
+                        "COALESCE(SUM(ytd_expended),0) AS ytd FROM expenditures "
+                        "WHERE department IS NOT NULL AND line_item NOT ILIKE '%total%' "
+                        "AND (year, quarter) = (SELECT year, quarter FROM expenditures "
+                        "WHERE year IS NOT NULL ORDER BY year DESC, quarter DESC LIMIT 1) "
+                        "GROUP BY department")
+            spend_rows = cur.fetchall()
+
+        # group documents by canonical key; display the longest (most official) variant
+        groups: dict = {}
+        for r in doc_rows:
+            key = self._dept_key(r["department"])
+            if not key:
+                continue
+            g = groups.setdefault(key, {"names": [], "reports": 0})
+            g["names"].append(r["department"])
+            if r["document_type"] == "quarterly_report":
+                g["reports"] += 1
+
+        # sum spend across the variant names that share a canonical key
+        spend_by_key: dict = {}
+        for r in spend_rows:
+            acc = spend_by_key.setdefault(self._dept_key(r["department"]), {"rb": 0.0, "ytd": 0.0})
+            acc["rb"] += float(r["rb"] or 0)
+            acc["ytd"] += float(r["ytd"] or 0)
+
         out = []
-        for d in depts:
-            sp = spend.get(d) or {}
+        for key, g in groups.items():
+            sp = spend_by_key.get(key, {})
             out.append({
-                "department": d,
+                "department": max(g["names"], key=len),
                 "revised_budget": float(sp.get("rb") or 0),
                 "ytd_expended": float(sp.get("ytd") or 0),
-                "report_count": int(reports.get(d, 0) or 0),
+                "report_count": g["reports"],
             })
+        out.sort(key=lambda x: x["department"])
         return out
 
     # -- Resolutions ----------------------------------------------------------
@@ -235,6 +282,97 @@ class DashboardAggregator:
             if hasattr(r.get("adopted_date"), "isoformat"):
                 r["adopted_date"] = r["adopted_date"].isoformat()
         return rows
+
+    # -- Budget vs actual (account-level, latest period) ----------------------
+    def _build_budget(self) -> dict:
+        """Account-level budget-vs-actual for the latest reporting period only,
+        excluding Munis subtotal/total rows. Returns a per-department rollup plus
+        the underlying account lines (for drill-down), both canonical-department keyed."""
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT year, quarter FROM expenditures WHERE year IS NOT NULL "
+                        "ORDER BY year DESC, quarter DESC LIMIT 1")
+            p = cur.fetchone()
+            if not p:
+                return {"period": None, "by_department": [], "lines": []}
+            cur.execute(
+                "SELECT department, account_number, line_item, "
+                "COALESCE(revised_budget,0) AS revised_budget, COALESCE(ytd_expended,0) AS ytd_expended "
+                "FROM expenditures WHERE year=%s AND quarter=%s "
+                "AND line_item NOT ILIKE '%%total%%' "
+                "AND (COALESCE(revised_budget,0) <> 0 OR COALESCE(ytd_expended,0) <> 0) "
+                "ORDER BY ytd_expended DESC",
+                (p["year"], p["quarter"]),
+            )
+            raw = [dict(r) for r in cur.fetchall()]
+
+        by: dict = {}
+        lines = []
+        for r in raw:
+            key = self._dept_key(r["department"])
+            rb = float(r["revised_budget"] or 0)
+            ytd = float(r["ytd_expended"] or 0)
+            lines.append({"_key": key, "department": r["department"],
+                          "account_number": r["account_number"], "line_item": r["line_item"],
+                          "revised_budget": rb, "ytd_expended": ytd})
+            acc = by.setdefault(key, {"names": [], "rb": 0.0, "ytd": 0.0})
+            acc["names"].append(r["department"])
+            acc["rb"] += rb
+            acc["ytd"] += ytd
+        by_department = [{"_key": k, "department": max(v["names"], key=len),
+                          "revised_budget": v["rb"], "ytd_expended": v["ytd"]}
+                         for k, v in by.items()]
+        by_department.sort(key=lambda x: -x["revised_budget"])
+        disp = {b["_key"]: b["department"] for b in by_department}
+        for r in lines:
+            r["department"] = disp.get(r["_key"], r["department"])
+            r.pop("_key", None)
+        for b in by_department:
+            b.pop("_key", None)
+        return {"period": {"year": p["year"], "quarter": p["quarter"]},
+                "by_department": by_department, "lines": lines}
+
+    # -- Legislation ----------------------------------------------------------
+    def _build_legislation(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT bill_number, title, sponsor, amount, adopted_date, status "
+                        "FROM legislation ORDER BY bill_number")
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("amount") is not None:
+                r["amount"] = float(r["amount"])
+            if hasattr(r.get("adopted_date"), "isoformat"):
+                r["adopted_date"] = r["adopted_date"].isoformat()
+        return rows
+
+    # -- Meetings (minutes) ---------------------------------------------------
+    def _build_meetings(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT meeting_date, session_type, president, members_present, "
+                        "call_to_order, adjourned FROM meetings ORDER BY meeting_date DESC")
+            meetings = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT meeting_date, item_type, item_number, title, action, committee "
+                        "FROM meeting_actions ORDER BY meeting_date DESC, item_number")
+            actions = [dict(r) for r in cur.fetchall()]
+        # attach each meeting's actions
+        by_date: dict = {}
+        for a in actions:
+            d = a.get("meeting_date")
+            if hasattr(d, "isoformat"):
+                a["meeting_date"] = d.isoformat()
+            by_date.setdefault(a["meeting_date"], []).append(a)
+        for m in meetings:
+            d = m.get("meeting_date")
+            key = d.isoformat() if hasattr(d, "isoformat") else d
+            m["meeting_date"] = key
+            m["actions"] = by_date.get(key, [])
+        return meetings
+
+    # -- Goals ----------------------------------------------------------------
+    def _build_goals(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, year, quarter, goal_title, description, target, status "
+                        "FROM goals ORDER BY department, id")
+            return [dict(r) for r in cur.fetchall()]
 
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
@@ -255,6 +393,10 @@ class DashboardAggregator:
             "tables": self._safe("tables", self._build_tables, errors),
             "departments": self._safe("departments", self._build_departments, errors),
             "resolutions": self._safe("resolutions", self._build_resolutions, errors),
+            "goals": self._safe("goals", self._build_goals, errors),
+            "legislation": self._safe("legislation", self._build_legislation, errors),
+            "meetings": self._safe("meetings", self._build_meetings, errors),
+            "budget": self._safe("budget", self._build_budget, errors),
         }
         if errors:
             out["errors"] = errors
