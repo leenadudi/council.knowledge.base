@@ -348,7 +348,8 @@ class DashboardAggregator:
     def _build_meetings(self) -> list[dict]:
         with self.sql.cursor() as cur:
             cur.execute("SELECT meeting_date, session_type, president, members_present, "
-                        "call_to_order, adjourned FROM meetings ORDER BY meeting_date DESC")
+                        "members_present_names, members_absent_names, call_to_order, adjourned, "
+                        "source_file FROM meetings ORDER BY meeting_date DESC")
             meetings = [dict(r) for r in cur.fetchall()]
             cur.execute("SELECT meeting_date, item_type, item_number, title, action, committee "
                         "FROM meeting_actions ORDER BY meeting_date DESC, item_number")
@@ -366,6 +367,14 @@ class DashboardAggregator:
             m["meeting_date"] = key
             m["actions"] = by_date.get(key, [])
         return meetings
+
+    # -- Vacancies (open positions) -------------------------------------------
+    def _build_vacancies(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, position_title, status FROM vacancies "
+                        "WHERE LOWER(status) = 'open' AND department IS NOT NULL "
+                        "ORDER BY department, position_title")
+            return [dict(r) for r in cur.fetchall()]
 
     # -- Goals ----------------------------------------------------------------
     def _build_goals(self) -> list[dict]:
@@ -389,7 +398,6 @@ class DashboardAggregator:
         out = {
             "generated_at": self.now.isoformat(),
             "kpis": self._safe("kpis", self._build_kpis, errors),
-            "timeline": self._safe("timeline", self._build_timeline, errors),
             "tables": self._safe("tables", self._build_tables, errors),
             "departments": self._safe("departments", self._build_departments, errors),
             "resolutions": self._safe("resolutions", self._build_resolutions, errors),
@@ -397,6 +405,7 @@ class DashboardAggregator:
             "legislation": self._safe("legislation", self._build_legislation, errors),
             "meetings": self._safe("meetings", self._build_meetings, errors),
             "budget": self._safe("budget", self._build_budget, errors),
+            "vacancies": self._safe("vacancies", self._build_vacancies, errors),
         }
         if errors:
             out["errors"] = errors

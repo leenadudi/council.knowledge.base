@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harrisburg Council Knowledge Base</title>
+<meta name="description" content="Plain-language answers from City of Harrisburg council records — budgets, resolutions, grants, department goals, and meeting minutes, every answer sourced.">
+<meta name="theme-color" content="#16344f">
+<meta property="og:title" content="Harrisburg Council Knowledge Base">
+<meta property="og:description" content="Plain-language answers from City of Harrisburg council records — budgets, resolutions, grants, and meeting minutes.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2316344f'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16'/%3E%3Cpath d='M6 20V9l6-4 6 4v11'/%3E%3Cpath d='M9.5 20v-4h5v4'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Spectral:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Public Sans',system-ui,sans-serif;background:#eeece6;color:#1c1b19;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:#0f6e63;text-decoration:none}a:hover{text-decoration:underline}
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:rgba(28,27,25,.16);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+  @keyframes hbspin{to{transform:rotate(360deg)}}
+  @keyframes hbfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .serif{font-family:'Spectral',serif}.mono{font-family:'JetBrains Mono',monospace}
+  .view{display:none;animation:hbfade .3s ease}.view.on{display:block}
+  .card{background:#fff;border:1px solid rgba(28,27,25,.09);border-radius:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead tr{background:#f7f6f2}
+  th{text-align:left;padding:11px 16px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a867d}
+  th.num,td.num{text-align:right}
+  td{padding:12px 16px}
+  tbody tr{border-top:1px solid rgba(28,27,25,.06)}
+  tbody tr:hover{background:#faf9f5}
+  h1.page{font-family:'Spectral',serif;font-size:29px;font-weight:600;letter-spacing:-.01em;color:#16344f;margin-bottom:5px}
+  h2.sec{font-family:'Spectral',serif;font-size:19px;font-weight:600;color:#1c1b19}
+  .psub{font-size:14px;color:#6f6b64}
+  .navitem{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:13.5px;font-weight:500;cursor:pointer;user-select:none;margin-bottom:2px;color:#4a4744;transition:background .12s,color .12s}
+  .navitem:hover{box-shadow:inset 0 0 0 1px rgba(28,27,25,.10)}
+  .navitem.active{background:#16344f;color:#fff}
+  .grouplbl{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#a7a298;padding:0 12px;margin:18px 0 9px}
+  .kpi{background:#fff;border:1px solid rgba(28,27,25,.09);border-radius:10px;padding:15px 16px;position:relative;overflow:hidden}
+  .kpi.click{cursor:pointer;transition:box-shadow .12s,border-color .12s}
+  .kpi.click:hover{border-color:rgba(22,52,79,.35);box-shadow:0 2px 12px rgba(28,27,25,.07)}
+  .kpi .bar{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .kpi .arrow{position:absolute;top:12px;right:13px;color:#c8c3b8;font-size:14px;line-height:1}
+  .kpi .lbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a867d;margin-bottom:9px;padding-right:14px}
+  .kpi .val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:500;color:#16344f;line-height:1}
+  .kpi .sub{font-size:11.5px;color:#a7a298;margin-top:5px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap;line-height:1.6}
+  .p-green{background:#e9f4ee;color:#2d6a4f}.p-amber{background:#f8efd8;color:#8a5a00}.p-red{background:#fbecec;color:#a0302a}
+  .p-grey{background:rgba(28,27,25,.06);color:#6f6b64}.p-teal{background:#e7f2f0;color:#0f6e63}
+  .barbg{height:6px;background:rgba(28,27,25,.08);border-radius:99px;overflow:hidden}
+  .barbg > div{height:100%;border-radius:99px}
+  .seg{display:inline-flex;background:#e7e5df;border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;padding:7px 16px;border-radius:7px;cursor:pointer;color:#6f6b64}
+  .seg button.on{background:#fff;color:#16344f;box-shadow:0 1px 3px rgba(28,27,25,.10)}
+  .empty{color:#a7a298;font-size:13px;font-style:italic;padding:14px 16px}
+  select.filter{font-family:inherit;font-size:12.5px;color:#1c1b19;background:#fff;border:1px solid rgba(28,27,25,.14);border-radius:8px;padding:8px 11px;cursor:pointer}
+  input,button{font-family:inherit}
+  html{scroll-behavior:smooth}
+  h1.page,h2.sec,h1.serif{text-wrap:balance}
+  p,.psub{text-wrap:pretty}
+  /* keyboard focus — visible for keyboard users, invisible on mouse click */
+  :focus-visible{outline:2px solid #16344f;outline-offset:2px;border-radius:4px}
+  .ask-box{transition:border-color .15s,box-shadow .15s}
+  .ask-box:focus-within{border-color:#0f6e63;box-shadow:0 6px 22px rgba(15,110,99,.16)}
+  #ask-input:focus-visible{outline:none}
+  /* pressed / active feedback */
+  #ask-btn{transition:background .15s ease,transform .08s ease}
+  #ask-btn:hover{background:#1e4465}
+  #ask-btn:active{transform:translateY(1px)}
+  .sug{transition:border-color .15s,box-shadow .15s,transform .08s}
+  .sug:hover{border-color:rgba(22,52,79,.38)!important;box-shadow:0 2px 10px rgba(28,27,25,.06)}
+  .sug:active{transform:translateY(1px)}
+  .seg button{transition:background .15s,color .15s,transform .08s}
+  .seg button:active{transform:translateY(1px)}
+  .mtg-row,.dept-row{transition:border-color .12s,box-shadow .12s,transform .12s}
+  .mtg-row:hover,.dept-row:hover{border-color:rgba(22,52,79,.30);box-shadow:0 3px 14px rgba(28,27,25,.08);transform:translateY(-1px)}
+  /* skip link for keyboard users */
+  .skip{position:absolute;left:14px;top:-48px;background:#16344f;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;z-index:100;transition:top .16s}
+  .skip:focus{top:14px;text-decoration:none}
+  /* buttons + inputs (Add documents) */
+  .btn-primary{background:#16344f;color:#fff;border:none;border-radius:9px;padding:11px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,transform .08s;display:inline-flex;align-items:center;gap:8px}
+  .btn-primary:hover:not(:disabled){background:#1e4465}
+  .btn-primary:active:not(:disabled){transform:translateY(1px)}
+  .btn-primary:disabled{opacity:.45;cursor:default}
+  .btn-ghost{background:#fff;color:#4a4744;border:1px solid rgba(28,27,25,.14);border-radius:9px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;transition:background .12s}
+  .btn-ghost:hover{background:#f7f6f2}
+  .txt-input{font-family:inherit;font-size:14px;color:#1c1b19;background:#fff;border:1px solid rgba(28,27,25,.16);border-radius:9px;padding:11px 14px;outline:none;transition:border-color .15s,box-shadow .15s}
+  .txt-input:focus{border-color:#16344f;box-shadow:0 0 0 3px rgba(22,52,79,.12)}
+  /* upload drop zone + progress */
+  .dropzone{border:2px dashed rgba(28,27,25,.20);background:#faf9f5;border-radius:12px;padding:34px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+  .dropzone:hover{border-color:rgba(22,52,79,.40);background:#f7f6f2}
+  .dropzone.drag{border-color:#0f6e63;background:#eef5f3}
+  .filerow{display:flex;align-items:center;gap:10px;padding:10px 15px;border-top:1px solid rgba(28,27,25,.06);font-size:13px}
+  .filerow:first-child{border-top:none}
+  .frow{display:flex;align-items:center;gap:10px;padding:7px 2px;font-size:13px;color:#4a4744}
+  .frow .ic{width:16px;text-align:center;flex-shrink:0;font-family:'JetBrains Mono',monospace;color:#a7a298}
+  .frow.active{color:#16344f;font-weight:600}.frow.active .ic{color:#16344f}
+  .frow.done .ic{color:#2d6a4f}
+  .frow.error{color:#a0302a}.frow.error .ic{color:#a0302a}
+  .log{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.75;background:#182430;color:#c6d0dc;border-radius:10px;padding:14px 16px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+  .log .l-WARNING{color:#e6c07a}.log .l-ERROR{color:#f0908a}.log .l-INFO{color:#98b0c6}.log .l-DEBUG{color:#7c8796}
+</style>
+</head>
+<body>
+<a href="#main-content" class="skip">Skip to content</a>
+<div style="display:flex;min-height:100dvh;width:100%">
+  <!-- SIDEBAR -->
+  <aside style="width:246px;min-width:246px;background:#f7f6f2;border-right:1px solid rgba(28,27,25,.10);display:flex;flex-direction:column;position:sticky;top:0;height:100dvh">
+    <div style="padding:22px 20px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(28,27,25,.07)">
+      <div style="width:40px;height:40px;border-radius:9px;background:#16344f;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V9l7-5 7 5v12"/><path d="M9 21v-6h6v6"/></svg>
+      </div>
+      <div style="line-height:1.25">
+        <div class="serif" style="font-size:15px;font-weight:600;color:#16344f">Harrisburg</div>
+        <div style="font-size:11px;color:#8a867d;font-weight:500">Council Knowledge Base</div>
+      </div>
+    </div>
+    <nav style="flex:1;padding:16px 12px 10px;overflow-y:auto">
+      <div class="navitem" data-tab="ask"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l3 3"/></svg><span>Ask a question</span></div>
+      <div class="grouplbl">Explore</div>
+      <div class="navitem" data-tab="overview"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg><span>City at a glance</span></div>
+      <div class="navitem" data-tab="decisions"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l1.9 1.4 2.3-.2.7 2.2 1.9 1.4-.9 2.1.9 2.1-1.9 1.4-.7 2.2-2.3-.2L8 16.5l-1.9-1.4-2.3.2-.7-2.2L1.2 11.7l.9-2.1-.9-2.1 1.9-1.4.7-2.2 2.3.2z"/><path d="M5.8 8l1.5 1.5 3-3.2"/></svg><span>Decisions</span></div>
+      <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Money &amp; budgets</span></div>
+      <div class="navitem" data-tab="meetings"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12M5 1.5v3M11 1.5v3"/></svg><span>Meetings</span></div>
+      <div class="navitem" data-tab="departments"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="6" width="11" height="8" rx="1"/><path d="M5.5 6V3.5h5V6M7 9.5h2M7 12h2"/></svg><span>Departments</span></div>
+      <div class="grouplbl" id="staff-toggle" style="cursor:pointer;display:flex;align-items:center;gap:8px"><span>Staff tools</span><span id="staff-chev" style="transition:transform .15s;font-size:13px">›</span></div>
+      <div id="staff-group" style="display:none">
+        <div class="navitem" data-tab="documents"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h6l4 4V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5z"/><path d="M9 2.5V6h4"/></svg><span>Documents</span></div>
+        <div class="navitem" data-tab="add"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10.5V3.5M5 6l3-3 3 3"/><path d="M2.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1"/></svg><span>Add documents</span></div>
+      </div>
+    </nav>
+    <div style="padding:14px 20px;border-top:1px solid rgba(28,27,25,.07)">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:#6f6b64;margin-bottom:3px"><span style="width:7px;height:7px;border-radius:50%;background:#2d6a4f"></span><span>Knowledge base current</span></div>
+      <div class="mono" id="foot-updated" style="font-size:10.5px;color:#b3aea3">Updated through Q1 · FY 2026</div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main id="main-content" style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <header style="height:56px;background:rgba(247,246,242,.85);backdrop-filter:blur(8px);border-bottom:1px solid rgba(28,27,25,.10);display:flex;align-items:center;justify-content:space-between;padding:0 30px;position:sticky;top:0;z-index:20">
+      <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:#8a867d">
+        <span style="font-weight:600;color:#6f6b64" id="crumb-group"></span><span style="color:#c8c3b8">/</span><span style="font-weight:600;color:#1c1b19" id="crumb-page"></span>
+      </div>
+      <div class="navitem" data-tab="ask" style="margin:0;background:#fff;border:1px solid rgba(28,27,25,.12);color:#8a867d;font-size:12.5px;min-width:210px;font-weight:400"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l3 3"/></svg><span>Ask about the city…</span></div>
+    </header>
+
+    <div style="flex:1;padding:36px 40px 64px;max-width:1120px;width:100%">
+
+      <div id="loading-veil" style="display:none;padding:90px 0;text-align:center;color:#8a867d;animation:hbfade .3s ease">
+        <span style="width:22px;height:22px;border:2.5px solid rgba(28,27,25,.14);border-top-color:#16344f;border-radius:50%;display:inline-block;animation:hbspin .7s linear infinite"></span>
+        <div style="margin-top:14px;font-size:13px">Loading city data…</div>
+      </div>
+
+      <!-- ASK -->
+      <div class="view" id="v-ask">
+        <div style="max-width:760px">
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#0f6e63;margin-bottom:12px">Council Knowledge Base</div>
+          <h1 class="serif" style="font-size:34px;font-weight:600;line-height:1.15;color:#16344f;margin-bottom:12px">Ask about the City of Harrisburg</h1>
+          <p style="font-size:15px;color:#6f6b64;line-height:1.6;margin-bottom:26px">Plain-language answers pulled straight from council records — budgets, resolutions, grants, department goals, and meeting minutes. Every answer shows its sources.</p>
+          <div class="ask-box" style="display:flex;align-items:center;background:#fff;border:1.5px solid #16344f;border-radius:12px;box-shadow:0 6px 22px rgba(22,52,79,.10);overflow:hidden">
+            <div style="padding:0 4px 0 18px;color:#8a867d;display:flex"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l3 3"/></svg></div>
+            <input id="ask-input" placeholder="e.g. How much has each department spent this year?" style="flex:1;border:none;outline:none;padding:17px 14px;font-size:15px;background:transparent;color:#1c1b19">
+            <button id="ask-btn" style="background:#16344f;color:#fff;border:none;padding:17px 26px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">Ask<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
+          </div>
+        </div>
+        <div id="ask-answer" style="margin-top:28px;max-width:820px"></div>
+        <div id="ask-suggest" style="margin-top:34px;max-width:820px"></div>
+      </div>
+
+      <!-- OVERVIEW -->
+      <div class="view" id="v-overview">
+        <div style="margin-bottom:22px"><h1 class="page">City at a glance</h1><p class="psub">Where the money, decisions, and departments stand this fiscal year.</p></div>
+        <div id="ov-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:34px"></div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Recent decisions</h2><a data-tab="decisions" class="navlink" style="cursor:pointer;font-size:13px;font-weight:600">View all decisions →</a></div>
+        <div class="card" style="overflow:hidden;margin-bottom:32px"><table><thead><tr><th>Resolution</th><th>Title</th><th>Status</th><th class="num">Amount</th><th>Adopted</th></tr></thead><tbody id="ov-res"></tbody></table></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Active grants</h2><a data-tab="money" class="navlink" style="cursor:pointer;font-size:13px;font-weight:600">All grants →</a></div>
+            <div class="card" style="overflow:hidden" id="ov-grants"></div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Budget used</h2><a data-tab="money" class="navlink" style="cursor:pointer;font-size:13px;font-weight:600">Full breakdown →</a></div>
+            <div class="card" style="padding:6px 16px 14px" id="ov-budget"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DECISIONS -->
+      <div class="view" id="v-decisions">
+        <div style="margin-bottom:22px"><h1 class="page">Decisions</h1><p class="psub">Everything the Council has authorized and passed — resolutions and legislation.</p></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Resolutions — spending &amp; authorizations</h2>
+        <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Resolution</th><th>Title</th><th>Status</th><th class="num">Amount</th><th>Vendor</th><th>Adopted</th></tr></thead><tbody id="dec-res"></tbody></table></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Legislation — ordinances &amp; bills</h2>
+        <div class="card" style="overflow:hidden"><table><thead><tr><th>Bill</th><th>Title</th><th>Sponsor</th><th>Status</th><th class="num">Amount</th><th>Adopted</th></tr></thead><tbody id="dec-leg"></tbody></table></div>
+      </div>
+
+      <!-- MONEY -->
+      <div class="view" id="v-money">
+        <div style="margin-bottom:22px"><h1 class="page">Money &amp; budgets</h1><p class="psub">Budget vs. actual spending by department, plus external grant awards.</p></div>
+        <div id="money-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:30px"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
+          <div class="seg"><button id="seg-budget" class="on" onclick="setMoney('budget')">Budget vs. actual</button><button id="seg-grants" onclick="setMoney('grants')">Grants</button></div>
+          <select class="filter" id="money-dept" onchange="applyDept(this.value)"></select>
+        </div>
+        <div id="money-budget-wrap">
+          <h2 class="sec" style="font-size:18px;margin-bottom:12px">Budget vs. actual — by department (YTD)</h2>
+          <div class="card" style="overflow:hidden"><table><thead><tr><th>Department</th><th class="num">Revised budget</th><th class="num">YTD spent</th><th style="width:200px">% used</th></tr></thead><tbody id="money-budget"></tbody></table></div>
+        </div>
+        <div id="money-grants-wrap" style="display:none">
+          <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants — external awards</h2>
+          <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>End date</th></tr></thead><tbody id="money-grants"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- MEETINGS LIST -->
+      <div class="view" id="v-meetings">
+        <div style="margin-bottom:22px"><h1 class="page">Meetings</h1><p class="psub">Council legislative sessions — attendance and what was decided. Select a meeting to see the full record.</p></div>
+        <div id="mtg-list" style="display:flex;flex-direction:column;gap:12px"></div>
+      </div>
+      <!-- MEETING DETAIL -->
+      <div class="view" id="v-meeting"><div id="mtg-detail"></div></div>
+
+      <!-- DEPARTMENTS LIST -->
+      <div class="view" id="v-departments">
+        <div style="margin-bottom:22px"><h1 class="page">Departments</h1><p class="psub">Each department's spending, goals, and open positions. Select a department to see the detail.</p></div>
+        <div id="dept-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px"></div>
+      </div>
+      <!-- DEPARTMENT DETAIL -->
+      <div class="view" id="v-department"><div id="dept-detail"></div></div>
+
+      <!-- DOCUMENTS -->
+      <div class="view" id="v-documents">
+        <div style="margin-bottom:22px"><h1 class="page">Documents</h1><p class="psub">Source records indexed in the knowledge base.</p></div>
+        <div class="card" style="overflow:hidden"><table><thead><tr><th>Title</th><th>Type</th><th>Department</th><th class="num">Chunks</th></tr></thead><tbody id="doc-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table></div>
+      </div>
+
+      <!-- ADD -->
+      <div class="view" id="v-add">
+        <div style="max-width:720px">
+          <div style="margin-bottom:22px"><h1 class="page">Add documents</h1><p class="psub">Upload council PDFs — quarterly reports, resolutions, minutes, and budgets — to index them into the knowledge base.</p></div>
+
+          <!-- Staff gate -->
+          <div id="auth-gate" class="card" style="padding:28px 26px;max-width:470px">
+            <div style="width:44px;height:44px;border-radius:10px;background:#f0efe9;display:flex;align-items:center;justify-content:center;margin-bottom:14px"><svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="#6f6b64" stroke-width="1.5"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M6.5 9V6.5a3.5 3.5 0 0 1 7 0V9"/></svg></div>
+            <div style="font-size:15px;font-weight:600;color:#1c1b19;margin-bottom:4px">Staff access</div>
+            <div style="font-size:13px;color:#8a867d;margin-bottom:18px;line-height:1.5">Adding documents is restricted to City staff. Enter the administrator password to continue.</div>
+            <div style="display:flex;gap:10px">
+              <input id="auth-input" type="password" class="txt-input" placeholder="Administrator password" style="flex:1" autocomplete="current-password">
+              <button id="auth-btn" class="btn-primary">Unlock</button>
+            </div>
+            <div id="auth-error" role="alert" style="color:#a0302a;font-size:12.5px;margin-top:10px;min-height:16px"></div>
+          </div>
+
+          <!-- Upload panel (revealed after unlock) -->
+          <div id="ingest-panel" style="display:none">
+            <div id="upload-zone" class="dropzone" role="button" tabindex="0" aria-label="Choose PDF files to upload">
+              <div style="width:46px;height:46px;border-radius:50%;background:#eef1ee;display:flex;align-items:center;justify-content:center;margin:0 auto 12px"><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="#0f6e63" stroke-width="1.5"><path d="M10 13V4M6 7l4-4 4 4"/><path d="M3 14v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2"/></svg></div>
+              <div style="font-size:14px;font-weight:600;color:#1c1b19">Drop PDFs here, or click to browse</div>
+              <div style="font-size:12px;color:#a7a298;margin-top:4px">PDF files only · duplicates are detected and skipped automatically</div>
+              <input id="upload-input" type="file" accept="application/pdf,.pdf" multiple style="display:none">
+            </div>
+
+            <div class="card" id="file-list-card" style="overflow:hidden;margin-top:14px;display:none"><div id="upload-file-list"></div></div>
+
+            <div style="display:flex;align-items:center;gap:10px;margin-top:16px">
+              <button id="upload-btn" class="btn-primary" disabled><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 10.5V3.5M5 6l3-3 3 3"/><path d="M2.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1"/></svg><span id="upload-btn-text">Add to knowledge base</span></button>
+              <button id="clear-btn" class="btn-ghost">Clear</button>
+              <button id="stop-btn" class="btn-ghost" style="display:none;color:#a0302a;border-color:rgba(160,48,42,.30)">Stop</button>
+            </div>
+
+            <div id="batch-progress" class="card" style="display:none;padding:18px 20px;margin-top:20px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px">
+                <span id="batch-label" style="font-size:13.5px;font-weight:600;color:#16344f;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Uploading…</span>
+                <span id="batch-count" class="mono" style="font-size:12px;color:#8a867d;flex-shrink:0">0 / 0</span>
+              </div>
+              <div class="barbg"><div id="batch-fill" style="width:0%;background:#16344f;transition:width .3s ease"></div></div>
+              <div id="batch-files" style="margin-top:14px;display:flex;flex-direction:column;gap:1px"></div>
+            </div>
+
+            <div id="upload-result" style="display:none;margin-top:16px;padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:500"></div>
+
+            <details id="log-wrap" style="margin-top:16px;display:none">
+              <summary style="font-size:12px;font-weight:600;color:#6f6b64;cursor:pointer;user-select:none">Ingestion log</summary>
+              <div id="ingest-log" class="log" style="margin-top:10px"></div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let D = {};                 // /dashboard/data payload
+let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null };
+
+// ---- helpers ----
+function dkey(s){ return String(s||'').toLowerCase().replace(/ and /g,' & ').replace(/^(the |bureau of |department of |office of )/,'').replace(/[^a-z0-9&]+/g,' ').trim(); }
+function money(v){ if(v==null) return '—'; const n=Number(v); if(n>=1e6) return '$'+(n/1e6).toFixed(1)+'M'; if(n>=1e3) return '$'+Math.round(n/1e3)+'K'; return '$'+n.toLocaleString(); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cell(v){ return v==null||v===''?'—':esc(v); }
+function pctColor(p){ return p>=95?'#a0302a':p>=85?'#c4691e':'#16344f'; }
+function pill(kind){ return 'pill p-'+kind; }
+function statusPill(s){
+  const k={adopted:'green',passed:'green',approved:'green',active:'green',awarded:'green','on track':'green',met:'teal',
+    signed:'green',pending:'amber',applied:'amber',introduced:'amber','in committee':'amber',tabled:'amber','at risk':'amber',
+    behind:'red',vetoed:'red',closed:'grey'};
+  return pill(k[String(s||'').toLowerCase()]||'grey');
+}
+function parseDate(iso){ if(!iso) return {day:'—',mon:'',weekday:'',date:iso||''}; const d=new Date(iso+'T00:00:00'); if(isNaN(d)) return {day:'—',mon:'',weekday:'',date:iso}; const mons=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const wd=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']; return {day:String(d.getDate()),mon:mons[d.getMonth()],weekday:wd[d.getDay()],date:mons[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()}; }
+function mins(t){ if(!t) return null; const m=String(t).match(/(\d{1,2}):(\d{2})\s*([ap]m)?/i); if(!m) return null; let h=+m[1],mi=+m[2]; const ap=(m[3]||'').toLowerCase(); if(ap==='pm'&&h<12)h+=12; if(ap==='am'&&h===12)h=0; return h*60+mi; }
+function duration(a,b){ const x=mins(a),y=mins(b); if(x==null||y==null||y<x) return '—'; const d=y-x; return Math.floor(d/60)+'h '+(d%60)+'m'; }
+// pull the first meaningful integer (ignoring 4-digit years) from a string
+function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').match(/\d+/g); if(!m) return null; for(const x of m){ const n=+x; if(n>=1900&&n<=2100) continue; return n; } return null; }
+// derive goal progress: actual (from status note) vs target (from target/title)
+function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
+
+// ---- nav ----
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],decisions:['Explore','Decisions'],money:['Explore','Money & budgets'],meetings:['Explore','Meetings'],meeting:['Explore','Meeting record'],departments:['Explore','Departments'],department:['Explore','Department'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+function go(tab){ state.tab=tab; render(); }
+function render(){
+  const t=state.tab;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  const map={ask:'v-ask',overview:'v-overview',decisions:'v-decisions',money:'v-money',meetings:'v-meetings',meeting:'v-meeting',departments:'v-departments',department:'v-department',documents:'v-documents',add:'v-add'};
+  const el=$('#'+map[t]); if(el) el.classList.add('on');
+  document.querySelectorAll('.navitem[data-tab]').forEach(n=>{
+    const nt=n.getAttribute('data-tab');
+    const active = nt===t || (t==='meeting'&&nt==='meetings') || (t==='department'&&nt==='departments');
+    n.classList.toggle('active', active && n.closest('nav')!=null);
+  });
+  const c=CRUMB[t]||['','']; $('#crumb-group').textContent=c[0]; $('#crumb-page').textContent=c[1];
+  window.scrollTo(0,0);
+  if(t==='documents') loadDocuments();
+}
+
+// ---- render sections from D ----
+function grantsList(){ return (D.tables&&D.tables.grants)||[]; }
+function deptMatch(dep){ return state.dept==='All' || dkey(dep)===dkey(state.dept); }
+
+function renderOverview(){
+  const k=D.kpis||{}; const usedPct=k.revised_budget?Math.round(k.ytd_spend/k.revised_budget*100):0;
+  const kpis=[
+    {lbl:'Active grants',val:k.active_grants??0,sub:money(k.grant_funds_active)+' active',bar:'#0f6e63',go:()=>{state.tab='money';setMoney('grants');}},
+    {lbl:'Budget used (YTD)',val:usedPct+'%',sub:'of revised budget',bar:'#16344f',go:()=>{state.tab='money';setMoney('budget');}},
+    {lbl:'Resolutions',val:(D.resolutions||[]).length,sub:'this year',bar:'#16344f',go:()=>go('decisions')},
+    {lbl:'Open vacancies',val:(D.vacancies||[]).length,sub:'across departments',bar:'#c4691e',go:()=>go('departments')},
+    {lbl:'Meetings',val:(D.meetings||[]).length,sub:'legislative sessions',bar:'#16344f',go:()=>go('meetings')},
+  ];
+  $('#ov-kpis').innerHTML=kpis.map((x,i)=>`<div class="kpi click" data-kpi="${i}"><div class="bar" style="background:${x.bar}"></div><div class="arrow">↗</div><div class="lbl">${x.lbl}</div><div class="val">${x.val}</div><div class="sub">${esc(x.sub)}</div></div>`).join('');
+  $('#ov-kpis').querySelectorAll('[data-kpi]').forEach(el=>el.onclick=()=>kpis[+el.dataset.kpi].go());
+  const res=(D.resolutions||[]).slice(0,5);
+  $('#ov-res').innerHTML = res.length?res.map(r=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(r.resolution_number)}</td><td>${cell(r.title)}</td><td><span class="${statusPill(r.status)}">${cell(r.status)}</span></td><td class="num mono">${money(r.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(r.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No resolutions yet.</td></tr>';
+  const gr=grantsList().slice(0,4);
+  $('#ov-grants').innerHTML = gr.length?gr.map(g=>`<div style="padding:13px 16px;border-top:1px solid rgba(28,27,25,.06);display:flex;justify-content:space-between;gap:12px"><div><div style="font-weight:600;font-size:13px">${cell(g.grant_name)}</div><div style="font-size:12px;color:#8a867d;margin-top:2px">${cell(g.department)}</div></div><div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:13px;color:#16344f">${money(g.amount)}</div><span class="${statusPill(g.status)}">${cell(g.status)}</span></div></div>`).join(''):'<div class="empty">No grants.</div>';
+  const bu=(D.budget&&D.budget.by_department||[]).slice(0,4);
+  $('#ov-budget').innerHTML = bu.length?bu.map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<div style="padding:11px 0;border-top:1px solid rgba(28,27,25,.06)"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>${cell(b.department)}</span><span class="mono" style="color:#6f6b64">${p}%</span></div><div class="barbg"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div></div>`;}).join(''):'<div class="empty">No budget data.</div>';
+}
+
+function renderDecisions(){
+  const res=D.resolutions||[];
+  $('#dec-res').innerHTML = res.length?res.map(r=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(r.resolution_number)}</td><td>${cell(r.title)}</td><td><span class="${statusPill(r.status)}">${cell(r.status)}</span></td><td class="num mono">${money(r.amount)}</td><td style="color:#6f6b64">${cell(r.vendor)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(r.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">No resolutions.</td></tr>';
+  const leg=D.legislation||[];
+  $('#dec-leg').innerHTML = leg.length?leg.map(l=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(l.bill_number)}</td><td>${cell(l.title)}</td><td style="color:#6f6b64">${cell(l.sponsor)}</td><td><span class="${statusPill(l.status)}">${cell(l.status)}</span></td><td class="num mono">${money(l.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(l.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">No legislation.</td></tr>';
+}
+
+function renderMoney(){
+  const bd=(D.budget&&D.budget.by_department||[]).filter(b=>deptMatch(b.department));
+  const totB=bd.reduce((s,d)=>s+(d.revised_budget||0),0), totS=bd.reduce((s,d)=>s+(d.ytd_expended||0),0);
+  const over=bd.filter(d=>d.revised_budget&&d.ytd_expended/d.revised_budget>0.8).length;
+  const per=D.budget&&D.budget.period?` <span style="font-size:11px;color:#a7a298">(${D.budget.period.quarter} ${D.budget.period.year})</span>`:'';
+  const mk=[['Revised budget',money(totB)+per,'#16344f'],['Spent YTD',money(totS)+(totB?` <span style="font-size:11px;color:#a7a298">(${Math.round(totS/totB*100)}%)</span>`:''),'#16344f'],['Council-authorized',money((D.resolutions||[]).filter(r=>deptMatch(r.department)).reduce((s,r)=>s+(r.amount||0),0)),'#0f6e63'],['Depts over 80%',over,over>0?'#c4691e':'#16344f']];
+  $('#money-kpis').innerHTML=mk.map(([l,v,b])=>`<div class="kpi"><div class="bar" style="background:${b}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+  $('#money-budget').innerHTML = bd.length?bd.sort((a,b)=>b.revised_budget-a.revised_budget).map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<tr><td style="font-weight:500">${cell(b.department)}</td><td class="num mono" style="color:#6f6b64">${money(b.revised_budget)}</td><td class="num mono">${money(b.ytd_expended)}</td><td><div style="display:flex;align-items:center;gap:10px"><div class="barbg" style="flex:1"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744;width:34px;text-align:right">${p}%</span></div></td></tr>`;}).join(''):'<tr><td colspan="4" class="empty">No budget data for this department.</td></tr>';
+  const gr=grantsList().filter(g=>deptMatch(g.department));
+  $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span></td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
+}
+function setMoney(v){ state.money=v; $('#seg-budget').classList.toggle('on',v==='budget'); $('#seg-grants').classList.toggle('on',v==='grants'); $('#money-budget-wrap').style.display=v==='budget'?'':'none'; $('#money-grants-wrap').style.display=v==='grants'?'':'none'; if(state.tab!=='money'){state.tab='money';render();} }
+function applyDept(v){ state.dept=v; renderMoney(); }
+
+function renderMeetings(){
+  const ms=D.meetings||[];
+  $('#mtg-list').innerHTML = ms.length?ms.map((m,i)=>{const d=parseDate(m.meeting_date);const na=(m.actions||[]).length;return `<div class="card mtg-row" data-i="${i}" style="padding:16px 20px;display:flex;align-items:center;gap:20px;cursor:pointer"><div style="text-align:center;flex-shrink:0;width:56px"><div class="serif" style="font-size:22px;font-weight:600;color:#16344f;line-height:1">${d.day}</div><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a7a298;margin-top:3px">${d.mon}</div></div><div style="width:1px;align-self:stretch;background:rgba(28,27,25,.08)"></div><div style="flex:1"><div style="font-weight:600;font-size:14px">${cell(m.session_type)||'Session'}</div><div style="font-size:12.5px;color:#8a867d;margin-top:3px">${na} action${na===1?'':'s'} recorded${m.president?' · Pres. '+esc(m.president):''}</div></div><div style="display:flex;align-items:center;gap:20px;flex-shrink:0"><div style="text-align:right"><div class="mono" style="font-size:14px">${m.members_present!=null?m.members_present:'—'}</div><div style="font-size:10.5px;color:#a7a298;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Present</div></div><div style="text-align:right"><div class="mono" style="font-size:14px">${na}</div><div style="font-size:10.5px;color:#a7a298;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Actions</div></div><span style="color:#c8c3b8;font-size:18px">›</span></div></div>`;}).join(''):'<div class="empty">No meetings ingested yet.</div>';
+  $('#mtg-list').querySelectorAll('.mtg-row').forEach(el=>el.onclick=()=>{state.mtg=+el.dataset.i;go('meeting');renderMeetingDetail();});
+}
+function renderMeetingDetail(){
+  const m=(D.meetings||[])[state.mtg]; if(!m){go('meetings');return;}
+  const d=parseDate(m.meeting_date);
+  const present=(m.members_present_names||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const absent=(m.members_absent_names||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const roster=present.map(n=>({n,present:true})).concat(absent.map(n=>({n,present:false})));
+  const acts=(m.actions||[]).map(a=>`<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${cell(a.item_type)} ${cell(a.item_number)}</span></div><div style="font-weight:600;font-size:14px;line-height:1.35">${cell(a.title)}</div><div style="font-size:13px;color:#6f6b64;margin-top:5px">${cell(a.action)}${a.committee?' — '+esc(a.committee):''}</div></div></div></div>`).join('') || '<div class="empty">No recorded actions.</div>';
+  const stat=(lbl,val)=>`<div class="card" style="padding:11px 16px;text-align:center;min-width:74px"><div class="mono" style="font-size:18px;color:#16344f;line-height:1">${val}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-top:6px">${lbl}</div></div>`;
+  $('#mtg-detail').innerHTML=`
+    <div class="navlink" data-tab="meetings" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:#0f6e63;cursor:pointer;margin-bottom:18px"><span style="font-size:16px">‹</span><span>All meetings</span></div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:26px">
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="text-align:center;background:#16344f;color:#fff;border-radius:12px;padding:12px 16px;min-width:76px"><div class="serif" style="font-size:30px;font-weight:600;line-height:1">${d.day}</div><div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-top:4px;color:#a9c4d8">${d.mon}</div></div>
+        <div><h1 class="serif" style="font-size:26px;font-weight:600;color:#16344f;line-height:1.15">${cell(m.session_type)||'Session'}</h1><div style="font-size:13.5px;color:#6f6b64;margin-top:4px">${d.weekday?d.weekday+', ':''}${d.date}</div></div>
+      </div>
+      <div style="display:flex;gap:10px">${stat('Present',m.members_present!=null?m.members_present:'—')}${stat('Actions',(m.actions||[]).length)}${stat('Duration',duration(m.call_to_order,m.adjourned))}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 288px;gap:22px;align-items:start">
+      <div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">What was decided</h2>
+        <div style="display:flex;flex-direction:column;gap:10px">${acts}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card" style="overflow:hidden">
+          <div style="padding:13px 16px;border-bottom:1px solid rgba(28,27,25,.07);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8a867d">Attendance</div>
+          ${roster.length?roster.map(p=>`<div style="padding:10px 16px;border-top:1px solid rgba(28,27,25,.05);display:flex;align-items:center;justify-content:space-between;gap:10px"><div style="font-size:13px;font-weight:500">${cell(p.n)}</div><span class="pill ${p.present?'p-green':'p-grey'}">${p.present?'Present':'Absent'}</span></div>`).join(''):'<div class="empty">Roster not recorded.</div>'}
+        </div>
+        ${m.source_file?`<div class="card" style="padding:15px 16px"><div style="font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8a867d;margin-bottom:11px">Official record</div><div style="font-size:12.5px;color:#2a2825;word-break:break-word">${esc(m.source_file)}</div></div>`:''}
+      </div>
+    </div>`;
+  bindNavlinks($('#mtg-detail'));
+}
+
+function renderDepartments(){
+  const grByDept={}, vacByDept={}, goalByDept={};
+  grantsList().forEach(g=>{const k=dkey(g.department);grByDept[k]=(grByDept[k]||0)+1;});
+  (D.vacancies||[]).forEach(v=>{const k=dkey(v.department);(vacByDept[k]=vacByDept[k]||[]).push(v);});
+  (D.goals||[]).forEach(g=>{const k=dkey(g.department);(goalByDept[k]=goalByDept[k]||[]).push(g);});
+  const ds=D.departments||[];
+  $('#dept-list').innerHTML = ds.length?ds.map((d,i)=>{
+    const k=dkey(d.department); const p=d.revised_budget?Math.round(d.ytd_expended/d.revised_budget*100):0;
+    const vac=(vacByDept[k]||[]).length, gc=(goalByDept[k]||[]).length;
+    return `<div class="card dept-row" data-i="${i}" style="padding:18px 20px;cursor:pointer;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><div class="serif" style="font-size:16px;font-weight:600;color:#16344f;line-height:1.25">${cell(d.department)}</div><span style="color:#c8c3b8;font-size:18px;flex-shrink:0">›</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;border-top:1px solid rgba(28,27,25,.07);margin-top:15px;padding-top:14px">
+        <div><div class="mono" style="font-size:17px;color:#2a2825">${d.revised_budget?p+'%':'—'}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a7a298;margin-top:5px">Budget used</div></div>
+        <div><div class="mono" style="font-size:17px;color:#2a2825">${grByDept[k]||0}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a7a298;margin-top:5px">Grants</div></div>
+        <div class="dept-vac" data-i="${i}" style="margin:-6px;padding:6px;border-radius:7px;cursor:pointer"><div style="display:flex;align-items:baseline;gap:5px"><span class="mono" style="font-size:17px;color:${vac?'#c4691e':'#2a2825'}">${vac}</span>${vac?'<span style="color:#c8a06a;font-size:12px">↗</span>':''}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a7a298;margin-top:5px">Openings</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding:9px 12px;background:#f7f6f2;border-radius:8px"><span style="width:7px;height:7px;border-radius:50%;background:#16344f"></span><span style="font-size:12px;font-weight:600;color:#4a4744">${gc} goal${gc===1?'':'s'}</span></div>
+    </div>`;
+  }).join(''):'<div class="empty">No departments.</div>';
+  $('#dept-list').querySelectorAll('.dept-row').forEach(el=>el.onclick=()=>{state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
+  $('#dept-list').querySelectorAll('.dept-vac').forEach(el=>el.onclick=(e)=>{e.stopPropagation();state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
+}
+function renderDeptDetail(){
+  const d=(D.departments||[]).find(x=>x.department===state.deptName); if(!d){go('departments');return;}
+  const k=dkey(d.department); const p=d.revised_budget?Math.round(d.ytd_expended/d.revised_budget*100):0;
+  const goals=(D.goals||[]).filter(g=>dkey(g.department)===k);
+  const vac=(D.vacancies||[]).filter(v=>dkey(v.department)===k);
+  const grants=grantsList().filter(g=>dkey(g.department)===k).length;
+  const stat=(lbl,val)=>`<div class="card" style="padding:11px 16px;text-align:center;min-width:74px"><div class="mono" style="font-size:18px;color:#16344f;line-height:1">${val}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-top:6px">${lbl}</div></div>`;
+  const goalCard=(g)=>{
+    const pr=goalProgress(g);
+    const done=pr.known&&pr.pct>=100;
+    const barCol=pr.known?(done?'#2d6a4f':'#16344f'):'transparent';
+    const right=pr.known
+      ? `<span class="mono" style="font-size:14px;color:${done?'#2d6a4f':'#16344f'};flex-shrink:0">${pr.pct}%</span>`
+      : `<span class="pill p-grey" style="flex-shrink:0">In progress</span>`;
+    const track=pr.known
+      ? `<div class="barbg" style="margin-top:12px"><div style="width:${pr.pct}%;background:${barCol}"></div></div>`
+      : `<div class="barbg" style="margin-top:12px;background:repeating-linear-gradient(90deg,rgba(28,27,25,.05),rgba(28,27,25,.05) 6px,rgba(28,27,25,.02) 6px,rgba(28,27,25,.02) 12px)"></div>`;
+    const caption=pr.known
+      ? `<div style="font-size:12px;color:#6f6b64;margin-top:7px">${g.status?esc(g.status):(pr.a+' of '+pr.t)}</div>`
+      : `<div style="font-size:12px;color:#a7a298;margin-top:7px;font-style:italic">${g.status?esc(g.status):'Qualitative goal — no numeric target reported'}</div>`;
+    return `<div class="card" style="padding:16px 20px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14.5px;line-height:1.4">${cell(g.goal_title)}</div>${right}</div>
+      ${g.description?`<div style="font-size:13px;color:#6f6b64;margin-top:8px;line-height:1.5">${esc(g.description)}</div>`:''}
+      ${track}${caption}
+      ${g.target?`<div style="display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#2d6a4f;background:#e9f4ee;padding:2px 9px;border-radius:99px">🎯 ${esc(g.target)}</div>`:''}
+    </div>`;
+  };
+  const goalCards=goals.length?goals.map(goalCard).join(''):'<div class="empty">No goals captured for this department.</div>';
+  const vacCard=vac.length?`
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 14px"><h2 class="sec">Open positions</h2><span style="font-size:12.5px;color:#8a867d">${vac.length} open</span></div>
+    <div class="card" style="overflow:hidden">${vac.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div><span class="pill p-amber">Open</span></div>`).join('')}</div>`:'';
+  $('#dept-detail').innerHTML=`
+    <div class="navlink" data-tab="departments" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:#0f6e63;cursor:pointer;margin-bottom:18px"><span style="font-size:16px">‹</span><span>All departments</span></div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:26px">
+      <div><h1 class="serif" style="font-size:27px;font-weight:600;color:#16344f;line-height:1.15">${cell(d.department)}</h1><div style="font-size:13.5px;color:#6f6b64;margin-top:4px">${d.report_count||0} quarterly report${d.report_count===1?'':'s'} on file</div></div>
+      <div style="display:flex;gap:10px">${stat('Budget used',d.revised_budget?p+'%':'—')}${stat('Grants',grants)}${stat('Openings',vac.length)}</div>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><h2 class="sec">Goals</h2><span style="font-size:12.5px;color:#8a867d">${goals.length} tracked</span></div>
+    <div style="display:flex;flex-direction:column;gap:12px">${goalCards}</div>
+    ${vacCard}`;
+  bindNavlinks($('#dept-detail'));
+}
+
+// ---- documents ----
+let docsLoaded=false;
+async function loadDocuments(){
+  if(docsLoaded) return; docsLoaded=true;
+  try{ const r=await fetch('/documents'); const j=await r.json(); const docs=j.documents||[];
+    const label={quarterly_report:'Quarterly report',resolution:'Resolution',minutes:'Minutes',legislation:'Legislation',budget:'Budget'};
+    $('#doc-body').innerHTML = docs.length?docs.map(d=>`<tr><td style="font-weight:500">${esc((d.source_file||'').replace(/\.pdf$/i,'').replace(/_/g,' '))}</td><td style="color:#6f6b64">${esc(label[d.document_type]||d.document_type||'—')}</td><td style="color:#6f6b64">${cell(d.department)}</td><td class="num mono" style="color:#6f6b64">${d.total_chunks??'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">No documents.</td></tr>';
+  }catch(e){ $('#doc-body').innerHTML='<tr><td colspan="4" class="empty">Could not load documents.</td></tr>'; }
+}
+
+// ---- add documents: staff gate + streaming ingest ----
+let adminUnlocked = sessionStorage.getItem('admin_unlocked')==='1';
+let uploadFiles = [];
+let currentJobId = null;
+
+function revealIngest(){ adminUnlocked=true; $('#auth-gate').style.display='none'; $('#ingest-panel').style.display=''; }
+if(adminUnlocked) revealIngest();
+
+async function tryAuth(){
+  const pw=$('#auth-input').value; const err=$('#auth-error'); err.textContent='';
+  try{
+    const r=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    if(r.ok){ sessionStorage.setItem('admin_unlocked','1'); revealIngest(); }
+    else err.textContent='Incorrect password. Please try again.';
+  }catch{ err.textContent='Could not reach the server.'; }
+}
+$('#auth-btn').onclick=tryAuth;
+$('#auth-input').addEventListener('keydown',e=>{ if(e.key==='Enter') tryAuth(); });
+
+const uz=$('#upload-zone'), ui=$('#upload-input');
+function setFiles(list){
+  const pdfs=Array.from(list).filter(f=>f.name.toLowerCase().endsWith('.pdf'));
+  if(!pdfs.length) return;
+  uploadFiles=pdfs; renderFiles();
+  $('#upload-btn').disabled=false;
+  $('#upload-btn-text').textContent=pdfs.length>1?`Ingest ${pdfs.length} documents`:'Add to knowledge base';
+  $('#upload-result').style.display='none';
+}
+function renderFiles(){
+  const c=$('#file-list-card'), l=$('#upload-file-list');
+  if(!uploadFiles.length){ c.style.display='none'; l.innerHTML=''; return; }
+  c.style.display='';
+  l.innerHTML=uploadFiles.map(f=>`<div class="filerow"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#8a867d" stroke-width="1.4" style="flex-shrink:0"><path d="M3 2.5h6l4 4V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5z"/><path d="M9 2.5V6h4"/></svg><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span><span class="mono" style="font-size:11.5px;color:#a7a298;flex-shrink:0">${(f.size/1048576).toFixed(2)} MB</span></div>`).join('');
+}
+uz.onclick=()=>ui.click();
+uz.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); ui.click(); } });
+uz.addEventListener('dragover',e=>{ e.preventDefault(); uz.classList.add('drag'); });
+uz.addEventListener('dragleave',()=>uz.classList.remove('drag'));
+uz.addEventListener('drop',e=>{ e.preventDefault(); uz.classList.remove('drag'); if(e.dataTransfer.files.length) setFiles(e.dataTransfer.files); });
+ui.addEventListener('change',()=>{ if(ui.files.length) setFiles(ui.files); });
+
+$('#clear-btn').onclick=()=>{
+  uploadFiles=[]; ui.value=''; renderFiles();
+  $('#upload-btn').disabled=true; $('#upload-btn-text').textContent='Add to knowledge base';
+  $('#batch-progress').style.display='none'; $('#upload-result').style.display='none';
+  $('#log-wrap').style.display='none'; $('#ingest-log').innerHTML='';
+};
+$('#stop-btn').onclick=async()=>{
+  if(!currentJobId) return;
+  const b=$('#stop-btn'); b.disabled=true; b.textContent='Stopping…';
+  try{ await fetch('/ingest/cancel/'+currentJobId,{method:'POST'}); }catch{}
+};
+
+function ingestLog(text){
+  $('#log-wrap').style.display='';
+  const lvl=(/^(WARNING|ERROR|DEBUG|INFO)/.exec(text)||[])[1]||'INFO';
+  const el=$('#ingest-log'); const p=document.createElement('div'); p.className='l-'+lvl; p.textContent=text;
+  el.appendChild(p); el.scrollTop=el.scrollHeight;
+}
+function showResult(kind,msg){
+  const r=$('#upload-result'); r.style.display='';
+  const [bg,col]=kind==='error'?['#fbecec','#a0302a']:['#e9f4ee','#2d6a4f'];
+  r.style.background=bg; r.style.color=col; r.textContent=msg;
+}
+
+$('#upload-btn').onclick=async()=>{
+  if(!uploadFiles.length) return;
+  const btn=$('#upload-btn'); btn.disabled=true;
+  $('#upload-result').style.display='none';
+  $('#ingest-log').innerHTML='';
+  const rows={}; const fEl=$('#batch-files'); fEl.innerHTML='';
+  uploadFiles.forEach(f=>{ const d=document.createElement('div'); d.className='frow'; d.innerHTML=`<span class="ic">·</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span><span class="ic-chunks mono" style="font-size:11px;color:#a7a298"></span>`; fEl.appendChild(d); rows[f.name]=d; });
+  const total=uploadFiles.length;
+  $('#batch-progress').style.display=''; $('#batch-label').textContent='Uploading…'; $('#batch-count').textContent='0 / '+total; $('#batch-fill').style.width='0%';
+  $('#stop-btn').style.display=''; $('#stop-btn').disabled=false; $('#stop-btn').textContent='Stop';
+
+  const fd=new FormData(); uploadFiles.forEach(f=>fd.append('files',f));
+  let jobId;
+  try{
+    const res=await fetch('/upload',{method:'POST',body:fd});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||'Upload failed');
+    jobId=data.job_id; currentJobId=jobId;
+    (data.skipped||[]).forEach(s=>ingestLog(`WARNING  Skipped ${s.filename}: ${s.reason}`));
+  }catch(err){
+    showResult('error',err.message); $('#batch-progress').style.display='none'; $('#stop-btn').style.display='none'; btn.disabled=false; return;
+  }
+  ingestLog('INFO  Ingestion started…');
+
+  const es=new EventSource('/ingest/stream/'+jobId);
+  const finish=()=>{ es.close(); currentJobId=null; $('#stop-btn').style.display='none'; btn.disabled=false; $('#upload-btn-text').textContent='Add to knowledge base'; };
+  es.addEventListener('log',e=>ingestLog(JSON.parse(e.data)));
+  es.addEventListener('file_start',e=>{ const d=JSON.parse(e.data); $('#batch-label').textContent=d.filename; $('#batch-count').textContent=(d.index+1)+' / '+d.total; const r=rows[d.filename]; if(r){ r.className='frow active'; r.querySelector('.ic').textContent='▶'; r.scrollIntoView({block:'nearest'}); } });
+  es.addEventListener('file_done',e=>{ const d=JSON.parse(e.data); $('#batch-fill').style.width=(((d.index+1)/d.total)*100)+'%'; const r=rows[d.filename]; if(r){ r.className='frow done'; r.querySelector('.ic').textContent='✓'; r.querySelector('.ic-chunks').textContent=d.chunks+' chunks'; } });
+  es.addEventListener('file_error',e=>{ const d=JSON.parse(e.data); const r=rows[d.filename]; if(r){ r.className='frow error'; r.querySelector('.ic').textContent='✗'; } ingestLog(`ERROR  ${d.filename}: ${d.error}`); });
+  es.addEventListener('done',e=>{ finish(); const d=JSON.parse(e.data); $('#batch-fill').style.width='100%'; $('#batch-label').textContent='Complete'; $('#batch-count').textContent=d.files_ingested+' / '+total; showResult('success',`${d.files_ingested} document${d.files_ingested!==1?'s':''} added — ${d.total_chunks} chunks indexed.`); ingestLog(`INFO  Done — ${d.files_ingested} files, ${d.total_chunks} chunks stored.`); uploadFiles=[]; ui.value=''; renderFiles(); docsLoaded=false; });
+  es.addEventListener('cancelled',e=>{ finish(); const d=JSON.parse(e.data); $('#batch-label').textContent='Stopped'; $('#batch-count').textContent=d.files_ingested+' / '+total; showResult('success',`Stopped — ${d.files_ingested} document${d.files_ingested!==1?'s':''} added (${d.total_chunks} chunks), ${d.remaining} not processed.`); ingestLog(`WARNING  Stopped by user — ${d.remaining} file(s) not processed.`); if(d.files_ingested>0) docsLoaded=false; });
+  es.addEventListener('error',e=>{ finish(); const msg=e.data?JSON.parse(e.data):'Ingestion failed'; showResult('error','Error: '+msg); ingestLog('ERROR  '+msg); });
+  es.onerror=()=>{ if(es.readyState===EventSource.CLOSED) return; finish(); showResult('error','Lost connection to the server.'); };
+};
+
+// ---- ask ----
+const SUGGEST=[
+  ['Money & budgets','#16344f',['How much has each department spent against its budget?','Which department has the highest YTD spend?']],
+  ['Decisions','#0f6e63',['Which resolutions authorized spending, and how much?','What bills has the council passed?']],
+  ['Departments','#c4691e',["What are the Bureau of Fire's 2026 goals?",'Which departments have open positions?']],
+  ['Grants','#2d6a4f',['What grants does the city currently have?','Which grants are expiring soon?']],
+];
+function renderSuggest(){
+  $('#ask-suggest').innerHTML=`<div style="font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:14px">Try asking about…</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:18px 30px">${SUGGEST.map(([lbl,dot,qs])=>`<div><div style="display:flex;align-items:center;gap:7px;margin-bottom:9px"><span style="width:7px;height:7px;border-radius:2px;background:${dot}"></span><span style="font-size:12px;font-weight:700;color:#4a4744">${lbl}</span></div><div style="display:flex;flex-direction:column;gap:7px">${qs.map(q=>`<button class="sug" data-q="${esc(q)}" style="text-align:left;background:#fff;border:1px solid rgba(28,27,25,.10);border-radius:9px;padding:11px 14px;font-size:13px;color:#2a2825;cursor:pointer;line-height:1.4;display:flex;gap:9px"><span style="color:#c8c3b8">→</span><span>${esc(q)}</span></button>`).join('')}</div></div>`).join('')}</div>`;
+  $('#ask-suggest').querySelectorAll('.sug').forEach(b=>b.onclick=()=>{ $('#ask-input').value=b.dataset.q; runAsk(); });
+}
+async function runAsk(){
+  const q=$('#ask-input').value.trim(); if(!q) return;
+  $('#ask-suggest').innerHTML='';
+  $('#ask-answer').innerHTML=`<div class="card" style="padding:20px 24px;display:flex;align-items:center;gap:12px;color:#6f6b64"><span style="width:16px;height:16px;border:2px solid rgba(28,27,25,.15);border-top-color:#16344f;border-radius:50%;display:inline-block;animation:hbspin .7s linear infinite"></span> Searching city records…</div>`;
+  try{
+    const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const j=await r.json();
+    const ans=j.answer||j.final_answer||j.response||'No answer returned.';
+    const cites=j.citations||j.sources||[];
+    $('#ask-answer').innerHTML=`<div class="card" style="overflow:hidden">
+      <div style="padding:16px 26px;border-bottom:1px solid rgba(28,27,25,.07);display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:7px;background:#e7f2f0;color:#0f6e63;display:flex;align-items:center;justify-content:center">★</span><span style="font-size:14px;font-weight:600">${esc(q)}</span></div>
+      <div class="serif" style="padding:22px 26px;font-size:15.5px;line-height:1.7;color:#2a2825" id="ans-body"></div>
+      ${cites.length?`<div style="padding:13px 26px;background:#f7f6f2;border-top:1px solid rgba(28,27,25,.07)"><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:8px">Sources</div><div style="display:flex;flex-wrap:wrap;gap:6px">${cites.slice(0,8).map(c=>`<span style="background:#eaf0f7;border:1px solid rgba(22,52,79,.15);border-radius:6px;padding:3px 9px;font-size:11.5px;color:#16344f">${esc(typeof c==='string'?c:(c.source_file||c.title||c.source||'source'))}</span>`).join('')}</div></div>`:''}
+    </div>`;
+    $('#ans-body').textContent=ans;
+  }catch(e){ $('#ask-answer').innerHTML=`<div class="card" style="padding:20px 24px;color:#a0302a">Could not reach the answer engine.</div>`; }
+}
+
+// ---- nav wiring ----
+// Make a non-button element behave like one: click + Enter/Space + focusable.
+function clickable(el, fn){
+  el.onclick=fn;
+  if(!el.hasAttribute('role')) el.setAttribute('role','button');
+  if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex','0');
+  el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } });
+}
+function bindNavlinks(root){ (root||document).querySelectorAll('.navlink[data-tab]').forEach(el=>clickable(el,()=>go(el.getAttribute('data-tab')))); }
+document.querySelectorAll('.navitem[data-tab]').forEach(el=>clickable(el,()=>go(el.getAttribute('data-tab'))));
+bindNavlinks(document);
+$('#staff-toggle').onclick=()=>{ const g=$('#staff-group'); const open=g.style.display==='none'; g.style.display=open?'block':'none'; $('#staff-chev').style.transform=open?'rotate(90deg)':''; };
+$('#ask-btn').onclick=runAsk;
+$('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); });
+
+// re-render data views whenever we enter them
+const _render=render;
+render=function(){ _render();
+  const dataTab=['overview','decisions','money','meetings','departments'].includes(state.tab);
+  const veil=$('#loading-veil');
+  if(dataTab && !dataLoaded){
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+    if(veil) veil.style.display='block';
+    return;
+  }
+  if(veil) veil.style.display='none';
+  if(state.tab==='overview') renderOverview();
+  if(state.tab==='decisions') renderDecisions();
+  if(state.tab==='money'){ renderMoney(); }
+  if(state.tab==='meetings') renderMeetings();
+  if(state.tab==='departments') renderDepartments();
+};
+
+// ---- boot ----
+let dataLoaded=false;
+function boot(){
+  renderSuggest();
+  render();            // show the shell + default (Ask) view immediately
+  loadData();          // fetch data in the background, re-render when ready
+}
+async function loadData(){
+  try{ const r=await fetch('/dashboard/data'); D=await r.json(); }catch(e){ D={}; }
+  dataLoaded=true;
+  const names=(D.departments||[]).map(d=>d.department).filter(Boolean).sort();
+  $('#money-dept').innerHTML='<option value="All">All departments</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if(D.budget&&D.budget.period) $('#foot-updated').textContent='Updated through '+D.budget.period.quarter+' · FY '+D.budget.period.year;
+  render();            // re-render current tab now that data is in
+}
+boot();
+</script>
+</body>
+</html>

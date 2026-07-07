@@ -11,6 +11,7 @@ import os
 import queue
 import random
 import threading
+import time
 import uuid
 
 from flask import Flask, jsonify, redirect, render_template, request, Response
@@ -89,7 +90,8 @@ _init()
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # New council-facing redesign is the primary app.
+    return render_template("redesign.html")
 
 
 @app.route("/health")
@@ -194,12 +196,29 @@ def dashboard():
     return redirect("/", code=302)
 
 
+@app.route("/redesign")
+def redesign():
+    # Preview of the new UI redesign (wired to real data). Promote to "/" when approved.
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    return render_template("redesign.html")
+
+
+_dashboard_cache: dict = {"at": 0.0, "payload": None}
+_DASHBOARD_TTL = 90  # seconds; data only changes on (infrequent) ingest
+
+
 @app.route("/dashboard/data")
 def dashboard_data():
     if not _ready:
         return jsonify({"error": _startup_error or "not ready"}), 503
     try:
-        return jsonify(DashboardAggregator(_sql_store).build())
+        now = time.time()
+        if _dashboard_cache["payload"] is None or (now - _dashboard_cache["at"]) > _DASHBOARD_TTL \
+                or request.args.get("fresh"):
+            _dashboard_cache["payload"] = DashboardAggregator(_sql_store).build()
+            _dashboard_cache["at"] = now
+        return jsonify(_dashboard_cache["payload"])
     except Exception as e:
         logger.exception("Dashboard data failed")
         return jsonify({"error": str(e)}), 500
