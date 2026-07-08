@@ -567,15 +567,17 @@ async function loadDocuments(){
     qr.forEach(d=>{ const key=d.year+' '+(d.quarter||'—'); (periods[key]=periods[key]||new Set()).add(dkey(d.department)); });
     const periodKeys=Object.keys(periods).sort().reverse();
     $('#doc-coverage').innerHTML = periodKeys.length ? periodKeys.map(pk=>{
-      const filed=periods[pk]; const missing=rosterKeys.filter(k=>!filed.has(k)).map(k=>disp[k]);
+      const filed=periods[pk];
+      const filedNames=[...filed].map(k=>disp[k]).sort((a,b)=>a.localeCompare(b));
+      const missing=rosterKeys.filter(k=>!filed.has(k)).map(k=>disp[k]);
+      const block=(lbl,items,cls)=>items.length?`<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin:0 0 7px">${lbl} (${items.length})</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${items.map(m=>`<span class="pill ${cls}">${esc(m)}</span>`).join('')}</div>`:'';
       return `<div class="card" style="padding:16px 18px;margin-bottom:12px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:${missing.length?'10px':'0'}">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px">
           <div style="font-weight:600;font-size:14px">${esc(pk)}</div>
           <span class="mono" style="font-size:12px;color:${missing.length?'#8a5a00':'#2d6a4f'}">${filed.size} of ${rosterKeys.length} filed</span>
         </div>
-        ${missing.length?`<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-bottom:7px">Not yet added (${missing.length})</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">${missing.map(m=>`<span class="pill p-amber">${esc(m)}</span>`).join('')}</div>`
-          :'<div style="font-size:12.5px;color:#2d6a4f;margin-top:6px">All known departments have filed for this period.</div>'}
+        ${block('Added',filedNames,'p-green')}
+        ${missing.length?block('Not yet added',missing,'p-amber'):'<div style="font-size:12.5px;color:#2d6a4f">All known departments have filed for this period.</div>'}
       </div>`;
     }).join('') : '<div class="empty">No quarterly reports ingested yet.</div>';
 
