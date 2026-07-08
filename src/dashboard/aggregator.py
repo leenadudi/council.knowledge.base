@@ -11,6 +11,17 @@ logger = logging.getLogger(__name__)
 _Q_MONTH = {"Q1": 1, "Q2": 4, "Q3": 7, "Q4": 10}
 _ACTIVE_STATUSES = ("active", "in_progress", "open", "pending", "awarded")
 
+_VOTE_BUCKETS = {
+    "yea": "yea", "yes": "yea", "aye": "yea", "y": "yea", "for": "yea", "in favor": "yea",
+    "nay": "nay", "no": "nay", "n": "nay", "against": "nay",
+    "abstain": "abstain", "abstained": "abstain", "abstention": "abstain",
+    "absent": "absent", "away": "absent",
+}
+
+
+def _vote_bucket(vote: str) -> str:
+    return _VOTE_BUCKETS.get((vote or "").strip().lower(), "other")
+
 
 def quarter_start(year: int, quarter: str) -> datetime.date:
     return datetime.date(year, _Q_MONTH.get((quarter or "").upper(), 1), 1)
@@ -282,6 +293,44 @@ class DashboardAggregator:
             if hasattr(r.get("adopted_date"), "isoformat"):
                 r["adopted_date"] = r["adopted_date"].isoformat()
         return rows
+
+    # -- Votes (roll-call + member records, joined to resolutions) ------------
+    def _build_votes(self) -> dict:
+        with self.sql.cursor() as cur:
+            # JOIN so each roll-call carries what the resolution actually was,
+            # not just its number. LEFT JOIN keeps votes whose resolution row is missing.
+            cur.execute("SELECT v.resolution_number, v.council_member, v.vote, "
+                        "r.title, r.amount, r.status FROM votes v "
+                        "LEFT JOIN resolutions r ON r.resolution_number = v.resolution_number "
+                        "WHERE v.council_member IS NOT NULL "
+                        "ORDER BY v.resolution_number, v.council_member")
+            rows = [dict(r) for r in cur.fetchall()]
+
+        empty_tally = {"yea": 0, "nay": 0, "abstain": 0, "absent": 0, "other": 0}
+        by_res: dict = {}
+        by_member: dict = {}
+        for r in rows:
+            rn = r.get("resolution_number") or "—"
+            member = r.get("council_member")
+            bucket = _vote_bucket(r.get("vote"))
+
+            res = by_res.setdefault(rn, {
+                "resolution_number": rn,
+                "title": r.get("title"),
+                "amount": float(r["amount"]) if r.get("amount") is not None else None,
+                "status": r.get("status"),
+                "tally": dict(empty_tally), "votes": [],
+            })
+            res["tally"][bucket] += 1
+            res["votes"].append({"member": member, "vote": r.get("vote")})
+
+            m = by_member.setdefault(member, {"member": member, "total": 0, **dict(empty_tally)})
+            m["total"] += 1
+            m[bucket] += 1
+
+        by_resolution = sorted(by_res.values(), key=lambda x: x["resolution_number"])
+        members = sorted(by_member.values(), key=lambda x: -x["total"])
+        return {"by_resolution": by_resolution, "by_member": members}
 
     # -- Budget vs actual (account-level, latest period) ----------------------
     def _build_budget(self) -> dict:

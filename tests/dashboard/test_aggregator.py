@@ -121,6 +121,33 @@ def test_build_assembles_happy_path_payload():
     assert out["tables"]["spending_by_dept"][0]["department"] == "Codes"
 
 
+def test_build_votes_rollcall_and_member_records():
+    import decimal
+    # rows come pre-joined to resolutions (title/amount/status repeat per resolution)
+    store = _FakeStore({"FROM votes": [
+        {"resolution_number": "9-2026", "council_member": "Wanda Williams", "vote": "Yea",
+         "title": "BUILD Grant", "amount": decimal.Decimal("3000000"), "status": "Passed"},
+        {"resolution_number": "9-2026", "council_member": "Danielle Bowers", "vote": "Nay",
+         "title": "BUILD Grant", "amount": decimal.Decimal("3000000"), "status": "Passed"},
+        {"resolution_number": "9-2026", "council_member": "Ralph Rodriguez", "vote": "abstain",
+         "title": "BUILD Grant", "amount": decimal.Decimal("3000000"), "status": "Passed"},
+        {"resolution_number": "10-2026", "council_member": "Wanda Williams", "vote": "YES",
+         "title": None, "amount": None, "status": None},
+        {"resolution_number": "10-2026", "council_member": "Danielle Bowers", "vote": "absent",
+         "title": None, "amount": None, "status": None},
+    ]})
+    v = DashboardAggregator(store)._build_votes()
+
+    r9 = next(r for r in v["by_resolution"] if r["resolution_number"] == "9-2026")
+    assert r9["tally"] == {"yea": 1, "nay": 1, "abstain": 1, "absent": 0, "other": 0}
+    assert r9["title"] == "BUILD Grant" and r9["amount"] == 3000000.0 and r9["status"] == "Passed"
+    assert {x["member"] for x in r9["votes"]} == {"Wanda Williams", "Danielle Bowers", "Ralph Rodriguez"}
+
+    williams = next(m for m in v["by_member"] if m["member"] == "Wanda Williams")
+    assert williams["total"] == 2 and williams["yea"] == 2   # "Yea" and "YES" both bucket to yea
+    assert v["by_member"][0]["total"] >= v["by_member"][-1]["total"]
+
+
 class _BoomStore:
     from contextlib import contextmanager as _cm
     @_cm
