@@ -12,9 +12,10 @@ _Q_MONTH = {"Q1": 1, "Q2": 4, "Q3": 7, "Q4": 10}
 _ACTIVE_STATUSES = ("active", "in_progress", "open", "pending", "awarded")
 
 _VOTE_BUCKETS = {
-    "yea": "yea", "yes": "yea", "aye": "yea", "y": "yea", "for": "yea", "in favor": "yea",
-    "nay": "nay", "no": "nay", "n": "nay", "against": "nay",
-    "abstain": "abstain", "abstained": "abstain", "abstention": "abstain",
+    "yea": "yea", "yeas": "yea", "yes": "yea", "aye": "yea", "ayes": "yea",
+    "y": "yea", "for": "yea", "in favor": "yea",
+    "nay": "nay", "nays": "nay", "no": "nay", "noes": "nay", "n": "nay", "against": "nay",
+    "abstain": "abstain", "abstained": "abstain", "abstention": "abstain", "abstentions": "abstain",
     "absent": "absent", "away": "absent",
 }
 

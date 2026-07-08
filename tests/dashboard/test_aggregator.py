@@ -131,8 +131,8 @@ def test_build_votes_rollcall_and_member_records():
          "title": "BUILD Grant", "amount": decimal.Decimal("3000000"), "status": "Passed"},
         {"resolution_number": "9-2026", "council_member": "Ralph Rodriguez", "vote": "abstain",
          "title": "BUILD Grant", "amount": decimal.Decimal("3000000"), "status": "Passed"},
-        {"resolution_number": "10-2026", "council_member": "Wanda Williams", "vote": "YES",
-         "title": None, "amount": None, "status": None},
+        {"resolution_number": "10-2026", "council_member": "Wanda Williams", "vote": "YEAS",
+         "title": None, "amount": None, "status": None},   # plural form seen in real data
         {"resolution_number": "10-2026", "council_member": "Danielle Bowers", "vote": "absent",
          "title": None, "amount": None, "status": None},
     ]})
@@ -140,6 +140,8 @@ def test_build_votes_rollcall_and_member_records():
 
     r9 = next(r for r in v["by_resolution"] if r["resolution_number"] == "9-2026")
     assert r9["tally"] == {"yea": 1, "nay": 1, "abstain": 1, "absent": 0, "other": 0}
+    r10 = next(r for r in v["by_resolution"] if r["resolution_number"] == "10-2026")
+    assert r10["tally"]["yea"] == 1 and r10["tally"]["absent"] == 1   # "YEAS" buckets to yea
     assert r9["title"] == "BUILD Grant" and r9["amount"] == 3000000.0 and r9["status"] == "Passed"
     assert {x["member"] for x in r9["votes"]} == {"Wanda Williams", "Danielle Bowers", "Ralph Rodriguez"}
 
