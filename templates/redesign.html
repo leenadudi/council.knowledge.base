@@ -123,6 +123,7 @@
       <div class="navitem" data-tab="overview"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg><span>City at a glance</span></div>
       <div class="navitem" data-tab="decisions"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l1.9 1.4 2.3-.2.7 2.2 1.9 1.4-.9 2.1.9 2.1-1.9 1.4-.7 2.2-2.3-.2L8 16.5l-1.9-1.4-2.3.2-.7-2.2L1.2 11.7l.9-2.1-.9-2.1 1.9-1.4.7-2.2 2.3.2z"/><path d="M5.8 8l1.5 1.5 3-3.2"/></svg><span>Decisions</span></div>
       <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Money &amp; budgets</span></div>
+      <div class="navitem" data-tab="followthrough"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8.5l3.5 3.5L14 4"/><path d="M2 3.5h8"/></svg><span>Follow-through</span></div>
       <div class="navitem" data-tab="meetings"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12M5 1.5v3M11 1.5v3"/></svg><span>Meetings</span></div>
       <div class="navitem" data-tab="departments"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="6" width="11" height="8" rx="1"/><path d="M5.5 6V3.5h5V6M7 9.5h2M7 12h2"/></svg><span>Departments</span></div>
       <div class="grouplbl" id="staff-toggle" style="cursor:pointer;display:flex;align-items:center;gap:8px"><span>Staff tools</span><span id="staff-chev" style="transition:transform .15s;font-size:13px">›</span></div>
@@ -172,7 +173,9 @@
       <!-- OVERVIEW -->
       <div class="view" id="v-overview">
         <div style="margin-bottom:22px"><h1 class="page">City at a glance</h1><p class="psub">Where the money, decisions, and departments stand this fiscal year.</p></div>
-        <div id="ov-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:34px"></div>
+        <div id="ov-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:26px"></div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Spending trend</h2><span style="font-size:12.5px;color:#8a867d">YTD expended by quarter</span></div>
+        <div class="card" style="padding:18px 20px;margin-bottom:34px" id="ov-trend"></div>
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Recent decisions</h2><a data-tab="decisions" class="navlink" style="cursor:pointer;font-size:13px;font-weight:600">View all decisions →</a></div>
         <div class="card" style="overflow:hidden;margin-bottom:32px"><table><thead><tr><th>Resolution</th><th>Title</th><th>Status</th><th class="num">Amount</th><th>Adopted</th></tr></thead><tbody id="ov-res"></tbody></table></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px">
@@ -221,6 +224,17 @@
       </div>
       <!-- MEETING DETAIL -->
       <div class="view" id="v-meeting"><div id="mtg-detail"></div></div>
+
+      <!-- FOLLOW-THROUGH -->
+      <div class="view" id="v-followthrough">
+        <div style="margin-bottom:22px"><h1 class="page">Follow-through</h1><p class="psub">What the Council authorized vs. what departments have spent, grants nearing expiration, and total spend by vendor.</p></div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Authorized vs. spent</h2><span style="font-size:12px;color:#a7a298">directional — not a line-item reconciliation</span></div>
+        <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Department</th><th class="num">Council-authorized</th><th class="num">YTD spent</th></tr></thead><tbody id="ft-auth"></tbody></table></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants expiring soon</h2>
+        <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Grant</th><th>Department</th><th class="num">Days left</th><th>End date</th><th class="num">Award</th></tr></thead><tbody id="ft-grants"></tbody></table></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Spend by vendor</h2>
+        <div class="card" style="overflow:hidden"><table><thead><tr><th>Vendor</th><th class="num">Resolutions</th><th class="num">Total</th></tr></thead><tbody id="ft-vendors"></tbody></table></div>
+      </div>
 
       <!-- DEPARTMENTS LIST -->
       <div class="view" id="v-departments">
@@ -320,12 +334,12 @@ function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').mat
 function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
 
 // ---- nav ----
-const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],decisions:['Explore','Decisions'],money:['Explore','Money & budgets'],meetings:['Explore','Meetings'],meeting:['Explore','Meeting record'],departments:['Explore','Departments'],department:['Explore','Department'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],decisions:['Explore','Decisions'],money:['Explore','Money & budgets'],followthrough:['Explore','Follow-through'],meetings:['Explore','Meetings'],meeting:['Explore','Meeting record'],departments:['Explore','Departments'],department:['Explore','Department'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
 function go(tab){ state.tab=tab; render(); }
 function render(){
   const t=state.tab;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
-  const map={ask:'v-ask',overview:'v-overview',decisions:'v-decisions',money:'v-money',meetings:'v-meetings',meeting:'v-meeting',departments:'v-departments',department:'v-department',documents:'v-documents',add:'v-add'};
+  const map={ask:'v-ask',overview:'v-overview',decisions:'v-decisions',money:'v-money',followthrough:'v-followthrough',meetings:'v-meetings',meeting:'v-meeting',departments:'v-departments',department:'v-department',documents:'v-documents',add:'v-add'};
   const el=$('#'+map[t]); if(el) el.classList.add('on');
   document.querySelectorAll('.navitem[data-tab]').forEach(n=>{
     const nt=n.getAttribute('data-tab');
@@ -358,6 +372,16 @@ function renderOverview(){
   $('#ov-grants').innerHTML = gr.length?gr.map(g=>`<div style="padding:13px 16px;border-top:1px solid rgba(28,27,25,.06);display:flex;justify-content:space-between;gap:12px"><div><div style="font-weight:600;font-size:13px">${cell(g.grant_name)}</div><div style="font-size:12px;color:#8a867d;margin-top:2px">${cell(g.department)}</div></div><div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:13px;color:#16344f">${money(g.amount)}</div><span class="${statusPill(g.status)}">${cell(g.status)}</span></div></div>`).join(''):'<div class="empty">No grants.</div>';
   const bu=(D.budget&&D.budget.by_department||[]).slice(0,4);
   $('#ov-budget').innerHTML = bu.length?bu.map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<div style="padding:11px 0;border-top:1px solid rgba(28,27,25,.06)"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>${cell(b.department)}</span><span class="mono" style="color:#6f6b64">${p}%</span></div><div class="barbg"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div></div>`;}).join(''):'<div class="empty">No budget data.</div>';
+  // spending trend — inline SVG bars over the (previously dropped) timeline data
+  const sp=(D.timeline&&D.timeline.spending)||[]; const tEl=$('#ov-trend');
+  if(tEl){
+    if(!sp.length){ tEl.innerHTML='<div class="empty">No multi-quarter spending data yet.</div>'; }
+    else{
+      const max=Math.max(...sp.map(s=>s.ytd_expended||0),1), H=150,pad=24,bw=34,step=64,W=Math.max(sp.length*step,240);
+      const bars=sp.map((s,i)=>{const h=Math.round(((s.ytd_expended||0)/max)*(H-pad-18)),x=i*step+14,y=H-pad-h;return `<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="3" fill="#16344f"></rect><text x="${x+bw/2}" y="${H-pad+13}" text-anchor="middle" font-size="10" fill="#8a867d">${esc(s.period)}</text><text x="${x+bw/2}" y="${y-5}" text-anchor="middle" font-size="9.5" fill="#6f6b64" font-family="'JetBrains Mono',monospace">${money(s.ytd_expended)}</text>`;}).join('');
+      tEl.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="YTD expended by quarter">${bars}</svg>`;
+    }
+  }
 }
 
 function renderDecisions(){
@@ -441,6 +465,19 @@ function renderDepartments(){
   $('#dept-list').querySelectorAll('.dept-row').forEach(el=>el.onclick=()=>{state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
   $('#dept-list').querySelectorAll('.dept-vac').forEach(el=>el.onclick=(e)=>{e.stopPropagation();state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
 }
+function renderFollowthrough(){
+  const c=D.commitments||{authorized_vs_spent:[],grants_expiring:[]};
+  $('#ft-auth').innerHTML=(c.authorized_vs_spent||[]).length
+    ? c.authorized_vs_spent.map(d=>`<tr><td style="font-weight:500">${cell(d.department)}</td><td class="num mono">${money(d.authorized_total)}</td><td class="num mono" style="color:#6f6b64">${money(d.ytd_spend)}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty">No authorized spend recorded.</td></tr>';
+  $('#ft-grants').innerHTML=(c.grants_expiring||[]).length
+    ? c.grants_expiring.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td class="num mono" style="color:${g.days_left<=60?'#a0302a':g.days_left<=120?'#c4691e':'#16344f'}">${g.days_left}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.end_date)}</td><td class="num mono">${money(g.amount)}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">No grants expiring in the next 180 days.</td></tr>';
+  const vs=D.vendor_spend||[];
+  $('#ft-vendors').innerHTML=vs.length
+    ? vs.map(v=>`<tr><td style="font-weight:500">${cell(v.vendor)}</td><td class="num mono">${v.count}</td><td class="num mono">${money(v.total)}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty">No vendor spend recorded.</td></tr>';
+}
 function renderDeptDetail(){
   const d=(D.departments||[]).find(x=>x.department===state.deptName); if(!d){go('departments');return;}
   const k=dkey(d.department); const p=d.revised_budget?Math.round(d.ytd_expended/d.revised_budget*100):0;
@@ -469,6 +506,10 @@ function renderDeptDetail(){
     </div>`;
   };
   const goalCards=goals.length?goals.map(goalCard).join(''):'<div class="empty">No goals captured for this department.</div>';
+  const metricsEntry=(D.metrics||[]).find(x=>dkey(x.department)===k);
+  const metricCards=(metricsEntry&&metricsEntry.metrics.length)
+    ? `<div style="display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 14px"><h2 class="sec">Performance metrics</h2><span style="font-size:12.5px;color:#8a867d">latest reported</span></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">${metricsEntry.metrics.map(m=>`<div class="card" style="padding:14px 16px"><div class="mono" style="font-size:20px;color:#16344f">${m.value==null?'—':m.value.toLocaleString()}${m.unit?` <span style="font-size:12px;color:#a7a298">${esc(m.unit)}</span>`:''}</div><div style="font-size:12px;color:#4a4744;margin-top:6px">${esc(m.name)}</div><div style="font-size:10.5px;color:#a7a298;margin-top:3px">${esc(m.quarter||'')} ${m.year||''}</div></div>`).join('')}</div>`
+    : '';
   const vacCard=vac.length?`
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 14px"><h2 class="sec">Open positions</h2><span style="font-size:12.5px;color:#8a867d">${vac.length} open</span></div>
     <div class="card" style="overflow:hidden">${vac.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div><span class="pill p-amber">Open</span></div>`).join('')}</div>`:'';
@@ -480,7 +521,7 @@ function renderDeptDetail(){
     </div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px"><h2 class="sec">Goals</h2><span style="font-size:12.5px;color:#8a867d">${goals.length} tracked</span></div>
     <div style="display:flex;flex-direction:column;gap:12px">${goalCards}</div>
-    ${vacCard}`;
+    ${vacCard}${metricCards}`;
   bindNavlinks($('#dept-detail'));
 }
 
@@ -642,7 +683,7 @@ $('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); })
 // re-render data views whenever we enter them
 const _render=render;
 render=function(){ _render();
-  const dataTab=['overview','decisions','money','meetings','departments'].includes(state.tab);
+  const dataTab=['overview','decisions','money','followthrough','meetings','departments'].includes(state.tab);
   const veil=$('#loading-veil');
   if(dataTab && !dataLoaded){
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
@@ -653,6 +694,7 @@ render=function(){ _render();
   if(state.tab==='overview') renderOverview();
   if(state.tab==='decisions') renderDecisions();
   if(state.tab==='money'){ renderMoney(); }
+  if(state.tab==='followthrough') renderFollowthrough();
   if(state.tab==='meetings') renderMeetings();
   if(state.tab==='departments') renderDepartments();
 };
