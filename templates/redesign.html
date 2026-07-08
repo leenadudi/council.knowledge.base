@@ -145,6 +145,7 @@
       <div class="grouplbl">Explore</div>
       <div class="navitem" data-tab="overview"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg><span>City at a glance</span></div>
       <div class="navitem" data-tab="goals"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/></svg><span>Goals</span></div>
+      <div class="navitem" data-tab="people"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/><path d="M11 4.2a2.2 2.2 0 0 1 0 4.1M12 13.5c0-2 -1-3.3-2.5-3.8"/></svg><span>People</span></div>
       <div class="navitem" data-tab="decisions"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l1.9 1.4 2.3-.2.7 2.2 1.9 1.4-.9 2.1.9 2.1-1.9 1.4-.7 2.2-2.3-.2L8 16.5l-1.9-1.4-2.3.2-.7-2.2L1.2 11.7l.9-2.1-.9-2.1 1.9-1.4.7-2.2 2.3.2z"/><path d="M5.8 8l1.5 1.5 3-3.2"/></svg><span>Decisions</span></div>
       <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Money &amp; budgets</span></div>
       <div class="navitem" data-tab="meetings"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12M5 1.5v3M11 1.5v3"/></svg><span>Meetings</span></div>
@@ -274,6 +275,13 @@
         <div id="goals-list" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
 
+      <!-- PEOPLE -->
+      <div class="view" id="v-people">
+        <div style="margin-bottom:22px"><h1 class="page">People</h1><p class="psub">Open positions across City departments. <span style="color:#a7a298">A staff directory and org chart will follow as that data is added.</span></p></div>
+        <div id="people-count" style="font-size:12.5px;color:#8a867d;margin-bottom:16px"></div>
+        <div id="people-list"></div>
+      </div>
+
       <!-- DOCUMENTS -->
       <div class="view" id="v-documents">
         <div style="margin-bottom:22px"><h1 class="page">Documents</h1><p class="psub">What's in the knowledge base — and, for quarterly reports, which departments are still missing each quarter.</p></div>
@@ -376,12 +384,12 @@ function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').mat
 function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
 
 // ---- nav ----
-const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],decisions:['Explore','Decisions'],money:['Explore','Money & budgets'],meetings:['Explore','Meetings'],meeting:['Explore','Meeting record'],goals:['Explore','Goals'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],decisions:['Explore','Decisions'],money:['Explore','Money & budgets'],meetings:['Explore','Meetings'],meeting:['Explore','Meeting record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
 function go(tab){ state.tab=tab; render(); }
 function render(){
   const t=state.tab;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
-  const map={ask:'v-ask',overview:'v-overview',decisions:'v-decisions',money:'v-money',meetings:'v-meetings',meeting:'v-meeting',goals:'v-goals',documents:'v-documents',add:'v-add'};
+  const map={ask:'v-ask',overview:'v-overview',decisions:'v-decisions',money:'v-money',meetings:'v-meetings',meeting:'v-meeting',goals:'v-goals',people:'v-people',documents:'v-documents',add:'v-add'};
   const el=$('#'+map[t]); if(el) el.classList.add('on');
   document.querySelectorAll('.navitem[data-tab]').forEach(n=>{
     const nt=n.getAttribute('data-tab');
@@ -536,6 +544,18 @@ function renderGoalCard(g){
 }
 
 // Goals tab — every department objective, filterable by department & period
+function renderPeople(){
+  const vac=D.vacancies||[]; const el=$('#people-list');
+  if(!vac.length){ el.innerHTML='<div class="empty">No open positions recorded.</div>'; $('#people-count').textContent=''; return; }
+  const groups={};
+  vac.forEach(v=>{ const k=dkey(v.department); const g=(groups[k]=groups[k]||{names:[],items:[]}); g.names.push(v.department); g.items.push(v); });
+  const depts=Object.keys(groups).map(k=>({name:deptDisplay(k,groups[k].names),items:groups[k].items})).sort((a,b)=>a.name.localeCompare(b.name));
+  $('#people-count').textContent=`${vac.length} open position${vac.length===1?'':'s'} · ${depts.length} department${depts.length===1?'':'s'}`;
+  el.innerHTML=depts.map(d=>`
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin:14px 0 8px"><h2 class="sec" style="font-size:16px">${cell(d.name)}</h2><span style="font-size:12px;color:#a7a298">${d.items.length} open</span></div>
+    <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div><span class="pill p-amber">Open</span></div>`).join('')}</div>`).join('');
+}
+
 function renderGoals(){
   const all=D.goals||[];
   const dept=state.goalsDept||'All', per=state.goalsPeriod||'All', q=(state.goalsSearch||'').trim().toLowerCase();
@@ -841,7 +861,7 @@ $('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); })
 // re-render data views whenever we enter them
 const _render=render;
 render=function(){ _render();
-  const dataTab=['overview','decisions','money','meetings','goals'].includes(state.tab);
+  const dataTab=['overview','decisions','money','meetings','goals','people'].includes(state.tab);
   const veil=$('#loading-veil');
   if(dataTab && !dataLoaded){
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
@@ -855,6 +875,7 @@ render=function(){ _render();
   if(state.tab==='money'){ renderMoney(); }
   if(state.tab==='meetings') renderMeetings();
   if(state.tab==='goals') renderGoals();
+  if(state.tab==='people') renderPeople();
 };
 
 // ---- boot ----
