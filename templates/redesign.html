@@ -154,6 +154,12 @@
         <div style="margin-top:14px;font-size:13px">Loading city data…</div>
       </div>
 
+      <!-- COVERAGE DISCLAIMER (shown on quantitative views; driven by real ingest coverage) -->
+      <div id="coverage-note" style="display:none;margin-bottom:24px;background:#f8efd8;border:1px solid rgba(138,90,0,.20);border-radius:10px;padding:11px 14px;font-size:12.5px;color:#7a5600;align-items:flex-start;gap:9px">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" style="flex-shrink:0;margin-top:1px"><circle cx="8" cy="8" r="6.5"/><path d="M8 5.2v.1M8 7.3v3.5" stroke-linecap="round"/></svg>
+        <div style="line-height:1.5"><b>Partial data.</b> <span id="coverage-detail"></span> These figures reflect only the documents ingested so far and will change as more quarterly reports are added.</div>
+      </div>
+
       <!-- ASK -->
       <div class="view" id="v-ask">
         <div style="max-width:760px">
@@ -465,6 +471,17 @@ function renderDepartments(){
   $('#dept-list').querySelectorAll('.dept-row').forEach(el=>el.onclick=()=>{state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
   $('#dept-list').querySelectorAll('.dept-vac').forEach(el=>el.onclick=(e)=>{e.stopPropagation();state.deptName=ds[+el.dataset.i].department;go('department');renderDeptDetail();});
 }
+function updateCoverageNote(){
+  const el=$('#coverage-note'); if(!el) return;
+  const show=['overview','money','followthrough','decisions','meetings','departments'].includes(state.tab);
+  const k=D.kpis||{}; const lp=k.latest_period; const cov=k.report_coverage;
+  if(!show || !dataLoaded || !lp){ el.style.display='none'; return; }
+  const bits=[`Latest data: ${esc(lp.quarter||'')} FY ${lp.year}.`];
+  if(cov && cov.total_departments) bits.push(`${cov.filed} of ${cov.total_departments} departments have filed for this period.`);
+  if(k.unclassified_docs) bits.push(`${k.unclassified_docs} document${k.unclassified_docs===1?'':'s'} awaiting classification.`);
+  $('#coverage-detail').textContent=bits.join(' ');
+  el.style.display='flex';
+}
 function renderFollowthrough(){
   const c=D.commitments||{authorized_vs_spent:[],grants_expiring:[]};
   $('#ft-auth').innerHTML=(c.authorized_vs_spent||[]).length
@@ -691,6 +708,7 @@ render=function(){ _render();
     return;
   }
   if(veil) veil.style.display='none';
+  updateCoverageNote();
   if(state.tab==='overview') renderOverview();
   if(state.tab==='decisions') renderDecisions();
   if(state.tab==='money'){ renderMoney(); }
