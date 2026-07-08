@@ -432,6 +432,105 @@ class DashboardAggregator:
                         "FROM goals ORDER BY department, id")
             return [dict(r) for r in cur.fetchall()]
 
+    # -- Metrics (latest performance metric per department) -------------------
+    def _build_metrics(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, metric_name, metric_value, metric_unit, quarter, year "
+                        "FROM metrics WHERE department IS NOT NULL AND metric_name IS NOT NULL "
+                        "ORDER BY year DESC NULLS LAST, quarter DESC NULLS LAST")
+            rows = [dict(r) for r in cur.fetchall()]
+
+        seen: set = set()          # (department, metric_name) already captured (latest wins)
+        by_dept: dict = {}
+        for r in rows:
+            dept, name = r["department"], r["metric_name"]
+            if (dept, name) in seen:
+                continue
+            seen.add((dept, name))
+            val = r.get("metric_value")
+            by_dept.setdefault(dept, []).append({
+                "name": name,
+                "value": float(val) if val is not None else None,
+                "unit": r.get("metric_unit"),
+                "quarter": r.get("quarter"),
+                "year": int(r["year"]) if r.get("year") is not None else None,
+            })
+        return [{"department": d, "metrics": m} for d, m in sorted(by_dept.items())]
+
+    # -- Vendor spend (aggregate council-authorized spend by vendor) ----------
+    def _build_vendor_spend(self) -> list[dict]:
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT vendor, amount, department FROM resolutions\n"
+                        "            WHERE vendor IS NOT NULL AND vendor <> '' AND amount IS NOT NULL")
+            rows = [dict(r) for r in cur.fetchall()]
+
+        by_vendor: dict = {}
+        for r in rows:
+            v = by_vendor.setdefault(r["vendor"], {"vendor": r["vendor"], "total": 0.0, "count": 0, "departments": set()})
+            v["total"] += float(r["amount"] or 0)
+            v["count"] += 1
+            if r.get("department"):
+                v["departments"].add(r["department"])
+        out = [{"vendor": v["vendor"], "total": v["total"], "count": v["count"],
+                "departments": sorted(v["departments"])} for v in by_vendor.values()]
+        out.sort(key=lambda x: -x["total"])
+        return out
+
+    # -- Commitments (authorized vs. actual + expiring grants) ----------------
+    def _build_commitments(self, expiring_days: int = 180) -> dict:
+        today = self.now.date()
+        window_end = today + datetime.timedelta(days=expiring_days)
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, COALESCE(SUM(amount),0) AS authorized_total "
+                        "FROM (SELECT department, amount FROM resolutions "
+                        "      WHERE department IS NOT NULL AND amount IS NOT NULL) AS authorized "
+                        "GROUP BY department")
+            auth_rows = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("SELECT department, COALESCE(SUM(ytd_expended),0) AS ytd_spend FROM expenditures "
+                        "WHERE department IS NOT NULL AND line_item NOT ILIKE '%%total%%' "
+                        "AND (year, quarter) = (SELECT year, quarter FROM expenditures "
+                        "WHERE year IS NOT NULL ORDER BY year DESC, quarter DESC LIMIT 1) "
+                        "GROUP BY department")
+            spend_rows = [dict(r) for r in cur.fetchall()]
+
+            cur.execute("SELECT grant_name, department, end_date, amount FROM grants\n"
+                        "            WHERE end_date IS NOT NULL ORDER BY end_date")
+            grant_rows = [dict(r) for r in cur.fetchall()]
+
+        # merge authorized + spend on canonical department key
+        merged: dict = {}
+        for r in auth_rows:
+            key = self._dept_key(r["department"])
+            m = merged.setdefault(key, {"names": [], "authorized_total": 0.0, "ytd_spend": 0.0})
+            m["names"].append(r["department"])
+            m["authorized_total"] += float(r["authorized_total"] or 0)
+        for r in spend_rows:
+            key = self._dept_key(r["department"])
+            m = merged.setdefault(key, {"names": [], "authorized_total": 0.0, "ytd_spend": 0.0})
+            m["names"].append(r["department"])
+            m["ytd_spend"] += float(r["ytd_spend"] or 0)
+        authorized_vs_spent = [
+            {"department": max(m["names"], key=len), "authorized_total": m["authorized_total"], "ytd_spend": m["ytd_spend"]}
+            for m in merged.values() if m["names"]
+        ]
+        authorized_vs_spent.sort(key=lambda x: -x["authorized_total"])
+
+        grants_expiring = []
+        for r in grant_rows:
+            end = r["end_date"]
+            if end is None or end < today or end > window_end:
+                continue
+            grants_expiring.append({
+                "grant_name": r.get("grant_name") or "Grant",
+                "department": r.get("department"),
+                "end_date": end.isoformat(),
+                "days_left": (end - today).days,
+                "amount": float(r["amount"]) if r.get("amount") is not None else None,
+            })
+        grants_expiring.sort(key=lambda x: x["days_left"])
+        return {"authorized_vs_spent": authorized_vs_spent, "grants_expiring": grants_expiring}
+
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
         try:

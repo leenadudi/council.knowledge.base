@@ -148,6 +148,66 @@ def test_build_votes_rollcall_and_member_records():
     assert v["by_member"][0]["total"] >= v["by_member"][-1]["total"]
 
 
+def test_build_metrics_keeps_latest_per_metric_and_groups_by_dept():
+    import decimal
+    store = _FakeStore({"FROM metrics": [
+        {"department": "Fire", "metric_name": "Response time", "metric_value": decimal.Decimal("4.20"),
+         "metric_unit": "min", "quarter": "Q2", "year": 2026},
+        {"department": "Fire", "metric_name": "Response time", "metric_value": decimal.Decimal("5.10"),
+         "metric_unit": "min", "quarter": "Q1", "year": 2026},   # older → dropped
+        {"department": "Fire", "metric_name": "Calls", "metric_value": decimal.Decimal("1200"),
+         "metric_unit": None, "quarter": "Q2", "year": 2026},
+    ]})
+    out = DashboardAggregator(store)._build_metrics()
+    fire = next(d for d in out if d["department"] == "Fire")
+    rt = next(m for m in fire["metrics"] if m["name"] == "Response time")
+    assert rt["value"] == 4.20 and isinstance(rt["value"], float)
+    assert {m["name"] for m in fire["metrics"]} == {"Response time", "Calls"}
+
+
+def test_build_vendor_spend_aggregates_and_sorts():
+    import decimal
+    store = _FakeStore({"FROM resolutions\n            WHERE vendor": [
+        {"vendor": "USDOT", "amount": decimal.Decimal("3000000"), "department": "Public Works"},
+        {"vendor": "USDOT", "amount": decimal.Decimal("500000"), "department": "Engineering"},
+        {"vendor": "Acme Paving", "amount": decimal.Decimal("120000"), "department": "Public Works"},
+    ]})
+    out = DashboardAggregator(store)._build_vendor_spend()
+    assert out[0]["vendor"] == "USDOT"
+    assert out[0]["total"] == 3500000.0 and out[0]["count"] == 2
+    assert set(out[0]["departments"]) == {"Public Works", "Engineering"}
+
+
+def test_build_commitments_authorized_actual_and_expiring():
+    import datetime, decimal
+    now = datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc)
+    store = _FakeStore({
+        "GROUP BY department) AS authorized": [],  # unused key guard (query has ") AS authorized")
+        ") AS authorized": [
+            {"department": "Public Works", "authorized_total": decimal.Decimal("3500000")},
+            {"department": "Bureau of Fire", "authorized_total": decimal.Decimal("100000")},
+        ],
+        "AS ytd_spend": [
+            {"department": "Public Works", "ytd_spend": decimal.Decimal("1200000")},
+            {"department": "Fire", "ytd_spend": decimal.Decimal("90000")},   # variant → merges with "Bureau of Fire"
+        ],
+        "FROM grants\n            WHERE end_date": [
+            {"grant_name": "NEHA-FDA", "department": "Health", "end_date": datetime.date(2026, 8, 30),
+             "amount": decimal.Decimal("14000")},
+            {"grant_name": "Old-Grant", "department": "Admin", "end_date": datetime.date(2025, 1, 1),
+             "amount": decimal.Decimal("1000")},   # already expired → excluded
+        ],
+    })
+    out = DashboardAggregator(store, now=now)._build_commitments()
+    pw = next(d for d in out["authorized_vs_spent"] if d["department"] == "Public Works")
+    assert pw["authorized_total"] == 3500000.0 and pw["ytd_spend"] == 1200000.0
+    fire = next(d for d in out["authorized_vs_spent"] if "Fire" in d["department"])
+    assert fire["ytd_spend"] == 90000.0
+    assert out["authorized_vs_spent"][0]["department"] == "Public Works"
+    assert [g["grant_name"] for g in out["grants_expiring"]] == ["NEHA-FDA"]
+    assert out["grants_expiring"][0]["days_left"] == 90
+
+
 class _BoomStore:
     from contextlib import contextmanager as _cm
     @_cm
