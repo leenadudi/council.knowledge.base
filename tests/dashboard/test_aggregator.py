@@ -21,6 +21,16 @@ class _FakeStore:
         yield _FakeCursor(self._responses)
 
 
+def test_dept_key_merges_known_variants_without_over_merging():
+    k = DashboardAggregator._dept_key
+    assert k("Planning Bureau") == k("Bureau of Planning") == "planning"
+    assert k("Harrisburg City Council") == k("City of Harrisburg City Council") == k("City Council") == "city council"
+    assert k("Finance") == k("Department of Budget & Finance") == "budget & finance"
+    assert k("Parks and Recreation") == k("Bureau of Parks & Recreation") == "parks & recreation"
+    # must NOT over-merge distinct departments
+    assert k("Bureau of Fire") == "fire" and k("Bureau of Police") == "police"
+
+
 def test_quarter_start_mapping():
     assert quarter_start(2026, "Q1") == datetime.date(2026, 1, 1)
     assert quarter_start(2026, "Q3") == datetime.date(2026, 7, 1)

@@ -224,6 +224,16 @@ class DashboardAggregator:
     # (resolutions, minutes, legislation) are NOT departments and are excluded.
     _DEPT_DOC_TYPES = ("quarterly_report", "budget")
 
+    # Explicit merges for name variants the prefix/`&` rules don't catch — same
+    # real department, different wording in the source docs. Non-destructive
+    # (grouping-only), so it survives re-ingestion.
+    _DEPT_ALIASES = {
+        "planning bureau": "planning",
+        "harrisburg city council": "city council",
+        "city of harrisburg city council": "city council",
+        "finance": "budget & finance",
+    }
+
     @staticmethod
     def _dept_key(name: str) -> str:
         """Canonical grouping key so name variants merge into one department
@@ -233,7 +243,8 @@ class DashboardAggregator:
             if k.startswith(p):
                 k = k[len(p):]
                 break
-        return re.sub(r"[^a-z0-9&]+", " ", k).strip()
+        k = re.sub(r"[^a-z0-9&]+", " ", k).strip()
+        return DashboardAggregator._DEPT_ALIASES.get(k, k)
 
     def _build_departments(self) -> list[dict]:
         with self.sql.cursor() as cur:
