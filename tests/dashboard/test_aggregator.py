@@ -100,13 +100,21 @@ def test_timeline_leap_day_safe_end_date():
 
 def test_build_assembles_happy_path_payload():
     store = _FakeStore({
-        "FROM grants WHERE": [{"active": 0, "expiring": 0}],
-        "GROUP BY department": [{"department": "Codes", "revised_budget": 1.0, "ytd_expended": 0.5}],
-        "FROM expenditures": [{"ytd": 0, "budget": 0}],
+        "FROM grants WHERE (LOWER(status)": [{"active": 0, "expiring": 0}],
+        "SUM(amount) AS funds": [{"funds": 0.0}],
+        "FROM expenditures WHERE line_item": [{"ytd": 0, "budget": 0}],
         "MAX(year)": [{"year": None}],
-        "FROM resolutions": [],
+        "COUNT(*) AS c FROM resolutions": [{"c": 0}],
         "document_type='unclassified'": [{"c": 0}],
-        "FROM documents ORDER BY": [{"department": "Codes", "quarter": "Q1", "year": 2026, "document_type": "quarterly_report"}],
+        # timeline queries
+        "FROM grants WHERE start_date": [],
+        "FROM documents\n": [],
+        "FROM resolutions WHERE adopted_date": [],
+        "GROUP BY year, quarter": [],
+        # tables
+        "FROM grants ORDER BY start_date": [],
+        "GROUP BY department ORDER BY ytd_expended": [{"department": "Codes", "revised_budget": 1.0, "ytd_expended": 0.5}],
+        "FROM documents ORDER BY": [],
     })
     out = DashboardAggregator(store).build()
     assert set(out) >= {"generated_at", "kpis", "timeline", "tables"}
@@ -125,20 +133,25 @@ def test_build_never_raises_records_errors():
     out = DashboardAggregator(_BoomStore()).build()
     assert out["kpis"] is None and out["timeline"] is None and out["tables"] is None
     assert out["departments"] is None and out["resolutions"] is None
-    assert set(out["errors"].keys()) == {"kpis", "timeline", "tables", "departments", "resolutions"}
+    assert set(out["errors"].keys()) == {
+        "kpis", "timeline", "tables", "departments", "resolutions",
+        "goals", "legislation", "meetings", "budget", "vacancies",
+    }
 
 
 def test_build_departments_shape():
     store = _FakeStore({
-        "DISTINCT department": [{"department": "Codes"}, {"department": "Fire"}],
-        "FROM expenditures GROUP BY department": [{"department": "Codes", "rb": 100.0, "ytd": 40.0}],
-        "quarterly_report' GROUP BY": [{"department": "Codes", "c": 4}],
+        "document_type = ANY": [
+            {"department": "Codes", "document_type": "quarterly_report"},
+            {"department": "Fire", "document_type": "budget"},
+        ],
+        "AS rb": [{"department": "Codes", "rb": 100.0, "ytd": 40.0}],
     })
     depts = DashboardAggregator(store)._build_departments()
     codes = next(d for d in depts if d["department"] == "Codes")
-    assert codes["revised_budget"] == 100.0 and codes["ytd_expended"] == 40.0 and codes["report_count"] == 4
+    assert codes["revised_budget"] == 100.0 and codes["ytd_expended"] == 40.0 and codes["report_count"] == 1
     fire = next(d for d in depts if d["department"] == "Fire")
-    assert fire["revised_budget"] == 0 and fire["report_count"] == 0   # no rows -> zeros
+    assert fire["revised_budget"] == 0 and fire["report_count"] == 0   # budget doc, not a quarterly_report
 
 
 def test_build_resolutions_shape():

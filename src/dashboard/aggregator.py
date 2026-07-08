@@ -398,6 +398,7 @@ class DashboardAggregator:
         out = {
             "generated_at": self.now.isoformat(),
             "kpis": self._safe("kpis", self._build_kpis, errors),
+            "timeline": self._safe("timeline", self._build_timeline, errors),
             "tables": self._safe("tables", self._build_tables, errors),
             "departments": self._safe("departments", self._build_departments, errors),
             "resolutions": self._safe("resolutions", self._build_resolutions, errors),
