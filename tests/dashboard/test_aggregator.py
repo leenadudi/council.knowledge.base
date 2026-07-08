@@ -223,6 +223,7 @@ def test_build_never_raises_records_errors():
     assert set(out["errors"].keys()) == {
         "kpis", "timeline", "tables", "departments", "resolutions",
         "goals", "legislation", "meetings", "budget", "vacancies",
+        "votes", "metrics", "vendor_spend", "commitments",
     }
 
 

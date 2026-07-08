@@ -555,6 +555,10 @@ class DashboardAggregator:
             "meetings": self._safe("meetings", self._build_meetings, errors),
             "budget": self._safe("budget", self._build_budget, errors),
             "vacancies": self._safe("vacancies", self._build_vacancies, errors),
+            "votes": self._safe("votes", self._build_votes, errors),
+            "metrics": self._safe("metrics", self._build_metrics, errors),
+            "vendor_spend": self._safe("vendor_spend", self._build_vendor_spend, errors),
+            "commitments": self._safe("commitments", self._build_commitments, errors),
         }
         if errors:
             out["errors"] = errors
