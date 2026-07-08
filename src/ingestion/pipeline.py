@@ -248,12 +248,20 @@ class IngestionPipeline:
 
         raise ValueError(f"Unsupported document kind: {doc_kind}")
 
+    # Voyage caps embed requests at 1000 inputs (and has a per-request token
+    # limit); batch well under both so large documents don't fail to ingest.
+    _EMBED_BATCH = 128
+
     def _embed_chunks(self, chunks: list[Chunk]) -> None:
-        """Embed all chunks using the configured embedding model."""
+        """Embed all chunks using the configured embedding model, in batches
+        that stay under the embedding API's per-request limits."""
         texts = [c.text for c in chunks]
         try:
-            resp = self._voyage.embed(texts, model=self.cfg.embedding_model)
-            for chunk, embedding in zip(chunks, resp.embeddings):
+            embeddings: list = []
+            for i in range(0, len(texts), self._EMBED_BATCH):
+                resp = self._voyage.embed(texts[i:i + self._EMBED_BATCH], model=self.cfg.embedding_model)
+                embeddings.extend(resp.embeddings)
+            for chunk, embedding in zip(chunks, embeddings):
                 chunk.embedding = embedding
         except Exception as e:
             logger.error("Embedding failed: %s", e)
