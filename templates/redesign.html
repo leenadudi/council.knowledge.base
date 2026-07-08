@@ -101,6 +101,13 @@
   .frow.error{color:#a0302a}.frow.error .ic{color:#a0302a}
   .log{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.75;background:#182430;color:#c6d0dc;border-radius:10px;padding:14px 16px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word}
   .log .l-WARNING{color:#e6c07a}.log .l-ERROR{color:#f0908a}.log .l-INFO{color:#98b0c6}.log .l-DEBUG{color:#7c8796}
+  /* resolution dossier slide-over */
+  .sheet-overlay{position:fixed;inset:0;background:rgba(28,27,25,.38);opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
+  .sheet-overlay.open{opacity:1;pointer-events:auto}
+  .sheet{position:fixed;top:0;right:0;height:100dvh;width:min(460px,92vw);background:#faf9f5;border-left:1px solid rgba(28,27,25,.12);box-shadow:-8px 0 34px rgba(22,52,79,.14);transform:translateX(100%);transition:transform .24s cubic-bezier(.22,.61,.36,1);z-index:61;overflow-y:auto}
+  .sheet.open{transform:none}
+  .res-row{cursor:pointer}
+  tbody tr.res-row:hover{background:#f2f4f7}
 </style>
 </head>
 <body>
@@ -314,6 +321,9 @@
   </main>
 </div>
 
+<div class="sheet-overlay" id="dossier-overlay"></div>
+<aside class="sheet" id="dossier" aria-label="Resolution details"></aside>
+
 <script>
 const $ = s => document.querySelector(s);
 let D = {};                 // /dashboard/data payload
@@ -375,6 +385,7 @@ function renderOverview(){
   $('#ov-kpis').querySelectorAll('[data-kpi]').forEach(el=>el.onclick=()=>kpis[+el.dataset.kpi].go());
   const res=(D.resolutions||[]).slice(0,5);
   $('#ov-res').innerHTML = res.length?res.map(r=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(r.resolution_number)}</td><td>${cell(r.title)}</td><td><span class="${statusPill(r.status)}">${cell(r.status)}</span></td><td class="num mono">${money(r.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(r.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No resolutions yet.</td></tr>';
+  $('#ov-res').querySelectorAll('tr').forEach((tr,i)=>{ if(res[i]){ tr.className='res-row'; tr.onclick=()=>openDossier(res[i].resolution_number); }});
   const gr=grantsList().slice(0,4);
   $('#ov-grants').innerHTML = gr.length?gr.map(g=>`<div style="padding:13px 16px;border-top:1px solid rgba(28,27,25,.06);display:flex;justify-content:space-between;gap:12px"><div><div style="font-weight:600;font-size:13px">${cell(g.grant_name)}</div><div style="font-size:12px;color:#8a867d;margin-top:2px">${cell(g.department)}</div></div><div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:13px;color:#16344f">${money(g.amount)}</div><span class="${statusPill(g.status)}">${cell(g.status)}</span></div></div>`).join(''):'<div class="empty">No grants.</div>';
   const bu=(D.budget&&D.budget.by_department||[]).slice(0,4);
@@ -394,6 +405,7 @@ function renderOverview(){
 function renderDecisions(){
   const res=D.resolutions||[];
   $('#dec-res').innerHTML = res.length?res.map(r=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(r.resolution_number)}</td><td>${cell(r.title)}</td><td><span class="${statusPill(r.status)}">${cell(r.status)}</span></td><td class="num mono">${money(r.amount)}</td><td style="color:#6f6b64">${cell(r.vendor)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(r.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">No resolutions.</td></tr>';
+  $('#dec-res').querySelectorAll('tr').forEach((tr,i)=>{ if(res[i]){ tr.className='res-row'; tr.onclick=()=>openDossier(res[i].resolution_number); }});
   const leg=D.legislation||[];
   $('#dec-leg').innerHTML = leg.length?leg.map(l=>`<tr><td class="mono" style="font-size:12px;color:#16344f;white-space:nowrap">${cell(l.bill_number)}</td><td>${cell(l.title)}</td><td style="color:#6f6b64">${cell(l.sponsor)}</td><td><span class="${statusPill(l.status)}">${cell(l.status)}</span></td><td class="num mono">${money(l.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64;white-space:nowrap">${cell(l.adopted_date)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty">No legislation.</td></tr>';
 }
@@ -743,6 +755,41 @@ function clickable(el, fn){
 function bindNavlinks(root){ (root||document).querySelectorAll('.navlink[data-tab]').forEach(el=>clickable(el,()=>go(el.getAttribute('data-tab')))); }
 document.querySelectorAll('.navitem[data-tab]').forEach(el=>clickable(el,()=>go(el.getAttribute('data-tab'))));
 bindNavlinks(document);
+
+// ---- resolution dossier (slide-over; built entirely from loaded D) ----
+function openDossier(rn){
+  const r=(D.resolutions||[]).find(x=>String(x.resolution_number)===String(rn));
+  if(!r) return;
+  const k=dkey(r.department);
+  const mtg=(D.meetings||[]).find(m=>m.meeting_date && r.adopted_date && m.meeting_date===r.adopted_date);
+  const bud=(D.budget&&D.budget.by_department||[]).find(b=>dkey(b.department)===k);
+  const goals=(D.goals||[]).filter(g=>dkey(g.department)===k);
+  const pct=bud&&bud.revised_budget?Math.round(bud.ytd_expended/bud.revised_budget*100):null;
+  const d=parseDate(r.adopted_date);
+  const fact=(lbl,val)=>`<div style="display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-top:1px solid rgba(28,27,25,.07)"><span style="font-size:12.5px;color:#8a867d">${lbl}</span><span style="font-size:13px;font-weight:500;text-align:right">${val}</span></div>`;
+  const sub=(t)=>`<div style="font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#a7a298;margin:22px 0 9px">${t}</div>`;
+  $('#dossier').innerHTML=`
+    <div style="position:sticky;top:0;background:#faf9f5;padding:20px 22px 14px;border-bottom:1px solid rgba(28,27,25,.08);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:7px"><span class="mono" style="font-size:12px;color:#16344f">${cell(r.resolution_number)}</span><span class="${statusPill(r.status)}">${cell(r.status)}</span></div>
+        <h2 class="serif" style="font-size:19px;font-weight:600;color:#16344f;line-height:1.28">${cell(r.title)}</h2></div>
+      <button id="dossier-close" class="btn-ghost" style="padding:6px 11px;flex-shrink:0" aria-label="Close">✕</button>
+    </div>
+    <div style="padding:6px 22px 30px">
+      ${fact('Amount',money(r.amount))}
+      ${fact('Vendor',cell(r.vendor))}
+      ${fact('Adopted',d.date||cell(r.adopted_date))}
+      ${sub('Adopted at')}
+      ${mtg?`<div class="card" style="padding:13px 16px"><div style="font-weight:600;font-size:13.5px">${cell(mtg.session_type)||'Council session'}</div><div style="font-size:12px;color:#8a867d;margin-top:2px">${d.weekday?d.weekday+', ':''}${d.date}</div></div>`:'<div class="empty" style="padding:2px 0">No matching meeting record on that date.</div>'}
+      ${sub('Department')}
+      ${r.department?`<div class="card" style="padding:14px 16px"><div style="font-weight:600;font-size:14px">${cell(r.department)}</div>${pct!=null?`<div style="display:flex;align-items:center;gap:10px;margin-top:11px"><div class="barbg" style="flex:1"><div style="width:${Math.min(pct,100)}%;background:${pctColor(pct)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744">${pct}%</span></div><div style="font-size:11.5px;color:#8a867d;margin-top:6px">${money(bud.ytd_expended)} of ${money(bud.revised_budget)} used (YTD)</div>`:'<div style="font-size:12px;color:#a7a298;margin-top:6px;font-style:italic">No budget match for this department.</div>'}</div>`:'<div class="empty" style="padding:2px 0">No department recorded.</div>'}
+      ${goals.length?sub('Department goals ('+goals.length+')')+`<div style="display:flex;flex-direction:column;gap:8px">${goals.slice(0,5).map(g=>`<div class="card" style="padding:11px 14px"><div style="font-size:13px;font-weight:500;line-height:1.4">${cell(g.goal_title)}</div>${g.status?`<div style="font-size:12px;color:#6f6b64;margin-top:4px">${esc(g.status)}</div>`:''}</div>`).join('')}${goals.length>5?`<div style="font-size:11.5px;color:#a7a298;padding:2px 2px">+${goals.length-5} more</div>`:''}</div>`:''}
+    </div>`;
+  $('#dossier-close').onclick=closeDossier;
+  $('#dossier').classList.add('open'); $('#dossier-overlay').classList.add('open');
+}
+function closeDossier(){ $('#dossier').classList.remove('open'); $('#dossier-overlay').classList.remove('open'); }
+$('#dossier-overlay').onclick=closeDossier;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeDossier(); });
 $('#staff-toggle').onclick=()=>{ const g=$('#staff-group'); const open=g.style.display==='none'; g.style.display=open?'block':'none'; $('#staff-chev').style.transform=open?'rotate(90deg)':''; };
 $('#ask-btn').onclick=runAsk;
 $('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); });
