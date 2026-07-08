@@ -24,22 +24,18 @@ def test_dashboard_data_not_ready(monkeypatch):
     assert r.status_code == 503
 
 
-def test_dashboard_page_renders(monkeypatch):
+def test_dashboard_redirects_to_home(monkeypatch):
+    # The standalone /dashboard page was unified into "/"; it now redirects.
     monkeypatch.setattr(appmod, "_ready", True)
     r = _client().get("/dashboard")
-    assert r.status_code == 200
-    assert b"dashboard" in r.data.lower()
+    assert r.status_code in (301, 302)
+    assert r.headers["Location"].endswith("/")
 
 
-def test_dashboard_has_all_tabs(monkeypatch):
-    monkeypatch.setattr(appmod, "_ready", True)
-    html = _client().get("/dashboard").data.decode()
-    for view in ("view-dashboard","view-departments","view-grants","view-resolutions",
-                 "view-goals","view-projects","view-boards"):
-        assert f'id="{view}"' in html
-    # empty-states present for data-less tabs
-    assert "no goals tracked yet" in html.lower()
-    # no chart libraries
-    assert "vis-timeline" not in html.lower() and "chart.js" not in html.lower() and "chart.umd" not in html.lower()
-    # ask/documents link to main app
-    assert 'href="/"' in html
+def test_home_serves_redesign_with_nav_tabs():
+    # "/" serves the redesign shell with its explore nav tabs.
+    html = _client().get("/").data.decode()
+    for tab in ("overview", "decisions", "money", "meetings", "departments"):
+        assert f'data-tab="{tab}"' in html
+    # no external chart libraries (CSP-safe, inline SVG only)
+    assert "chart.js" not in html.lower() and "vis-timeline" not in html.lower()
