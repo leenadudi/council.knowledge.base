@@ -252,7 +252,12 @@
 
       <!-- DOCUMENTS -->
       <div class="view" id="v-documents">
-        <div style="margin-bottom:22px"><h1 class="page">Documents</h1><p class="psub">Source records indexed in the knowledge base.</p></div>
+        <div style="margin-bottom:22px"><h1 class="page">Documents</h1><p class="psub">What's in the knowledge base — and, for quarterly reports, which departments are still missing each quarter.</p></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Quarterly report coverage</h2>
+        <div id="doc-coverage" style="margin-bottom:30px"><div class="empty">Loading…</div></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">Other documents — time covered</h2>
+        <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Type</th><th class="num">Count</th><th>Period(s) covered</th></tr></thead><tbody id="doc-othertypes"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody></table></div>
+        <h2 class="sec" style="font-size:18px;margin-bottom:12px">All documents</h2>
         <div class="card" style="overflow:hidden"><table><thead><tr><th>Title</th><th>Type</th><th>Department</th><th class="num">Chunks</th></tr></thead><tbody id="doc-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table></div>
       </div>
 
@@ -546,10 +551,53 @@ function renderDeptDetail(){
 let docsLoaded=false;
 async function loadDocuments(){
   if(docsLoaded) return; docsLoaded=true;
-  try{ const r=await fetch('/documents'); const j=await r.json(); const docs=j.documents||[];
-    const label={quarterly_report:'Quarterly report',resolution:'Resolution',minutes:'Minutes',legislation:'Legislation',budget:'Budget'};
+  const label={quarterly_report:'Quarterly report',resolution:'Resolution',minutes:'Minutes',legislation:'Legislation',budget:'Budget'};
+  try{
+    const r=await fetch('/documents'); const j=await r.json(); const docs=j.documents||[];
+
+    // Quarterly-report coverage by quarter. Roster = every dept that has filed a
+    // quarterly report in ANY period; "missing" = roster minus who filed this period.
+    const qr=docs.filter(d=>d.document_type==='quarterly_report' && d.year && d.department);
+    // canonicalize dept names (merge "Parks & Recreation" == "Bureau of Parks & Recreation");
+    // keep the longest variant as the display name, like the backend _dept_key rollup.
+    const disp={};
+    qr.forEach(d=>{ const k=dkey(d.department); if(!disp[k] || d.department.length>disp[k].length) disp[k]=d.department; });
+    const rosterKeys=Object.keys(disp).sort((a,b)=>disp[a].localeCompare(disp[b]));
+    const periods={};
+    qr.forEach(d=>{ const key=d.year+' '+(d.quarter||'—'); (periods[key]=periods[key]||new Set()).add(dkey(d.department)); });
+    const periodKeys=Object.keys(periods).sort().reverse();
+    $('#doc-coverage').innerHTML = periodKeys.length ? periodKeys.map(pk=>{
+      const filed=periods[pk]; const missing=rosterKeys.filter(k=>!filed.has(k)).map(k=>disp[k]);
+      return `<div class="card" style="padding:16px 18px;margin-bottom:12px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:${missing.length?'10px':'0'}">
+          <div style="font-weight:600;font-size:14px">${esc(pk)}</div>
+          <span class="mono" style="font-size:12px;color:${missing.length?'#8a5a00':'#2d6a4f'}">${filed.size} of ${rosterKeys.length} filed</span>
+        </div>
+        ${missing.length?`<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-bottom:7px">Not yet added (${missing.length})</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${missing.map(m=>`<span class="pill p-amber">${esc(m)}</span>`).join('')}</div>`
+          :'<div style="font-size:12.5px;color:#2d6a4f;margin-top:6px">All known departments have filed for this period.</div>'}
+      </div>`;
+    }).join('') : '<div class="empty">No quarterly reports ingested yet.</div>';
+
+    // Other document types: how much time do they cover?
+    const others={};
+    docs.filter(d=>d.document_type!=='quarterly_report').forEach(d=>{
+      const t=d.document_type||'other'; const o=(others[t]=others[t]||{count:0,periods:new Set()});
+      o.count++; if(d.year) o.periods.add(d.year+(d.quarter?(' '+d.quarter):''));
+    });
+    const otherKeys=Object.keys(others).sort();
+    $('#doc-othertypes').innerHTML = otherKeys.length ? otherKeys.map(t=>{
+      const o=others[t]; const ps=[...o.periods].sort();
+      const cover = ps.length ? (ps.length===1?ps[0]:ps[0]+' – '+ps[ps.length-1]) : 'period not recorded';
+      return `<tr><td style="font-weight:500">${esc(label[t]||t)}</td><td class="num mono">${o.count}</td><td style="color:#6f6b64">${esc(cover)}</td></tr>`;
+    }).join('') : '<tr><td colspan="3" class="empty">No other documents.</td></tr>';
+
+    // Full list
     $('#doc-body').innerHTML = docs.length?docs.map(d=>`<tr><td style="font-weight:500">${esc((d.source_file||'').replace(/\.pdf$/i,'').replace(/_/g,' '))}</td><td style="color:#6f6b64">${esc(label[d.document_type]||d.document_type||'—')}</td><td style="color:#6f6b64">${cell(d.department)}</td><td class="num mono" style="color:#6f6b64">${d.total_chunks??'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">No documents.</td></tr>';
-  }catch(e){ $('#doc-body').innerHTML='<tr><td colspan="4" class="empty">Could not load documents.</td></tr>'; }
+  }catch(e){
+    $('#doc-coverage').innerHTML='<div class="empty">Could not load documents.</div>';
+    $('#doc-body').innerHTML='<tr><td colspan="4" class="empty">Could not load documents.</td></tr>';
+  }
 }
 
 // ---- add documents: staff gate + streaming ingest ----
