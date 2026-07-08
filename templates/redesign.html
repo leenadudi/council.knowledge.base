@@ -108,6 +108,22 @@
   .sheet.open{transform:none}
   .res-row{cursor:pointer}
   tbody tr.res-row:hover{background:#f2f4f7}
+  /* rendered markdown inside an Ask answer */
+  #ans-body h2,#ans-body h3,#ans-body h4{font-family:'Spectral',serif;color:#16344f;line-height:1.25;margin:18px 0 8px;font-weight:600}
+  #ans-body h2{font-size:19px}#ans-body h3{font-size:16.5px}#ans-body h4{font-size:14px}
+  #ans-body p{margin:0 0 12px}
+  #ans-body ul,#ans-body ol{margin:0 0 13px;padding-left:22px}
+  #ans-body li{margin:4px 0}
+  #ans-body strong{font-weight:700;color:#1c1b19}
+  #ans-body em{font-style:italic}
+  #ans-body code{font-family:'JetBrains Mono',monospace;font-size:.85em;background:rgba(28,27,25,.06);padding:1px 5px;border-radius:5px}
+  #ans-body a{color:#0f6e63}
+  #ans-body blockquote{margin:14px 0;padding:11px 15px;background:#f8efd8;border-left:3px solid #c4691e;border-radius:0 8px 8px 0;font-size:14px;color:#7a5600}
+  #ans-body blockquote p{margin:0}
+  #ans-body hr{border:none;border-top:1px solid rgba(28,27,25,.12);margin:18px 0}
+  #ans-body table{width:100%;border-collapse:collapse;font-family:'Public Sans',system-ui,sans-serif;font-size:13.5px;margin:6px 0 16px;display:block;overflow-x:auto}
+  #ans-body th{text-align:left;background:#f7f6f2;color:#16344f;font-weight:700;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid rgba(28,27,25,.12);white-space:nowrap}
+  #ans-body td{padding:9px 12px;border-top:1px solid rgba(28,27,25,.07);vertical-align:top}
 </style>
 </head>
 <body>
@@ -732,6 +748,44 @@ function renderSuggest(){
   $('#ask-suggest').innerHTML=`<div style="font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:14px">Try asking about…</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:18px 30px">${SUGGEST.map(([lbl,dot,qs])=>`<div><div style="display:flex;align-items:center;gap:7px;margin-bottom:9px"><span style="width:7px;height:7px;border-radius:2px;background:${dot}"></span><span style="font-size:12px;font-weight:700;color:#4a4744">${lbl}</span></div><div style="display:flex;flex-direction:column;gap:7px">${qs.map(q=>`<button class="sug" data-q="${esc(q)}" style="text-align:left;background:#fff;border:1px solid rgba(28,27,25,.10);border-radius:9px;padding:11px 14px;font-size:13px;color:#2a2825;cursor:pointer;line-height:1.4;display:flex;gap:9px"><span style="color:#c8c3b8">→</span><span>${esc(q)}</span></button>`).join('')}</div></div>`).join('')}</div>`;
   $('#ask-suggest').querySelectorAll('.sug').forEach(b=>b.onclick=()=>{ $('#ask-input').value=b.dataset.q; runAsk(); });
 }
+// Minimal, XSS-safe markdown renderer for Ask answers. Escapes HTML first, then
+// emits only our own tags — covers what the synthesizer produces (tables,
+// headings, bold/italic/code, lists, blockquotes, links, rules).
+function mdInline(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+?)`/g,'<code>$1</code>')
+    .replace(/(^|[^*])\*([^*\n]+?)\*/g,'$1<em>$2</em>')
+    .replace(/\[([^\]]+?)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function mdToHtml(src){
+  const lines=String(src||'').replace(/\r\n?/g,'\n').split('\n');
+  const out=[]; let i=0, para=[];
+  const flush=()=>{ if(para.length){ out.push('<p>'+mdInline(para.join(' '))+'</p>'); para=[]; } };
+  const isSep=s=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(s);
+  const cells=s=>s.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>mdInline(c.trim()));
+  while(i<lines.length){
+    const ln=lines[i];
+    if(!ln.trim()){ flush(); i++; continue; }
+    if(ln.includes('|') && i+1<lines.length && isSep(lines[i+1])){
+      flush(); const head=cells(ln); i+=2; const body=[];
+      while(i<lines.length && lines[i].includes('|') && lines[i].trim() && !isSep(lines[i])){ body.push(cells(lines[i])); i++; }
+      out.push('<table><thead><tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'
+        +body.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>');
+      continue;
+    }
+    const h=ln.match(/^(#{1,4})\s+(.*)$/);
+    if(h){ flush(); const lvl=Math.min(h[1].length+1,4); out.push('<h'+lvl+'>'+mdInline(h[2])+'</h'+lvl+'>'); i++; continue; }
+    if(/^\s*([-*_])\1{2,}\s*$/.test(ln)){ flush(); out.push('<hr>'); i++; continue; }
+    if(/^\s*>/.test(ln)){ flush(); const bq=[]; while(i<lines.length && /^\s*>/.test(lines[i])){ bq.push(lines[i].replace(/^\s*>\s?/,'')); i++; } out.push('<blockquote>'+mdInline(bq.join(' '))+'</blockquote>'); continue; }
+    if(/^\s*[-*+]\s+/.test(ln)){ flush(); const it=[]; while(i<lines.length && /^\s*[-*+]\s+/.test(lines[i])){ it.push('<li>'+mdInline(lines[i].replace(/^\s*[-*+]\s+/,''))+'</li>'); i++; } out.push('<ul>'+it.join('')+'</ul>'); continue; }
+    if(/^\s*\d+\.\s+/.test(ln)){ flush(); const it=[]; while(i<lines.length && /^\s*\d+\.\s+/.test(lines[i])){ it.push('<li>'+mdInline(lines[i].replace(/^\s*\d+\.\s+/,''))+'</li>'); i++; } out.push('<ol>'+it.join('')+'</ol>'); continue; }
+    para.push(ln); i++;
+  }
+  flush();
+  return out.join('\n');
+}
+
 async function runAsk(){
   const q=$('#ask-input').value.trim(); if(!q) return;
   $('#ask-suggest').innerHTML='';
@@ -746,7 +800,7 @@ async function runAsk(){
       <div class="serif" style="padding:22px 26px;font-size:15.5px;line-height:1.7;color:#2a2825" id="ans-body"></div>
       ${cites.length?`<div style="padding:13px 26px;background:#f7f6f2;border-top:1px solid rgba(28,27,25,.07)"><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:8px">Sources</div><div style="display:flex;flex-wrap:wrap;gap:6px">${cites.slice(0,8).map(c=>`<span style="background:#eaf0f7;border:1px solid rgba(22,52,79,.15);border-radius:6px;padding:3px 9px;font-size:11.5px;color:#16344f">${esc(typeof c==='string'?c:(c.source_file||c.title||c.source||'source'))}</span>`).join('')}</div></div>`:''}
     </div>`;
-    $('#ans-body').textContent=ans;
+    $('#ans-body').innerHTML=mdToHtml(ans);
   }catch(e){ $('#ask-answer').innerHTML=`<div class="card" style="padding:20px 24px;color:#a0302a">Could not reach the answer engine.</div>`; }
 }
 
