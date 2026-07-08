@@ -285,7 +285,7 @@ class DashboardAggregator:
     # -- Resolutions ----------------------------------------------------------
     def _build_resolutions(self) -> list[dict]:
         with self.sql.cursor() as cur:
-            cur.execute("SELECT resolution_number, title, status, amount, vendor, adopted_date "
+            cur.execute("SELECT resolution_number, title, status, amount, vendor, department, adopted_date "
                         "FROM resolutions ORDER BY resolution_number")
             rows = [dict(r) for r in cur.fetchall()]
         for r in rows:

@@ -248,9 +248,11 @@ def test_build_resolutions_shape():
     import datetime
     store = _FakeStore({"FROM resolutions ORDER BY": [
         {"resolution_number": "9-2026", "title": "BUILD Grant", "status": "Passed",
-         "amount": 3000000.0, "vendor": "USDOT", "adopted_date": datetime.date(2026,1,27)}]})
+         "amount": 3000000.0, "vendor": "USDOT", "department": "Engineering / Grants",
+         "adopted_date": datetime.date(2026,1,27)}]})
     r = DashboardAggregator(store)._build_resolutions()[0]
     assert r["resolution_number"] == "9-2026" and r["amount"] == 3000000.0
+    assert r["department"] == "Engineering / Grants"   # now surfaced for the dossier
     assert r["adopted_date"] == "2026-01-27"    # ISO string
 
 
