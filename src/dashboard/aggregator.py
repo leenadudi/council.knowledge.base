@@ -232,19 +232,36 @@ class DashboardAggregator:
         "harrisburg city council": "city council",
         "city of harrisburg city council": "city council",
         "finance": "budget & finance",
+        "park maintenance": "parks & recreation",
+        "economic development & building & housing": "building & housing development",
+        "codes health department": "codes",
     }
 
     @staticmethod
-    def _dept_key(name: str) -> str:
-        """Canonical grouping key so name variants merge into one department
-        (e.g. 'Parks & Recreation' == 'Bureau of Parks & Recreation')."""
+    def _dept_key_base(name: str) -> str:
+        """Base canonical key from prefix/`&` normalization, before aliasing."""
         k = (name or "").strip().lower().replace(" and ", " & ")
         for p in ("bureau of ", "department of ", "office of ", "the "):
             if k.startswith(p):
                 k = k[len(p):]
                 break
-        k = re.sub(r"[^a-z0-9&]+", " ", k).strip()
-        return DashboardAggregator._DEPT_ALIASES.get(k, k)
+        return re.sub(r"[^a-z0-9&]+", " ", k).strip()
+
+    @staticmethod
+    def _dept_key(name: str) -> str:
+        """Canonical grouping key so name variants merge into one department
+        (e.g. 'Parks & Recreation' == 'Bureau of Parks & Recreation'), plus
+        explicit _DEPT_ALIASES merges."""
+        base = DashboardAggregator._dept_key_base(name)
+        return DashboardAggregator._DEPT_ALIASES.get(base, base)
+
+    @staticmethod
+    def _dept_display(key: str, names) -> str:
+        """Pick the display label native to the canonical key — i.e. a name that
+        maps to this key WITHOUT an alias hop (so 'codes' shows 'Bureau of Codes',
+        not the aliased-in 'Codes/Health Department'). Longest wins among ties."""
+        native = [n for n in names if DashboardAggregator._dept_key_base(n) == key]
+        return max(native or list(names), key=len)
 
     def _build_departments(self) -> list[dict]:
         with self.sql.cursor() as cur:
@@ -285,7 +302,7 @@ class DashboardAggregator:
         for key, g in groups.items():
             sp = spend_by_key.get(key, {})
             out.append({
-                "department": max(g["names"], key=len),
+                "department": self._dept_display(key, g["names"]),
                 "revised_budget": float(sp.get("rb") or 0),
                 "ytd_expended": float(sp.get("ytd") or 0),
                 "report_count": g["reports"],
@@ -379,7 +396,7 @@ class DashboardAggregator:
             acc["names"].append(r["department"])
             acc["rb"] += rb
             acc["ytd"] += ytd
-        by_department = [{"_key": k, "department": max(v["names"], key=len),
+        by_department = [{"_key": k, "department": self._dept_display(k, v["names"]),
                           "revised_budget": v["rb"], "ytd_expended": v["ytd"]}
                          for k, v in by.items()]
         by_department.sort(key=lambda x: -x["revised_budget"])
@@ -523,8 +540,8 @@ class DashboardAggregator:
             m["names"].append(r["department"])
             m["ytd_spend"] += float(r["ytd_spend"] or 0)
         authorized_vs_spent = [
-            {"department": max(m["names"], key=len), "authorized_total": m["authorized_total"], "ytd_spend": m["ytd_spend"]}
-            for m in merged.values() if m["names"]
+            {"department": self._dept_display(k, m["names"]), "authorized_total": m["authorized_total"], "ytd_spend": m["ytd_spend"]}
+            for k, m in merged.items() if m["names"]
         ]
         authorized_vs_spent.sort(key=lambda x: -x["authorized_total"])
 

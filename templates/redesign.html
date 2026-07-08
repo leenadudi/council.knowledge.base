@@ -330,8 +330,11 @@ let D = {};                 // /dashboard/data payload
 let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null };
 
 // ---- helpers ----
-const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance'};
-function dkey(s){ const k=String(s||'').toLowerCase().replace(/ and /g,' & ').replace(/^(the |bureau of |department of |office of )/,'').replace(/[^a-z0-9&]+/g,' ').trim(); return DEPT_ALIASES[k]||k; }
+const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance','park maintenance':'parks & recreation','economic development & building & housing':'building & housing development','codes health department':'codes'};
+function dkeyBase(s){ return String(s||'').toLowerCase().replace(/ and /g,' & ').replace(/^(the |bureau of |department of |office of )/,'').replace(/[^a-z0-9&]+/g,' ').trim(); }
+function dkey(s){ const k=dkeyBase(s); return DEPT_ALIASES[k]||k; }
+// display label native to the canonical key (not an aliased-in variant), longest wins
+function deptDisplay(key,names){ const nat=names.filter(n=>dkeyBase(n)===key); return (nat.length?nat:names).reduce((a,b)=>b.length>a.length?b:a); }
 function money(v){ if(v==null) return '—'; const n=Number(v); if(n>=1e6) return '$'+(n/1e6).toFixed(1)+'M'; if(n>=1e3) return '$'+Math.round(n/1e3)+'K'; return '$'+n.toLocaleString(); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function cell(v){ return v==null||v===''?'—':esc(v); }
@@ -569,10 +572,12 @@ async function loadDocuments(){
     // Require a quarter — a quarterly_report with no quarter (e.g. an annual ARPA
     // spending update) isn't a quarter and would create a phantom "YYYY —" period.
     const qr=docs.filter(d=>d.document_type==='quarterly_report' && d.year && d.quarter && d.department);
-    // canonicalize dept names (merge "Parks & Recreation" == "Bureau of Parks & Recreation");
-    // keep the longest variant as the display name, like the backend _dept_key rollup.
+    // canonicalize dept names (merge variants) and label each with the name native
+    // to the canonical key — mirrors the backend _dept_key / _dept_display rollup.
+    const names={};
+    qr.forEach(d=>{ const k=dkey(d.department); (names[k]=names[k]||[]).push(d.department); });
     const disp={};
-    qr.forEach(d=>{ const k=dkey(d.department); if(!disp[k] || d.department.length>disp[k].length) disp[k]=d.department; });
+    for(const k in names) disp[k]=deptDisplay(k, names[k]);
     const rosterKeys=Object.keys(disp).sort((a,b)=>disp[a].localeCompare(disp[b]));
     const periods={};
     qr.forEach(d=>{ const key=d.year+' '+(d.quarter||'—'); (periods[key]=periods[key]||new Set()).add(dkey(d.department)); });

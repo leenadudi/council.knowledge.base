@@ -27,8 +27,15 @@ def test_dept_key_merges_known_variants_without_over_merging():
     assert k("Harrisburg City Council") == k("City of Harrisburg City Council") == k("City Council") == "city council"
     assert k("Finance") == k("Department of Budget & Finance") == "budget & finance"
     assert k("Parks and Recreation") == k("Bureau of Parks & Recreation") == "parks & recreation"
+    assert k("Park Maintenance") == "parks & recreation"
+    assert k("Department of Economic Development & Building and Housing") == k("Department of Building & Housing Development") == "building & housing development"
+    assert k("Codes/Health Department") == k("Bureau of Codes") == "codes"
     # must NOT over-merge distinct departments
     assert k("Bureau of Fire") == "fire" and k("Bureau of Police") == "police"
+    # display prefers the name native to the key, not the aliased-in variant
+    disp = DashboardAggregator._dept_display
+    assert disp("codes", ["Codes/Health Department", "Bureau of Codes"]) == "Bureau of Codes"
+    assert disp("city council", ["City of Harrisburg City Council", "City Council"]) == "City Council"
 
 
 def test_quarter_start_mapping():
