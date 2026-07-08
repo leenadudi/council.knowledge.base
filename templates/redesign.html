@@ -551,13 +551,15 @@ function renderDeptDetail(){
 let docsLoaded=false;
 async function loadDocuments(){
   if(docsLoaded) return; docsLoaded=true;
-  const label={quarterly_report:'Quarterly report',resolution:'Resolution',minutes:'Minutes',legislation:'Legislation',budget:'Budget'};
+  const label={quarterly_report:'Quarterly report',quarterly_report_undated:'Quarterly report (no quarter)',resolution:'Resolution',minutes:'Minutes',legislation:'Legislation',budget:'Budget'};
   try{
     const r=await fetch('/documents'); const j=await r.json(); const docs=j.documents||[];
 
     // Quarterly-report coverage by quarter. Roster = every dept that has filed a
     // quarterly report in ANY period; "missing" = roster minus who filed this period.
-    const qr=docs.filter(d=>d.document_type==='quarterly_report' && d.year && d.department);
+    // Require a quarter — a quarterly_report with no quarter (e.g. an annual ARPA
+    // spending update) isn't a quarter and would create a phantom "YYYY —" period.
+    const qr=docs.filter(d=>d.document_type==='quarterly_report' && d.year && d.quarter && d.department);
     // canonicalize dept names (merge "Parks & Recreation" == "Bureau of Parks & Recreation");
     // keep the longest variant as the display name, like the backend _dept_key rollup.
     const disp={};
@@ -583,8 +585,10 @@ async function loadDocuments(){
 
     // Other document types: how much time do they cover?
     const others={};
-    docs.filter(d=>d.document_type!=='quarterly_report').forEach(d=>{
-      const t=d.document_type||'other'; const o=(others[t]=others[t]||{count:0,periods:new Set()});
+    docs.filter(d=>d.document_type!=='quarterly_report' || !d.quarter).forEach(d=>{
+      // undated quarterly reports (no quarter) are summarized here, not in the matrix
+      const t = (d.document_type==='quarterly_report') ? 'quarterly_report_undated' : (d.document_type||'other');
+      const o=(others[t]=others[t]||{count:0,periods:new Set()});
       o.count++; if(d.year) o.periods.add(d.year+(d.quarter?(' '+d.quarter):''));
     });
     const otherKeys=Object.keys(others).sort();
