@@ -591,7 +591,14 @@ function renderMeetingDetail(){
   const present=(m.members_present_names||'').split(',').map(s=>s.trim()).filter(Boolean);
   const absent=(m.members_absent_names||'').split(',').map(s=>s.trim()).filter(Boolean);
   const roster=present.map(n=>({n,present:true})).concat(absent.map(n=>({n,present:false})));
-  const acts=(m.actions||[]).map(a=>`<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${cell(a.item_type)} ${cell(a.item_number)}</span></div><div style="font-weight:600;font-size:14px;line-height:1.35">${cell(a.title)}</div><div style="font-size:13px;color:#6f6b64;margin-top:5px">${cell(a.action)}${a.committee?' — '+esc(a.committee):''}</div></div></div></div>`).join('') || '<div class="empty">No recorded actions.</div>';
+  const actCard=(a)=>`<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${cell(a.item_type)} ${cell(a.item_number)}</span></div><div style="font-weight:600;font-size:14px;line-height:1.35">${cell(a.title)}</div><div style="font-size:13px;color:#6f6b64;margin-top:5px">${cell(a.action)}${a.committee?' — '+esc(a.committee):''}</div></div></div></div>`;
+  // group this session's actions by stage (Passed / Referred / First reading / …)
+  const grp={}; (m.actions||[]).forEach(a=>{const s=milestone(a.action)||'Other'; (grp[s]=grp[s]||[]).push(a);});
+  const gorder=['Passed','Tabled','Amended','Reported out','Referred to committee','Introduced','Other'];
+  const acts=(m.actions||[]).length ? gorder.filter(s=>grp[s]).map(s=>
+      `<div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298;margin:16px 0 8px">${s} <span style="color:#c8c3b8">${grp[s].length}</span></div>`
+      +`<div style="display:flex;flex-direction:column;gap:10px">${grp[s].map(actCard).join('')}</div>`
+    ).join('') : '<div class="empty">No recorded actions.</div>';
   const stat=(lbl,val)=>`<div class="card" style="padding:11px 16px;text-align:center;min-width:74px"><div class="mono" style="font-size:18px;color:#16344f;line-height:1">${val}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-top:6px">${lbl}</div></div>`;
   $('#mtg-detail').innerHTML=`
     <div class="navlink" data-tab="activity" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:#0f6e63;cursor:pointer;margin-bottom:18px"><span style="font-size:16px">‹</span><span>Council activity</span></div>
