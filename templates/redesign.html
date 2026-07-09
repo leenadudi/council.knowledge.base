@@ -707,7 +707,9 @@ function renderGoalCard(g){
   const sel=`<select id="${sid}-sel" class="filter gstatus" data-id="${g.id}" onchange="setGoalStatus(this)" onblur="cancelGoalStatus('${sid}')" style="display:none;padding:5px 10px;font-size:12.5px">`
     + `${opt('','Use default ('+US_LABEL[def]+')')}${opt('not_started','Not started')}${opt('in_progress','In progress')}${opt('completed','Completed')}</select>`;
   const statusRow=`<div style="display:flex;align-items:center;gap:9px;margin-top:14px"><span style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298">Status</span>${view}${sel}</div>`;
-  const period=(g.quarter||g.year)?`<div style="font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#a7a298;margin-bottom:6px">${esc(((g.quarter||'')+' '+(g.year||'')).trim())}</div>`:'';
+  const latestLbl=((g.quarter||'')+' '+(g.year||'')).trim();
+  const periodTxt=(g._count&&g._count>1)?`Latest ${latestLbl} · reported in ${g._count} quarters`:latestLbl;
+  const period=periodTxt?`<div style="font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#a7a298;margin-bottom:6px">${esc(periodTxt)}</div>`:'';
   return `<div class="card" style="padding:16px 20px">
     ${period}
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14.5px;line-height:1.4">${cell(g.goal_title)}</div>${right}</div>
@@ -731,12 +733,33 @@ function renderPeople(){
     <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div>${v.quarter?`<div style="font-size:11px;color:#a7a298;margin-top:2px">as of ${esc(v.quarter)} ${v.year||''}</div>`:''}</div><span class="pill p-amber" style="flex-shrink:0">Open</span></div>`).join('')}</div>`).join('');
 }
 
+// Same objective is re-stated in every quarterly report, so it lands as one goal
+// row per quarter. Collapse those into a single logical goal (latest instance),
+// carrying forward the most recent clerk-set status and the quarters it appeared in.
+function goalKey(x){ return dkey(x.department)+'|'+(x.goal_title||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function goalPeriodAsc(a,b){ return (a.year||0)-(b.year||0) || String(a.quarter||'').localeCompare(String(b.quarter||'')); }
+function collapseGoals(list){
+  const by={};
+  list.forEach(x=>{ const k=goalKey(x); (by[k]=by[k]||[]).push(x); });
+  return Object.values(by).map(rows=>{
+    rows.sort(goalPeriodAsc);
+    const latest=Object.assign({},rows[rows.length-1]);
+    // status is about the goal, not one quarter: keep the most recent explicit mark
+    const marked=rows.filter(r=>(r.user_status||'').trim());
+    if(marked.length){ const m=marked[marked.length-1]; latest.user_status=m.user_status; latest.id=m.id; }
+    latest._periods=[...new Set(rows.map(r=>((r.quarter||'')+' '+(r.year||'')).trim()).filter(Boolean))];
+    latest._count=latest._periods.length;
+    return latest;
+  });
+}
 function renderGoals(){
   const all=D.goals||[];
   const dept=state.goalsDept||'All', per=state.goalsPeriod||'All', q=(state.goalsSearch||'').trim().toLowerCase();
   let g=all.slice();
   if(dept!=='All') g=g.filter(x=>dkey(x.department)===dkey(dept));
+  // A specific period shows that quarter's rows as-is; "All" collapses cross-quarter dupes.
   if(per!=='All') g=g.filter(x=>((x.quarter||'')+' '+(x.year||'')).trim()===per);
+  else g=collapseGoals(g);
   if(q) g=g.filter(x=>((x.goal_title||'')+' '+(x.description||'')+' '+(x.target||'')+' '+(x.status||'')).toLowerCase().includes(q));
   $('#goals-count').textContent=`${g.length} goal${g.length===1?'':'s'}`;
   const el=$('#goals-list');
