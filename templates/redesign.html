@@ -444,20 +444,20 @@ function actStage(a){const s=(a||'').toLowerCase();
   if(/refer|committee|reported out|moved to|moved into/.test(s))return'committee';
   if(/read|first reading|introduc/.test(s))return'introduced';
   return'introduced';}
-const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'Introduced',tabled:'Tabled'};
+const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First reading',tabled:'Tabled'};
 const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red'};
 function isLeg(t){t=(t||'').toLowerCase();return t.includes('resolution')||t.includes('ordinance');}
 function legType(t){return (t||'').toLowerCase().includes('ordinance')?'Ordinance':'Resolution';}
 // Collapse the noisy raw actions into clean lifecycle milestones (first date each).
-const MS_ORDER=['Introduced','Referred to committee','Reported out','Amended','Passed','Tabled'];
+const MS_ORDER=['First reading','Referred to committee','Reported out','Amended','Passed','Tabled'];
 function milestone(a){const s=(a||'').toLowerCase();
   if(/tabl/.test(s))return'Tabled';
   if(/final passage/.test(s))return'Passed';
   if(/amendment/.test(s))return'Amended';
   if(/passed|stand approved|approved/.test(s))return'Passed';
   if(/reported out/.test(s))return'Reported out';
+  if(/first reading|read|introduc/.test(s))return'First reading';   // catch "First Reading; referred…" as first reading
   if(/refer|moved to|moved into|committee/.test(s))return'Referred to committee';
-  if(/read|first reading|introduc/.test(s))return'Introduced';
   return null;}
 function milestoneTrail(events){
   const first={};
@@ -594,7 +594,7 @@ function renderMeetingDetail(){
   const actCard=(a)=>`<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${cell(a.item_type)} ${cell(a.item_number)}</span></div><div style="font-weight:600;font-size:14px;line-height:1.35">${cell(a.title)}</div><div style="font-size:13px;color:#6f6b64;margin-top:5px">${cell(a.action)}${a.committee?' — '+esc(a.committee):''}</div></div></div></div>`;
   // group this session's actions by stage (Passed / Referred / First reading / …)
   const grp={}; (m.actions||[]).forEach(a=>{const s=milestone(a.action)||'Other'; (grp[s]=grp[s]||[]).push(a);});
-  const gorder=['Passed','Tabled','Amended','Reported out','Referred to committee','Introduced','Other'];
+  const gorder=['Passed','Tabled','Amended','Reported out','Referred to committee','First reading','Other'];
   const acts=(m.actions||[]).length ? gorder.filter(s=>grp[s]).map(s=>
       `<div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298;margin:16px 0 8px">${s} <span style="color:#c8c3b8">${grp[s].length}</span></div>`
       +`<div style="display:flex;flex-direction:column;gap:10px">${grp[s].map(actCard).join('')}</div>`
