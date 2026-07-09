@@ -52,12 +52,18 @@ def test_goal_with_no_progress_is_flagged():
     assert out["period"] == "Q1 2026"
 
 
-def test_goal_without_target_is_not_flagged_no_progress():
+def test_goal_without_target_is_still_flagged_no_progress():
+    # a goal with no numeric target but no reported status is still a valid gap;
+    # the question just omits the "(target: …)" clause.
     store = _FakeStore({
         GOALS: [_goal(1, "Bureau of Fire", 2026, "Q1", "Community outreach", target="", status=None)],
         PERIOD: [], BUDGET: [],
     })
-    assert ReviewQuestions(store).build()["departments"] == []
+    d = ReviewQuestions(store).build()["departments"]
+    assert len(d) == 1
+    f = d[0]["findings"][0]
+    assert f["signal"] == "goal_no_progress"
+    assert "target:" not in f["question"] and f["evidence"]["target"] is None
 
 
 def test_goal_stalled_across_quarters_is_flagged_and_suppresses_no_progress():

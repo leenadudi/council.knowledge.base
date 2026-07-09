@@ -102,17 +102,19 @@ class ReviewQuestions:
                 stalled_titles.setdefault(dkey, set()).add(ntitle)
                 continue
 
-            # no progress: appears in the latest period, has a target, no status
+            # no progress: appears in the latest reporting period with no status.
+            # A target is NOT required — a goal with no numeric target is still worth
+            # asking "what's the progress?"; we just fold the target in when present.
             if _period_tuple(latest_row.get("year"), latest_row.get("quarter")) == latest \
-                    and (latest_row.get("target") or "").strip() \
                     and not (latest_row.get("status") or "").strip():
+                tgt = str(latest_row.get("target") or "").strip()
+                tgt_clause = f" (target: {tgt})" if tgt else ""
                 no_progress.setdefault(dkey, []).append({
                     "signal": "goal_no_progress",
                     "department": display,
-                    "question": (f"{display}'s goal “{title}” (target: "
-                                 f"{str(latest_row['target']).strip()}) shows no reported progress "
-                                 f"as of {_period_label(*latest)}. What's the current status?"),
-                    "evidence": {"goal_title": title, "target": str(latest_row["target"]).strip(),
+                    "question": (f"{display}'s goal “{title}”{tgt_clause} has no progress "
+                                 f"reported for {_period_label(*latest)}. What's the current status?"),
+                    "evidence": {"goal_title": title, "target": tgt or None,
                                  "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
                 })
 
