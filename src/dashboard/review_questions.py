@@ -93,9 +93,9 @@ class ReviewQuestions:
                 stalled.setdefault(dkey, []).append({
                     "signal": "goal_stalled",
                     "department": display,
-                    "question": (f"“{title}” has carried across {len(distinct_periods)} "
-                                 f"quarters ({first_lbl}→{last_lbl}) with no reported update "
-                                 f"— what's blocking completion?"),
+                    "question": (f"“{title}” has appeared in {len(distinct_periods)} "
+                                 f"quarterly reports ({first_lbl}→{last_lbl}) with no status "
+                                 f"update — what progress has been made since {last_lbl}?"),
                     "evidence": {"goal_title": title, "periods": [_period_label(*p) for p in distinct_periods],
                                  "count": len(distinct_periods)},
                 })
@@ -205,7 +205,9 @@ _PHRASE_SYSTEM = (
     "department's next quarterly report. You will receive a JSON array of draft "
     "questions already grounded in real data. Rewrite each into one natural, "
     "specific, professional question a clerk could put directly into the report "
-    "request. RULES: (1) preserve every number, percentage, target, goal name and "
+    "request. Frame each as a neutral request for a progress update — the clerk "
+    "simply lacks a newer report, so do NOT assume the work is blocked, stalled, "
+    "or failing. RULES: (1) preserve every number, percentage, target, goal name and "
     "department name exactly — do not invent, drop, or alter any fact; (2) return "
     "ONLY a JSON array of strings, same length and order as the input; (3) one "
     "question per item, no preamble."
