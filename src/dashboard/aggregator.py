@@ -581,6 +581,11 @@ class DashboardAggregator:
         grants_expiring.sort(key=lambda x: x["days_left"])
         return {"authorized_vs_spent": authorized_vs_spent, "grants_expiring": grants_expiring}
 
+    # -- Review questions (deterministic gap detection; NO LLM) ---------------
+    def _build_review_questions(self) -> dict:
+        from src.dashboard.review_questions import ReviewQuestions
+        return ReviewQuestions(self.sql).build()
+
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
         try:
@@ -609,6 +614,7 @@ class DashboardAggregator:
             "metrics": self._safe("metrics", self._build_metrics, errors),
             "vendor_spend": self._safe("vendor_spend", self._build_vendor_spend, errors),
             "commitments": self._safe("commitments", self._build_commitments, errors),
+            "review_questions": self._safe("review_questions", self._build_review_questions, errors),
         }
         if errors:
             out["errors"] = errors

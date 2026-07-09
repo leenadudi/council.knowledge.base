@@ -224,6 +224,51 @@ def dashboard_data():
         return jsonify({"error": str(e)}), 500
 
 
+# Per-department phrasing cache: findings-hash -> polished questions. Keyed by the
+# content of a department's findings, so identical data is a guaranteed cache hit
+# and never re-triggers a Haiku call. Cleared implicitly on restart (cheap to rewarm).
+_questions_cache: dict[str, list[str]] = {}
+
+
+@app.route("/questions/<path:department>")
+def questions(department: str):
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    try:
+        import hashlib
+        from src.dashboard.aggregator import DashboardAggregator
+        from src.dashboard.review_questions import ReviewQuestions, phrase_questions
+
+        data = ReviewQuestions(_sql_store).build()
+        want = DashboardAggregator._dept_key(department)
+        match = next((d for d in data["departments"]
+                      if DashboardAggregator._dept_key(d["department"]) == want), None)
+        if not match or not match["findings"]:
+            return jsonify({"department": department, "questions": [], "polished": False})
+
+        findings = match["findings"]
+        templated = [f["question"] for f in findings]
+        key = hashlib.sha256(json.dumps(templated, ensure_ascii=False).encode()).hexdigest()
+
+        polished = True
+        if key in _questions_cache:
+            worded = _questions_cache[key]
+        else:
+            try:
+                worded = phrase_questions(templated, get_settings())
+                _questions_cache[key] = worded
+            except Exception as e:
+                logger.warning("Question phrasing failed, using templated: %s", e)
+                worded, polished = templated, False
+
+        out = [{"question": w, "signal": f["signal"], "evidence": f["evidence"]}
+               for w, f in zip(worded, findings)]
+        return jsonify({"department": match["department"], "questions": out, "polished": polished})
+    except Exception as e:
+        logger.exception("Questions failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if not _ready:
