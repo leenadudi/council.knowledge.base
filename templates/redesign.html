@@ -441,6 +441,22 @@ const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'Introduced
 const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red'};
 function isLeg(t){t=(t||'').toLowerCase();return t.includes('resolution')||t.includes('ordinance');}
 function legType(t){return (t||'').toLowerCase().includes('ordinance')?'Ordinance':'Resolution';}
+// Collapse the noisy raw actions into clean lifecycle milestones (first date each).
+const MS_ORDER=['Introduced','Referred to committee','Reported out','Amended','Passed','Tabled'];
+function milestone(a){const s=(a||'').toLowerCase();
+  if(/tabl/.test(s))return'Tabled';
+  if(/final passage/.test(s))return'Passed';
+  if(/amendment/.test(s))return'Amended';
+  if(/passed|stand approved|approved/.test(s))return'Passed';
+  if(/reported out/.test(s))return'Reported out';
+  if(/refer|moved to|moved into|committee/.test(s))return'Referred to committee';
+  if(/read|first reading|introduc/.test(s))return'Introduced';
+  return null;}
+function milestoneTrail(events){
+  const first={};
+  events.forEach(e=>{const m=milestone(e.action); if(m && !(m in first)) first[m]=e.date;});
+  return MS_ORDER.filter(m=>m in first).map(m=>({label:m,date:first[m]}));
+}
 function activityItems(){
   const items={};
   (D.meetings||[]).forEach(m=>{(m.actions||[]).forEach(a=>{
@@ -482,7 +498,7 @@ function renderActivity(){
   // legislation pipeline (grouped by furthest stage reached)
   const resNums=new Set((D.resolutions||[]).map(r=>String(r.resolution_number)));
   const itemCard=(it)=>{
-    const trail=it.events.map(e=>`${parseDate(e.date).date.replace(/,\s*\d{4}/,'')}: ${esc(e.action||'—')}`).join(' → ');
+    const trail=milestoneTrail(it.events).map(x=>`<span style="white-space:nowrap">${esc(x.label)} <span style="color:#b3aea3">${esc(parseDate(x.date).date.replace(/,\s*\d{4}/,''))}</span></span>`).join('<span style="color:#c8c3b8"> → </span>');
     const isRes=it.type==='Resolution' && resNums.has(String(it.number));
     return `<div class="card${isRes?' res-row':''}"${isRes?` data-rn="${esc(it.number)}"`:''} style="padding:13px 16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
@@ -491,11 +507,14 @@ function renderActivity(){
         ${isRes?'<span style="color:#c8c3b8;font-size:16px;flex-shrink:0">›</span>':''}</div>
       <div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
   };
-  const groups=order.map(s=>({s,items:byStatus(s)})).filter(g=>g.items.length);
-  $('#act-items').innerHTML = items.length?groups.map(g=>
-    `<div style="display:flex;align-items:baseline;justify-content:space-between;margin:12px 0 8px"><h2 class="sec" style="font-size:16px">${STAGE_LBL[g.s]}</h2><span style="font-size:12px;color:#a7a298">${g.items.length}</span></div>`
-    +`<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">${g.items.sort((a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true})).map(itemCard).join('')}</div>`
-  ).join(''):'<div class="empty">No legislation recorded yet.</div>';
+  const bynum=(a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true});
+  // columns side by side, "In committee" (still moving) first
+  const cols=['committee','passed','introduced','tabled'].map(s=>({s,items:byStatus(s)})).filter(g=>g.items.length);
+  $('#act-items').innerHTML = items.length
+    ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">`
+      + cols.map(g=>`<div><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;position:sticky;top:0"><span style="width:8px;height:8px;border-radius:2px;background:${{passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a'}[g.s]}"></span><h2 class="sec" style="font-size:15px">${STAGE_LBL[g.s]}</h2><span style="font-size:12px;color:#a7a298">${g.items.length}</span></div><div style="display:flex;flex-direction:column;gap:10px">${g.items.sort(bynum).map(itemCard).join('')}</div></div>`).join('')
+      + `</div>`
+    : '<div class="empty">No legislation recorded yet.</div>';
   $('#act-items').querySelectorAll('.res-row').forEach(el=>el.onclick=()=>openDossier(el.dataset.rn));
   const tl=state.activitySeg!=='items';
   $('#seg-timeline').classList.toggle('on',tl); $('#seg-items').classList.toggle('on',!tl);
