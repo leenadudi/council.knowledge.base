@@ -456,10 +456,24 @@ class DashboardAggregator:
     # -- Vacancies (open positions) -------------------------------------------
     def _build_vacancies(self) -> list[dict]:
         with self.sql.cursor() as cur:
-            cur.execute("SELECT department, position_title, status FROM vacancies "
+            cur.execute("SELECT department, position_title, status, quarter, year FROM vacancies "
                         "WHERE LOWER(status) = 'open' AND department IS NOT NULL "
+                        "AND position_title IS NOT NULL AND position_title <> '' AND LOWER(position_title) <> 'none' "
                         "ORDER BY department, position_title")
-            return [dict(r) for r in cur.fetchall()]
+            rows = [dict(r) for r in cur.fetchall()]
+        # Collapse the same opening reported across multiple quarters into one entry,
+        # keyed by canonical department + normalized title; keep the latest period.
+        def period(r): return (r.get("year") or 0, r.get("quarter") or "")
+        dedup: dict = {}
+        for r in rows:
+            key = (self._dept_key(r["department"]), (r["position_title"] or "").strip().lower())
+            if key not in dedup or period(r) > period(dedup[key]):
+                dedup[key] = r
+        out = [{"department": r["department"], "position_title": r["position_title"],
+                "status": r["status"], "quarter": r.get("quarter"), "year": r.get("year")}
+               for r in dedup.values()]
+        out.sort(key=lambda r: (r["department"], r["position_title"]))
+        return out
 
     # -- Goals ----------------------------------------------------------------
     def _build_goals(self) -> list[dict]:

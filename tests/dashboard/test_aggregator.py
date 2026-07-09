@@ -234,6 +234,19 @@ def test_build_commitments_authorized_actual_and_expiring():
     assert out["grants_expiring"][0]["days_left"] == 90
 
 
+def test_build_vacancies_dedupes_across_quarters():
+    store = _FakeStore({"FROM vacancies": [
+        {"department": "Bureau of Police", "position_title": "Detective", "status": "open", "quarter": "Q3", "year": 2025},
+        {"department": "Bureau of Police", "position_title": "Detective", "status": "open", "quarter": "Q1", "year": 2026},  # same opening, later
+        {"department": "Planning Bureau", "position_title": "Deputy Planning Director", "status": "open", "quarter": "Q2", "year": 2025},
+    ]})
+    v = DashboardAggregator(store)._build_vacancies()
+    dets = [x for x in v if x["position_title"] == "Detective"]
+    assert len(dets) == 1                       # collapsed across quarters
+    assert (dets[0]["quarter"], dets[0]["year"]) == ("Q1", 2026)   # kept the latest
+    assert len(v) == 2
+
+
 class _BoomStore:
     from contextlib import contextmanager as _cm
     @_cm

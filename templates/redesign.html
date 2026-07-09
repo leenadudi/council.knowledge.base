@@ -683,7 +683,7 @@ function renderPeople(){
   $('#people-count').textContent=`${vac.length} open position${vac.length===1?'':'s'} · ${depts.length} department${depts.length===1?'':'s'}`;
   el.innerHTML=depts.map(d=>`
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin:14px 0 8px"><h2 class="sec" style="font-size:16px">${cell(d.name)}</h2><span style="font-size:12px;color:#a7a298">${d.items.length} open</span></div>
-    <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div><span class="pill p-amber">Open</span></div>`).join('')}</div>`).join('');
+    <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div>${v.quarter?`<div style="font-size:11px;color:#a7a298;margin-top:2px">as of ${esc(v.quarter)} ${v.year||''}</div>`:''}</div><span class="pill p-amber" style="flex-shrink:0">Open</span></div>`).join('')}</div>`).join('');
 }
 
 function renderGoals(){
