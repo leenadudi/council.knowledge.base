@@ -35,7 +35,7 @@ def test_dashboard_redirects_to_home(monkeypatch):
 def test_home_serves_redesign_with_nav_tabs():
     # "/" serves the redesign shell with its explore nav tabs.
     html = _client().get("/").data.decode()
-    for tab in ("overview", "decisions", "money", "meetings", "departments"):
+    for tab in ("overview", "activity", "money", "goals", "people"):
         assert f'data-tab="{tab}"' in html
     # no external chart libraries (CSP-safe, inline SVG only)
     assert "chart.js" not in html.lower() and "vis-timeline" not in html.lower()
