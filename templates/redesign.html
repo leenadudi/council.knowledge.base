@@ -153,6 +153,7 @@
       <div class="navitem" data-tab="people"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/><path d="M11 4.2a2.2 2.2 0 0 1 0 4.1M12 13.5c0-2 -1-3.3-2.5-3.8"/></svg><span>People</span></div>
       <div class="navitem" data-tab="activity"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h3l1.5-4 3 9 1.5-5H14"/></svg><span>Council activity</span></div>
       <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Finances</span></div>
+      <div class="navitem" data-tab="projects"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5h5l1.5 2H14v6.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V4.5z"/></svg><span>Projects</span></div>
       <div class="navitem" data-tab="questions"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h10a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-.5.5H6l-3 2.5V3a.5.5 0 0 1 .5-.5z"/><path d="M8 5v3M8 9.6v.1" stroke-linecap="round"/></svg><span>Next quarter</span></div>
       <div class="grouplbl" id="staff-toggle" style="cursor:pointer;display:flex;align-items:center;gap:8px"><span>Staff tools</span><span id="staff-chev" style="transition:transform .15s;font-size:13px">›</span></div>
       <div id="staff-group" style="display:none">
@@ -284,6 +285,21 @@
         <div id="people-list"></div>
       </div>
 
+      <!-- PROJECTS -->
+      <div class="view" id="v-projects">
+        <div style="margin-bottom:20px"><h1 class="page">Projects</h1><p class="psub">Grant-funded initiatives and council-authorized work — land development, contracts, and grant actions — with where each one stands. Updates automatically as new resolutions are added.</p></div>
+        <div id="proj-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+          <select class="filter" id="proj-type" onchange="state.projType=this.value;renderProjects()"></select>
+          <select class="filter" id="proj-dept" onchange="state.projDept=this.value;renderProjects()"></select>
+          <select class="filter" id="proj-status" onchange="state.projStatus=this.value;renderProjects()"></select>
+          <input id="proj-search" class="txt-input" placeholder="Search projects…" style="flex:1;min-width:180px" oninput="state.projSearch=this.value;renderProjects()">
+          <span id="proj-count" style="font-size:12.5px;color:#8a867d;white-space:nowrap"></span>
+        </div>
+        <div id="proj-list" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div id="proj-admin" style="margin-top:26px"></div>
+      </div>
+
       <!-- NEXT QUARTER (generated questions) -->
       <div class="view" id="v-questions">
         <div style="margin-bottom:22px"><h1 class="page">Questions for next quarter</h1><p class="psub">Data-grounded follow-ups to put into each department's next quarterly report — built from goals with no reported progress, goals that have stalled across quarters, and budgets running off pace.</p></div>
@@ -369,7 +385,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let D = {};                 // /dashboard/data payload
-let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null };
+let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null, projType:'All', projDept:'All', projStatus:'All', projSearch:'' };
 
 // ---- helpers ----
 const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance','park maintenance':'parks & recreation','economic development & building & housing':'building & housing development','codes health department':'codes'};
@@ -397,12 +413,12 @@ function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').mat
 function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
 
 // ---- nav ----
-const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Finances'],questions:['Explore','Next quarter'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Finances'],projects:['Explore','Projects'],questions:['Explore','Next quarter'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
 function go(tab){ state.tab=tab; render(); }
 function render(){
   const t=state.tab;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
-  const map={ask:'v-ask',overview:'v-overview',activity:'v-activity',money:'v-money',questions:'v-questions',meeting:'v-meeting',goals:'v-goals',people:'v-people',documents:'v-documents',add:'v-add'};
+  const map={ask:'v-ask',overview:'v-overview',activity:'v-activity',money:'v-money',projects:'v-projects',questions:'v-questions',meeting:'v-meeting',goals:'v-goals',people:'v-people',documents:'v-documents',add:'v-add'};
   const el=$('#'+map[t]); if(el) el.classList.add('on');
   document.querySelectorAll('.navitem[data-tab]').forEach(n=>{
     const nt=n.getAttribute('data-tab');
@@ -777,6 +793,72 @@ function renderGoals(){
 }
 
 
+// ---- projects: live layer over grants + resolutions ----
+const PROJ_TYPE={grant:{l:'Grant-funded',c:'#2d6a4f'},land_development:{l:'Land development',c:'#16344f'},grant_action:{l:'Grant action',c:'#0f6e63'},contract:{l:'Contract',c:'#c4691e'},budget:{l:'Budget',c:'#6f6b64'},appointment:{l:'Appointment',c:'#6f6b64'},other:{l:'Other',c:'#8a867d'}};
+const PROJ_STATUS_PILL={Active:'p-green',Awarded:'p-teal',Proposed:'p-grey',Completed:'p-green',Closed:'p-grey',Stalled:'p-red'};
+let _projIndex={};
+function projTag(t){ const x=PROJ_TYPE[t]||PROJ_TYPE.other; return `<span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${x.c}">${x.l}</span>`; }
+function projStatusPill(s){ return `<span class="pill ${PROJ_STATUS_PILL[s]||'p-grey'}" style="flex-shrink:0">${esc(s||'—')}</span>`; }
+function projRow(p){
+  return `<div class="card proj-row" data-id="${esc(p.id)}" style="padding:14px 18px;display:flex;align-items:center;gap:16px;cursor:pointer">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">${projTag(p.type)}${p.attention?'<span class="pill p-amber" style="flex-shrink:0">Needs attention</span>':''}</div>
+      <div style="font-weight:600;font-size:14px;line-height:1.35">${cell(p.title)}</div>
+      <div style="font-size:12px;color:#8a867d;margin-top:3px">${cell(p.department)}${p.party?' · '+esc(p.party):''}</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:13px;color:#16344f">${p.amount!=null?money(p.amount):''}</div><div style="margin-top:4px">${projStatusPill(p.status)}</div></div>
+    <span style="color:#c8c3b8;font-size:18px;flex-shrink:0">›</span></div>`;
+}
+function renderProjects(){
+  const P=D.projects||{projects:[],administrative:[],counts:{},funding_in_flight:0};
+  const all=P.projects||[], admin=P.administrative||[], c=P.counts||{};
+  _projIndex={}; all.concat(admin).forEach(p=>{ _projIndex[p.id]=p; });
+  const kpis=[
+    ['Active projects', c.active!=null?c.active:0, '#16344f'],
+    ['Funding in flight', money(P.funding_in_flight||0), '#0f6e63'],
+    ['Need attention', c.attention!=null?c.attention:0, (c.attention?'#c4691e':'#16344f')],
+    ['Total tracked', all.length, '#16344f'],
+  ];
+  $('#proj-kpis').innerHTML=kpis.map(([l,v,b])=>`<div class="kpi"><div class="bar" style="background:${b}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+  const typeVal=state.projType||'All', depVal=state.projDept||'All', stVal=state.projStatus||'All', q=(state.projSearch||'').trim().toLowerCase();
+  const types=[...new Set(all.map(p=>p.type))];
+  $('#proj-type').innerHTML=`<option value="All">All types</option>`+types.map(t=>`<option value="${t}"${typeVal===t?' selected':''}>${(PROJ_TYPE[t]||PROJ_TYPE.other).l}</option>`).join('');
+  const depKeys={}; all.forEach(p=>{ if(p.department){ const k=dkey(p.department); (depKeys[k]=depKeys[k]||[]).push(p.department); } });
+  const depOpts=Object.keys(depKeys).map(k=>({k,name:deptDisplay(k,depKeys[k])})).sort((a,b)=>a.name.localeCompare(b.name));
+  $('#proj-dept').innerHTML=`<option value="All">All departments</option>`+depOpts.map(d=>`<option value="${esc(d.name)}"${depVal!=='All'&&dkey(depVal)===d.k?' selected':''}>${esc(d.name)}</option>`).join('');
+  const statuses=[...new Set(all.map(p=>p.status))];
+  $('#proj-status').innerHTML=`<option value="All">All statuses</option>`+statuses.map(s=>`<option value="${s}"${stVal===s?' selected':''}>${s}</option>`).join('');
+  let list=all.slice();
+  if(typeVal!=='All') list=list.filter(p=>p.type===typeVal);
+  if(depVal!=='All') list=list.filter(p=>dkey(p.department)===dkey(depVal));
+  if(stVal!=='All') list=list.filter(p=>p.status===stVal);
+  if(q) list=list.filter(p=>((p.title||'')+' '+(p.party||'')+' '+(p.department||'')).toLowerCase().includes(q));
+  $('#proj-count').textContent=`${list.length} project${list.length===1?'':'s'}`;
+  $('#proj-list').innerHTML=list.length?list.map(projRow).join(''):'<div class="empty">No projects match these filters.</div>';
+  $('#proj-list').querySelectorAll('.proj-row').forEach(el=>el.onclick=()=>openProject(el.dataset.id));
+  $('#proj-admin').innerHTML = admin.length?`<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a7a298;margin-bottom:10px">Administrative resolutions (${admin.length})</div><div style="display:flex;flex-direction:column;gap:10px">${admin.map(projRow).join('')}</div>`:'';
+  $('#proj-admin').querySelectorAll('.proj-row').forEach(el=>el.onclick=()=>openProject(el.dataset.id));
+}
+function openProject(id){
+  const p=_projIndex[id]; if(!p) return;
+  const line=(lbl,val)=>val?`<div style="display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-top:1px solid rgba(28,27,25,.07)"><span style="font-size:12px;color:#8a867d">${lbl}</span><span style="font-size:13px;font-weight:500;text-align:right">${val}</span></div>`:'';
+  $('#dossier').innerHTML=`
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px">
+      <div><div style="margin-bottom:8px">${projTag(p.type)}</div><h2 class="serif" style="font-size:22px;font-weight:600;color:#16344f;line-height:1.2">${cell(p.title)}</h2></div>
+      <button id="dossier-close" class="btn-ghost" style="padding:6px 11px;flex-shrink:0" aria-label="Close">✕</button>
+    </div>
+    <div style="margin-bottom:8px">${projStatusPill(p.status)}${p.attention?' <span class="pill p-amber">Needs attention</span>':''}</div>
+    ${line('Department',cell(p.department))}
+    ${line('Party',p.party?esc(p.party):'')}
+    ${line('Amount',p.amount!=null?money(p.amount):'')}
+    ${line('Date',p.date?esc(p.date):'')}
+    ${line('End date',p.end_date?esc(p.end_date):'')}
+    ${line('Resolution',p.resolution_number?esc(p.resolution_number):'')}
+    ${line('Source',p.source_file?esc(p.source_file):'')}`;
+  $('#dossier-close').onclick=closeDossier;
+  $('#dossier').classList.add('open'); $('#dossier-overlay').classList.add('open');
+}
+
 // ---- next quarter: generated questions ----
 const Q_SIG={goal_no_progress:{lbl:'No reported progress',col:'#c4691e'},goal_stalled:{lbl:'Stalled goal',col:'#a0302a'},budget_pace:{lbl:'Budget off pace',col:'#16344f'}};
 let _qPolished={};   // dept display name -> polished question strings (client cache)
@@ -1105,7 +1187,7 @@ $('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); })
 // re-render data views whenever we enter them
 const _render=render;
 render=function(){ _render();
-  const dataTab=['overview','activity','money','questions','goals','people'].includes(state.tab);
+  const dataTab=['overview','activity','money','projects','questions','goals','people'].includes(state.tab);
   const veil=$('#loading-veil');
   if(dataTab && !dataLoaded){
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
@@ -1120,6 +1202,7 @@ render=function(){ _render();
   if(state.tab==='meeting') renderMeetingDetail();
   if(state.tab==='goals') renderGoals();
   if(state.tab==='people') renderPeople();
+  if(state.tab==='projects') renderProjects();
   if(state.tab==='questions') renderQuestions();
 };
 
