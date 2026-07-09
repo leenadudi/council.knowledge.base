@@ -152,7 +152,7 @@
       <div class="navitem" data-tab="goals"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/></svg><span>Goals</span></div>
       <div class="navitem" data-tab="people"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/><path d="M11 4.2a2.2 2.2 0 0 1 0 4.1M12 13.5c0-2 -1-3.3-2.5-3.8"/></svg><span>People</span></div>
       <div class="navitem" data-tab="activity"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h3l1.5-4 3 9 1.5-5H14"/></svg><span>Council activity</span></div>
-      <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Money &amp; budgets</span></div>
+      <div class="navitem" data-tab="money"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75v12.5"/><path d="M10.75 4.5H6.5a2.25 2.25 0 0 0 0 4.5h3a2.25 2.25 0 0 1 0 4.5H5"/></svg><span>Finances</span></div>
       <div class="grouplbl" id="staff-toggle" style="cursor:pointer;display:flex;align-items:center;gap:8px"><span>Staff tools</span><span id="staff-chev" style="transition:transform .15s;font-size:13px">›</span></div>
       <div id="staff-group" style="display:none">
         <div class="navitem" data-tab="documents"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h6l4 4V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5z"/><path d="M9 2.5V6h4"/></svg><span>Documents</span></div>
@@ -234,8 +234,10 @@
 
       <!-- MONEY -->
       <div class="view" id="v-money">
-        <div style="margin-bottom:22px"><h1 class="page">Money &amp; budgets</h1><p class="psub">Budget vs. actual spending by department, plus external grant awards.</p></div>
-        <div id="money-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:30px"></div>
+        <div style="margin-bottom:20px"><h1 class="page">Finances</h1><p class="psub">Where the city's money is budgeted, committed by the Council, and spent — and what needs attention.</p></div>
+        <div id="money-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px"></div>
+        <p id="money-flow" style="font-size:13.5px;color:#4a4744;line-height:1.6;margin:0 0 22px;max-width:70ch"></p>
+        <div id="money-attention" style="margin-bottom:26px"></div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px">
           <div class="seg"><button id="seg-budget" class="on" onclick="setMoney('budget')">Budget vs. actual</button><button id="seg-grants" onclick="setMoney('grants')">Grants</button><button id="seg-vendors" onclick="setMoney('vendors')">Vendors</button></div>
           <select class="filter" id="money-dept" onchange="applyDept(this.value)"></select>
@@ -383,7 +385,7 @@ function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').mat
 function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
 
 // ---- nav ----
-const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Money & budgets'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Finances'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
 function go(tab){ state.tab=tab; render(); }
 function render(){
   const t=state.tab;
@@ -547,6 +549,22 @@ function renderMoney(){
   const per=D.budget&&D.budget.period?` <span style="font-size:11px;color:#a7a298">(${D.budget.period.quarter} ${D.budget.period.year})</span>`:'';
   const mk=[['Revised budget',money(totB)+per,'#16344f'],['Spent YTD',money(totS)+(totB?` <span style="font-size:11px;color:#a7a298">(${Math.round(totS/totB*100)}%)</span>`:''),'#16344f'],['Council-authorized',money((D.resolutions||[]).filter(r=>deptMatch(r.department)).reduce((s,r)=>s+(r.amount||0),0)),'#0f6e63'],['Depts over 80%',over,over>0?'#c4691e':'#16344f']];
   $('#money-kpis').innerHTML=mk.map(([l,v,b])=>`<div class="kpi"><div class="bar" style="background:${b}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('');
+  // money-flow narrative + attention band — always citywide (ignore the dept filter)
+  const allBd=(D.budget&&D.budget.by_department)||[];
+  const cityB=allBd.reduce((s,d)=>s+(d.revised_budget||0),0), cityS=allBd.reduce((s,d)=>s+(d.ytd_expended||0),0);
+  const authAll=(D.resolutions||[]).reduce((s,r)=>s+(r.amount||0),0);
+  const grActive=(D.kpis&&D.kpis.active_grants)!=null?D.kpis.active_grants:grantsList().length;
+  $('#money-flow').innerHTML = cityB?`Of a <b>${money(cityB)}</b> revised budget, the city has spent <b>${money(cityS)}</b> (${Math.round(cityS/cityB*100)}%) year-to-date. The Council has authorized <b>${money(authAll)}</b> in resolutions and is managing <b>${grActive}</b> active grant${grActive===1?'':'s'}.`:'';
+  const overC=allBd.filter(d=>d.revised_budget&&d.ytd_expended/d.revised_budget>0.8).sort((a,b)=>b.ytd_expended/b.revised_budget-a.ytd_expended/a.revised_budget);
+  const exp=(D.commitments&&D.commitments.grants_expiring)||[];
+  const attCard=(title,body)=>`<div class="card" style="padding:14px 16px;border-left:3px solid #c4691e;flex:1;min-width:250px"><div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8a5a00;margin-bottom:9px">${title}</div>${body}</div>`;
+  let att='';
+  if(overC.length||exp.length){
+    const ob=overC.length?overC.slice(0,5).map(d=>{const p=Math.round(d.ytd_expended/d.revised_budget*100);return `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell(d.department)}</span><span class="mono" style="color:${pctColor(p)};font-weight:600;flex-shrink:0">${p}%</span></div>`;}).join(''):'<div style="font-size:12.5px;color:#a7a298">None over 80%.</div>';
+    const eb=exp.length?exp.slice(0,5).map(g=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:13px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell(g.grant_name)}</span><span class="mono" style="color:${g.days_left<=60?'#a0302a':'#c4691e'};flex-shrink:0">${g.days_left}d</span></div>`).join(''):'<div style="font-size:12.5px;color:#a7a298">None expiring soon.</div>';
+    att=`<div style="font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#a7a298;margin-bottom:10px">Needs attention</div><div style="display:flex;gap:14px;flex-wrap:wrap">${attCard('Departments over 80% of budget',ob)}${attCard('Grants expiring soon',eb)}</div>`;
+  }
+  $('#money-attention').innerHTML=att;
   $('#money-budget').innerHTML = bd.length?bd.sort((a,b)=>b.revised_budget-a.revised_budget).map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<tr><td style="font-weight:500">${cell(b.department)}</td><td class="num mono" style="color:#6f6b64">${money(b.revised_budget)}</td><td class="num mono">${money(b.ytd_expended)}</td><td><div style="display:flex;align-items:center;gap:10px"><div class="barbg" style="flex:1"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744;width:34px;text-align:right">${p}%</span></div></td></tr>`;}).join(''):'<tr><td colspan="4" class="empty">No budget data for this department.</td></tr>';
   const gr=grantsList().filter(g=>deptMatch(g.department));
   $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span></td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
