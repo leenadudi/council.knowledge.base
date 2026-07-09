@@ -124,6 +124,11 @@
   #ans-body table{width:100%;border-collapse:collapse;font-family:'Public Sans',system-ui,sans-serif;font-size:13.5px;margin:6px 0 16px;display:block;overflow-x:auto}
   #ans-body th{text-align:left;background:#f7f6f2;color:#16344f;font-weight:700;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:9px 12px;border-bottom:1px solid rgba(28,27,25,.12);white-space:nowrap}
   #ans-body td{padding:9px 12px;border-top:1px solid rgba(28,27,25,.07);vertical-align:top}
+  /* legislation stage filter tabs */
+  .stagebar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+  .stagechip{font-family:inherit;font-size:12.5px;font-weight:600;color:#4a4744;background:#fff;border:1px solid rgba(28,27,25,.14);border-radius:99px;padding:6px 13px;cursor:pointer;transition:background .12s,border-color .12s}
+  .stagechip:hover{border-color:rgba(22,52,79,.35)}
+  .stagechip.on{background:#16344f;color:#fff;border-color:#16344f}
 </style>
 </head>
 <body>
@@ -508,18 +513,28 @@ function renderActivity(){
       <div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
   };
   const bynum=(a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true});
-  // columns side by side, "In committee" (still moving) first
-  const cols=['committee','passed','introduced','tabled'].map(s=>({s,items:byStatus(s)})).filter(g=>g.items.length);
-  $('#act-items').innerHTML = items.length
-    ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">`
-      + cols.map(g=>`<div><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;position:sticky;top:0"><span style="width:8px;height:8px;border-radius:2px;background:${bars[g.s]}"></span><h2 class="sec" style="font-size:15px">${STAGE_LBL[g.s]}</h2><span style="font-size:12px;color:#a7a298">${g.items.length}</span></div><div style="display:flex;flex-direction:column;gap:10px">${g.items.sort(bynum).map(itemCard).join('')}</div></div>`).join('')
-      + `</div>`
-    : '<div class="empty">No legislation recorded yet.</div>';
+  const present=['committee','passed','introduced','tabled'].filter(s=>byStatus(s).length);
+  const stg=state.activityStage||'all';
+  // stage filter tabs
+  const chip=(v,l,n)=>`<button class="stagechip${stg===v?' on':''}" onclick="setActivityStage('${v}')">${l} <span style="opacity:.55">${n}</span></button>`;
+  const bar=`<div class="stagebar">${chip('all','All',items.length)}${present.map(s=>chip(s,STAGE_LBL[s],byStatus(s).length)).join('')}</div>`;
+  const colHead=(s,n)=>`<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px"><span style="width:8px;height:8px;border-radius:2px;background:${bars[s]}"></span><h2 class="sec" style="font-size:15px">${STAGE_LBL[s]}</h2><span style="font-size:12px;color:#a7a298">${n}</span></div>`;
+  let content;
+  if(!items.length){ content='<div class="empty">No legislation recorded yet.</div>'; }
+  else if(stg==='all'){
+    content=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">`
+      + present.map(s=>`<div>${colHead(s,byStatus(s).length)}<div style="display:flex;flex-direction:column;gap:10px">${byStatus(s).sort(bynum).map(itemCard).join('')}</div></div>`).join('')
+      + `</div>`;
+  } else {
+    content=`<div style="display:flex;flex-direction:column;gap:10px">${byStatus(stg).sort(bynum).map(itemCard).join('')}</div>`;
+  }
+  $('#act-items').innerHTML = bar + content;
   $('#act-items').querySelectorAll('.res-row').forEach(el=>el.onclick=()=>openDossier(el.dataset.rn));
   const tl=state.activitySeg!=='items';
   $('#seg-timeline').classList.toggle('on',tl); $('#seg-items').classList.toggle('on',!tl);
   $('#act-timeline').style.display=tl?'':'none'; $('#act-items').style.display=tl?'none':'';
 }
+function setActivityStage(s){ state.activityStage=s; renderActivity(); }
 function setActivity(v){ state.activitySeg=v;
   $('#seg-timeline').classList.toggle('on',v==='timeline'); $('#seg-items').classList.toggle('on',v==='items');
   $('#act-timeline').style.display=v==='timeline'?'':'none'; $('#act-items').style.display=v==='items'?'':'none';
