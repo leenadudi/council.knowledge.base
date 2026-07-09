@@ -295,6 +295,8 @@ CREATE TABLE IF NOT EXISTS goals (
     description        TEXT,
     target             TEXT,
     status             TEXT,
+    user_status        TEXT,          -- clerk-set status override: not_started|in_progress|completed
+    user_status_at     TIMESTAMP,     -- when the clerk last set user_status
     source_chunk_id    UUID,
     source_file        VARCHAR(255),
     ingested_at        TIMESTAMP DEFAULT NOW()

@@ -662,26 +662,50 @@ function updateCoverageNote(){
   el.style.display='flex';
 }
 // shared goal card (used by the Goals tab and department detail)
+const US_LABEL={not_started:'Not started',in_progress:'In progress',completed:'Completed'};
+const US_PILL={not_started:'p-grey',in_progress:'p-teal',completed:'p-green'};
+function usPill(v){ return v&&US_LABEL[v]?`<span class="pill ${US_PILL[v]}" style="flex-shrink:0">${US_LABEL[v]}</span>`:''; }
+async function setGoalStatus(el){
+  const id=el.dataset.id, status=el.value; el.disabled=true;
+  try{
+    const r=await fetch('/goals/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    if(r.ok){
+      (D.goals||[]).forEach(g=>{ if(String(g.id)===String(id)) g.user_status=status||null; });
+      // goal status feeds the Next-quarter generator — pull fresh derived data
+      try{ const d=await fetch('/dashboard/data?fresh=1'); D=await d.json(); }catch(_){}
+    }
+  }catch(_){}
+  el.disabled=false; render();
+}
 function renderGoalCard(g){
   const pr=goalProgress(g);
+  const us=g.user_status||'';
   const done=pr.known&&pr.pct>=100;
-  const barCol=pr.known?(done?'#2d6a4f':'#16344f'):'transparent';
-  const right=pr.known
-    ? `<span class="mono" style="font-size:14px;color:${done?'#2d6a4f':'#16344f'};flex-shrink:0">${pr.pct}%</span>`
-    : `<span class="pill p-grey" style="flex-shrink:0">In progress</span>`;
-  const track=pr.known
+  const barCol=done?'#2d6a4f':'#16344f';
+  // right-side indicator: clerk status wins; else numeric % for quantitative goals
+  const right = us ? usPill(us)
+    : pr.known ? `<span class="mono" style="font-size:14px;color:${done?'#2d6a4f':'#16344f'};flex-shrink:0">${pr.pct}%</span>`
+    : '';
+  // numeric progress bar + caption ONLY for quantitative goals; qualitative goals
+  // drop the (meaningless) striped bar and placeholder line entirely.
+  const numeric = pr.known
     ? `<div class="barbg" style="margin-top:12px"><div style="width:${pr.pct}%;background:${barCol}"></div></div>`
-    : `<div class="barbg" style="margin-top:12px;background:repeating-linear-gradient(90deg,rgba(28,27,25,.05),rgba(28,27,25,.05) 6px,rgba(28,27,25,.02) 6px,rgba(28,27,25,.02) 12px)"></div>`;
-  const caption=pr.known
-    ? `<div style="font-size:12px;color:#6f6b64;margin-top:7px">${g.status?esc(g.status):(pr.a+' of '+pr.t)}</div>`
-    : `<div style="font-size:12px;color:#a7a298;margin-top:7px;font-style:italic">${g.status?esc(g.status):'Qualitative goal — no numeric target reported'}</div>`;
+      + `<div style="font-size:12px;color:#6f6b64;margin-top:7px">${g.status?esc(g.status):(pr.a+' of '+pr.t)}</div>`
+    : '';
+  const opt=(v,l)=>`<option value="${v}"${us===v?' selected':''}>${l}</option>`;
+  const selector=`<div style="display:flex;align-items:center;gap:9px;margin-top:14px">
+    <span style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298">Status</span>
+    <select class="filter gstatus" data-id="${g.id}" onchange="setGoalStatus(this)" style="padding:5px 10px;font-size:12.5px">
+      ${opt('','— not set —')}${opt('not_started','Not started')}${opt('in_progress','In progress')}${opt('completed','Completed')}
+    </select></div>`;
   const period=(g.quarter||g.year)?`<div style="font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#a7a298;margin-bottom:6px">${esc(((g.quarter||'')+' '+(g.year||'')).trim())}</div>`:'';
   return `<div class="card" style="padding:16px 20px">
     ${period}
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="font-weight:600;font-size:14.5px;line-height:1.4">${cell(g.goal_title)}</div>${right}</div>
     ${g.description?`<div style="font-size:13px;color:#6f6b64;margin-top:8px;line-height:1.5">${esc(g.description)}</div>`:''}
-    ${track}${caption}
+    ${numeric}
     ${g.target?`<div style="display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#2d6a4f;background:#e9f4ee;padding:2px 9px;border-radius:99px">🎯 ${esc(g.target)}</div>`:''}
+    ${selector}
   </div>`;
 }
 

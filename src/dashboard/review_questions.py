@@ -52,8 +52,14 @@ class ReviewQuestions:
         """
         with self.sql.cursor() as cur:
             cur.execute("SELECT id, department, year, quarter, goal_title, description, "
-                        "target, status FROM goals ORDER BY department, id")
+                        "target, status, user_status FROM goals ORDER BY department, id")
             rows = [dict(r) for r in cur.fetchall()]
+
+        # Effective status: a clerk-set user_status overrides the extracted status.
+        # Once a clerk marks a goal (in progress / completed / even not started), we
+        # know where it stands, so it should no longer generate a question.
+        def eff(r):
+            return (r.get("user_status") or r.get("status") or "").strip()
 
         names_by_key: dict = {}
         for r in rows:
@@ -79,15 +85,17 @@ class ReviewQuestions:
             hist.sort(key=lambda r: _period_tuple(r.get("year"), r.get("quarter")))
             hp = [_period_tuple(r.get("year"), r.get("quarter")) for r in hist]
             distinct_periods = sorted(set(hp))
-            statuses = {(r.get("status") or "").strip() for r in hist}
-            statuses.discard("")
             display = _dept_display(dkey, names_by_key[dkey])
             latest_row = hist[-1]
             title = latest_row.get("goal_title") or ntitle
 
-            # stalled: carried across >=2 distinct quarters with no status change
-            # (either never a status, or one unchanging status the whole time)
-            if len(distinct_periods) >= 2 and len(statuses) <= 1:
+            # If the latest report (or the clerk) gives this goal a status, we know
+            # where it stands — no question needed.
+            if eff(latest_row):
+                continue
+
+            # stalled: carried across >=2 distinct quarters, still no status anywhere
+            if len(distinct_periods) >= 2:
                 first_lbl = _period_label(*distinct_periods[0])
                 last_lbl = _period_label(*distinct_periods[-1])
                 stalled.setdefault(dkey, []).append({
@@ -102,11 +110,10 @@ class ReviewQuestions:
                 stalled_titles.setdefault(dkey, set()).add(ntitle)
                 continue
 
-            # no progress: appears in the latest reporting period with no status.
-            # A target is NOT required — a goal with no numeric target is still worth
-            # asking "what's the progress?"; we just fold the target in when present.
-            if _period_tuple(latest_row.get("year"), latest_row.get("quarter")) == latest \
-                    and not (latest_row.get("status") or "").strip():
+            # no progress: appears in the latest reporting period with no status
+            # (eff() already confirmed empty above). A target is NOT required — a goal
+            # with no numeric target is still worth asking; we fold it in when present.
+            if _period_tuple(latest_row.get("year"), latest_row.get("quarter")) == latest:
                 tgt = str(latest_row.get("target") or "").strip()
                 tgt_clause = f" (target: {tgt})" if tgt else ""
                 no_progress.setdefault(dkey, []).append({

@@ -269,6 +269,33 @@ def questions(department: str):
         return jsonify({"error": str(e)}), 500
 
 
+_GOAL_STATUSES = {"", "not_started", "in_progress", "completed"}
+
+
+@app.route("/goals/<int:goal_id>/status", methods=["POST"])
+def set_goal_status(goal_id: int):
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    data = request.get_json(silent=True) or {}
+    status = (data.get("status") or "").strip()
+    if status not in _GOAL_STATUSES:
+        return jsonify({"error": f"invalid status '{status}'"}), 400
+    try:
+        with _sql_store.cursor() as cur:
+            cur.execute("UPDATE goals SET user_status = %s, user_status_at = NOW() WHERE id = %s",
+                        (status or None, goal_id))
+            updated = cur.rowcount
+        if not updated:
+            return jsonify({"error": "goal not found"}), 404
+        # Invalidate the dashboard cache so the Next-quarter questions reflect the
+        # change on the next /dashboard/data fetch (goal status feeds that generator).
+        _dashboard_cache["payload"] = None
+        return jsonify({"status": "ok", "id": goal_id, "user_status": status or None})
+    except Exception as e:
+        logger.exception("Set goal status failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if not _ready:

@@ -478,8 +478,8 @@ class DashboardAggregator:
     # -- Goals ----------------------------------------------------------------
     def _build_goals(self) -> list[dict]:
         with self.sql.cursor() as cur:
-            cur.execute("SELECT department, year, quarter, goal_title, description, target, status "
-                        "FROM goals ORDER BY department, id")
+            cur.execute("SELECT id, department, year, quarter, goal_title, description, target, "
+                        "status, user_status FROM goals ORDER BY department, id")
             return [dict(r) for r in cur.fetchall()]
 
     # -- Metrics (latest performance metric per department) -------------------

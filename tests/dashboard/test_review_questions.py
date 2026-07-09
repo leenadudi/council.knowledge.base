@@ -28,9 +28,10 @@ PERIOD = "LIMIT 1"              # latest-period lookup on expenditures
 BUDGET = "GROUP BY department"  # per-dept rollup on expenditures
 
 
-def _goal(id, dept, year, q, title, target="", status=None):
+def _goal(id, dept, year, q, title, target="", status=None, user_status=None):
     return {"id": id, "department": dept, "year": year, "quarter": q,
-            "goal_title": title, "description": "", "target": target, "status": status}
+            "goal_title": title, "description": "", "target": target,
+            "status": status, "user_status": user_status}
 
 
 def test_empty_data_returns_no_departments():
@@ -91,6 +92,29 @@ def test_goal_with_changing_status_is_not_stalled():
         PERIOD: [], BUDGET: [],
     })
     # progress is being reported (status changes) -> not a gap
+    assert ReviewQuestions(store).build()["departments"] == []
+
+
+def test_clerk_user_status_suppresses_no_progress():
+    # same no-status latest goal, but the clerk marked it in_progress -> no question
+    store = _FakeStore({
+        GOALS: [_goal(1, "Bureau of Fire", 2026, "Q1", "Reduce response time",
+                      target="< 6 min", status=None, user_status="in_progress")],
+        PERIOD: [], BUDGET: [],
+    })
+    assert ReviewQuestions(store).build()["departments"] == []
+
+
+def test_clerk_user_status_suppresses_stalled():
+    # a goal carried across quarters, but the clerk marked the latest completed
+    store = _FakeStore({
+        GOALS: [
+            _goal(1, "Bureau of Fire", 2025, "Q3", "Hire 3 EMTs", target="3", status=None),
+            _goal(2, "Bureau of Fire", 2025, "Q4", "Hire 3 EMTs", target="3", status=None,
+                  user_status="completed"),
+        ],
+        PERIOD: [], BUDGET: [],
+    })
     assert ReviewQuestions(store).build()["departments"] == []
 
 
