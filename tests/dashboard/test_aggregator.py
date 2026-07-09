@@ -141,9 +141,10 @@ def test_build_assembles_happy_path_payload():
         "FROM documents ORDER BY": [],
     })
     out = DashboardAggregator(store).build()
-    assert set(out) >= {"generated_at", "kpis", "timeline", "tables", "review_questions"}
+    assert set(out) >= {"generated_at", "kpis", "timeline", "tables", "review_questions", "projects"}
     assert out["tables"]["spending_by_dept"][0]["department"] == "Codes"
     assert set(out["review_questions"]) == {"period", "departments"}
+    assert set(out["projects"]) == {"projects", "administrative", "counts", "funding_in_flight"}
 
 
 def test_build_votes_rollcall_and_member_records():
@@ -263,7 +264,7 @@ def test_build_never_raises_records_errors():
     assert set(out["errors"].keys()) == {
         "kpis", "timeline", "tables", "departments", "resolutions",
         "goals", "legislation", "meetings", "budget", "vacancies",
-        "votes", "metrics", "vendor_spend", "commitments", "review_questions",
+        "votes", "metrics", "vendor_spend", "commitments", "review_questions", "projects",
     }
 
 

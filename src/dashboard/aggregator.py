@@ -586,6 +586,11 @@ class DashboardAggregator:
         from src.dashboard.review_questions import ReviewQuestions
         return ReviewQuestions(self.sql).build()
 
+    # -- Projects (deterministic live layer over grants + resolutions; NO LLM) --
+    def _build_projects(self) -> dict:
+        from src.dashboard.projects import Projects
+        return Projects(self.sql, now=self.now).build()
+
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
         try:
@@ -615,6 +620,7 @@ class DashboardAggregator:
             "vendor_spend": self._safe("vendor_spend", self._build_vendor_spend, errors),
             "commitments": self._safe("commitments", self._build_commitments, errors),
             "review_questions": self._safe("review_questions", self._build_review_questions, errors),
+            "projects": self._safe("projects", self._build_projects, errors),
         }
         if errors:
             out["errors"] = errors
