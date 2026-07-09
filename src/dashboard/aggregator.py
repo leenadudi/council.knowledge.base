@@ -83,16 +83,23 @@ class DashboardAggregator:
         latest = self._latest_period()
         coverage = {"filed": 0, "total_departments": 0}
         if latest:
+            # Coverage against the canonical roster of quarterly-report filers (dedup
+            # name variants via _dept_key), NOT raw distinct department strings across
+            # all doc types — otherwise the denominator is inflated by variants and
+            # non-reporting entities. Recomputed every build, so it tracks ingestion.
             with self.sql.cursor() as cur:
                 cur.execute(
-                    "SELECT COUNT(DISTINCT department) AS filed FROM documents "
-                    "WHERE document_type='quarterly_report' AND year=%s AND quarter=%s  -- coverage_filed",
-                    (latest["year"], latest["quarter"]),
+                    "SELECT department, year, quarter FROM documents "
+                    "WHERE document_type='quarterly_report' AND department IS NOT NULL "
+                    "AND department <> '' AND quarter IS NOT NULL AND quarter <> ''  -- coverage_rows"
                 )
-                f = cur.fetchone() or {}
-                cur.execute("SELECT COUNT(DISTINCT department) AS total FROM documents  -- coverage_total")
-                t = cur.fetchone() or {}
-            coverage = {"filed": int(f.get("filed", 0) or 0), "total_departments": int(t.get("total", 0) or 0)}
+                qr_rows = cur.fetchall()
+            roster = {self._dept_key(r["department"]) for r in qr_rows}
+            roster.discard("")
+            filed = {self._dept_key(r["department"]) for r in qr_rows
+                     if r["year"] == latest["year"] and r["quarter"] == latest["quarter"]}
+            filed.discard("")
+            coverage = {"filed": len(filed), "total_departments": len(roster)}
 
         return {
             "active_grants": int(g.get("active", 0) or 0),

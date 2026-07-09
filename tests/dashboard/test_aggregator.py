@@ -51,8 +51,14 @@ def test_kpis_shape_and_coverage():
         "FROM expenditures": [{"ytd": 4200000.0, "budget": 9000000.0}],
         "MAX(year)": [{"year": 2026}],
         "MAX(quarter)": [{"quarter": "Q1"}],
-        "coverage_filed": [{"filed": 8}],
-        "coverage_total": [{"total": 14}],
+        # canonical coverage: roster = distinct dept-keys that ever filed a QR;
+        # filed = distinct dept-keys filing in the latest period. Variants collapse.
+        "coverage_rows": [
+            {"department": "Bureau of Fire", "year": 2026, "quarter": "Q1"},
+            {"department": "Parks & Recreation", "year": 2026, "quarter": "Q1"},
+            {"department": "Bureau of Parks & Recreation", "year": 2026, "quarter": "Q1"},  # variant → merges with above
+            {"department": "Bureau of Codes", "year": 2025, "quarter": "Q4"},  # roster but not latest period
+        ],
         "FROM resolutions": [{"c": 0}],
         "document_type='unclassified'": [{"c": 1}],
     })
@@ -62,7 +68,8 @@ def test_kpis_shape_and_coverage():
     assert kpis["ytd_spend"] == 4200000.0
     assert kpis["revised_budget"] == 9000000.0
     assert kpis["latest_period"] == {"year": 2026, "quarter": "Q1"}
-    assert kpis["report_coverage"] == {"filed": 8, "total_departments": 14}
+    # roster = {fire, parks & recreation, codes} = 3; filed Q1 2026 = {fire, parks & recreation} = 2
+    assert kpis["report_coverage"] == {"filed": 2, "total_departments": 3}
     assert kpis["resolutions_count"] == 0
     assert kpis["unclassified_docs"] == 1
 
