@@ -357,7 +357,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let D = {};                 // /dashboard/data payload
-let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline' };
+let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline', activityStage:'all', mtgStage:'all' };
 
 // ---- helpers ----
 const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance','park maintenance':'parks & recreation','economic development & building & housing':'building & housing development','codes health department':'codes'};
@@ -475,15 +475,21 @@ function activityItems(){
   });});
   Object.values(items).forEach(it=>{
     it.events.sort((x,y)=>String(x.date).localeCompare(String(y.date)));
-    const st=new Set(it.events.map(e=>e.stage));
-    it.status = st.has('passed')?'passed': st.has('tabled')?'tabled': st.has('committee')?'committee':'introduced';
+    // status by milestone reached: passed/tabled are terminal; otherwise a separate
+    // referral or reported-out means "in committee"; a first reading alone (even if
+    // that action also referred it) means "first reading".
+    const ms=it.events.map(e=>milestone(e.action));
+    it.status = ms.includes('Passed')?'passed'
+      : ms.includes('Tabled')?'tabled'
+      : (ms.includes('Reported out')||ms.includes('Referred to committee')||ms.includes('Amended'))?'committee'
+      : 'introduced';
   });
   return Object.values(items);
 }
 function renderActivity(){
   const items=activityItems();
   const byStatus=s=>items.filter(i=>i.status===s);
-  const order=['passed','committee','introduced','tabled'];
+  const order=['introduced','committee','passed','tabled'];
   const bars={passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a'};
   $('#act-pipeline').innerHTML=order.map(s=>`<div class="kpi click" onclick="setActivity('items')"><div class="bar" style="background:${bars[s]}"></div><div class="lbl">${STAGE_LBL[s]}</div><div class="val">${byStatus(s).length}</div></div>`).join('');
   // session timeline (reverse chronological)
@@ -501,7 +507,7 @@ function renderActivity(){
       <div style="text-align:right;flex-shrink:0"><div class="mono" style="font-size:14px">${m.members_present!=null?m.members_present:'—'}</div><div style="font-size:10.5px;color:#a7a298;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Present</div></div>
       <span style="color:#c8c3b8;font-size:18px;flex-shrink:0">›</span></div>`;
   }).join(''):'<div class="empty">No sessions ingested yet.</div>';
-  $('#act-timeline').querySelectorAll('.mtg-row').forEach(el=>el.onclick=()=>{state.mtg=+el.dataset.i;go('meeting');renderMeetingDetail();});
+  $('#act-timeline').querySelectorAll('.mtg-row').forEach(el=>el.onclick=()=>{state.mtg=+el.dataset.i;state.mtgStage='all';go('meeting');renderMeetingDetail();});
   // legislation pipeline (grouped by furthest stage reached)
   const resNums=new Set((D.resolutions||[]).map(r=>String(r.resolution_number)));
   const itemCard=(it)=>{
@@ -515,7 +521,7 @@ function renderActivity(){
       <div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
   };
   const bynum=(a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true});
-  const present=['committee','passed','introduced','tabled'].filter(s=>byStatus(s).length);
+  const present=['introduced','committee','passed','tabled'].filter(s=>byStatus(s).length);
   const stg=state.activityStage||'all';
   // stage filter tabs
   const chip=(v,l,n)=>`<button class="stagechip${stg===v?' on':''}" onclick="setActivityStage('${v}')">${l} <span style="opacity:.55">${n}</span></button>`;
@@ -537,6 +543,7 @@ function renderActivity(){
   $('#act-timeline').style.display=tl?'':'none'; $('#act-items').style.display=tl?'none':'';
 }
 function setActivityStage(s){ state.activityStage=s; renderActivity(); }
+function setMtgStage(s){ state.mtgStage=s; renderMeetingDetail(); }
 function setActivity(v){ state.activitySeg=v;
   $('#seg-timeline').classList.toggle('on',v==='timeline'); $('#seg-items').classList.toggle('on',v==='items');
   $('#act-timeline').style.display=v==='timeline'?'':'none'; $('#act-items').style.display=v==='items'?'':'none';
@@ -592,11 +599,17 @@ function renderMeetingDetail(){
   const absent=(m.members_absent_names||'').split(',').map(s=>s.trim()).filter(Boolean);
   const roster=present.map(n=>({n,present:true})).concat(absent.map(n=>({n,present:false})));
   const actCard=(a)=>`<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${cell(a.item_type)} ${cell(a.item_number)}</span></div><div style="font-weight:600;font-size:14px;line-height:1.35">${cell(a.title)}</div><div style="font-size:13px;color:#6f6b64;margin-top:5px">${cell(a.action)}${a.committee?' — '+esc(a.committee):''}</div></div></div></div>`;
-  // group this session's actions by stage (Passed / Referred / First reading / …)
+  // group this session's actions by stage, with a pill filter (First reading / Referred / Passed / …)
   const grp={}; (m.actions||[]).forEach(a=>{const s=milestone(a.action)||'Other'; (grp[s]=grp[s]||[]).push(a);});
-  const gorder=['Passed','Tabled','Amended','Reported out','Referred to committee','First reading','Other'];
-  const acts=(m.actions||[]).length ? gorder.filter(s=>grp[s]).map(s=>
-      `<div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298;margin:16px 0 8px">${s} <span style="color:#c8c3b8">${grp[s].length}</span></div>`
+  const gorder=['First reading','Referred to committee','Reported out','Amended','Passed','Tabled','Other'].filter(s=>grp[s]);
+  const mstg=state.mtgStage||'all';
+  const pillbar=`<div class="stagebar">`
+    +`<button class="stagechip${mstg==='all'?' on':''}" onclick="setMtgStage('all')">All <span style="opacity:.55">${(m.actions||[]).length}</span></button>`
+    +gorder.map(s=>`<button class="stagechip${mstg===s?' on':''}" onclick="setMtgStage('${s}')">${s} <span style="opacity:.55">${grp[s].length}</span></button>`).join('')
+    +`</div>`;
+  const showGroups = mstg==='all' ? gorder : gorder.filter(s=>s===mstg);
+  const acts=(m.actions||[]).length ? pillbar + showGroups.map(s=>
+      (mstg==='all'?`<div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298;margin:16px 0 8px">${s} <span style="color:#c8c3b8">${grp[s].length}</span></div>`:'')
       +`<div style="display:flex;flex-direction:column;gap:10px">${grp[s].map(actCard).join('')}</div>`
     ).join('') : '<div class="empty">No recorded actions.</div>';
   const stat=(lbl,val)=>`<div class="card" style="padding:11px 16px;text-align:center;min-width:74px"><div class="mono" style="font-size:18px;color:#16344f;line-height:1">${val}</div><div style="font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a7a298;margin-top:6px">${lbl}</div></div>`;
