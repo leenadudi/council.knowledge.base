@@ -26,48 +26,56 @@
 
 ## One-liner for the project
 
-An open-source AI knowledge base that lets a city council, its clerk, and residents ask plain-English questions about their local government — budgets, grants, resolutions, and votes — and get answers cited straight from the source documents.
+An intelligent knowledge base that helps a city council and clerk govern faster — instant answers from records they'd otherwise dig through by hand.
 
 ---
 
 ## How much money are you requesting?
 
-**$600**
+**$466.39**
 
 ---
 
 ## Budget Breakdown
 
-Everything below is a real, recurring cost of running the system. The grant would fund roughly 5–6 months of operation while I keep building. Note that hosting — not the API — is the largest ongoing cost.
+Every line is a real, current rate, funding roughly six months of running ClerkFlow while I finish the tracking features. Hosting the databases — not the AI — is the biggest cost. (AI lines are usage estimates at published token rates; actual spend is metered per call in the app.)
 
-| Line item | Amount | What it covers |
-|---|---|---|
-| LLM API credits (Anthropic Claude) | $200 | Answer synthesis, Vision-model OCR fallback for scanned/slide PDFs, the automated evaluation judge, and the tailored-question generator. Usage is already metered in the app, so spend is tracked per call. |
-| Embedding API credits | $25 | Vectorizing every document chunk at ingestion so questions can be matched to the right passages (largely a one-time cost per document). |
-| Managed Postgres + pgvector (Supabase) | $150 | The primary database: extracted budget/grant/resolution/vote data **and** the vector search index live here. ~6 months at the paid tier. |
-| Managed graph database (Neo4j Aura) | $165 | The relationship layer — who directs which department, which resolution authorized which vendor, how each council member voted. |
-| Domain + deployment (Vercel) | $60 | Hosting the public dashboard and query interface, plus the domain. |
-| **Total** | **$600** | |
+- **Databases: $347.10**
+  - Supabase Pro — Postgres + pgvector, 8 GB disk (extracted data + vector index): $25.00/mo × 6 months = $150.00
+  - Neo4j AuraDB — free tier, used during development: $0.00
+  - Neo4j AuraDB Professional — 1 GB graph instance @ $0.09/hr, live pilot only: $65.70/mo × 3 months = $197.10
+- **AI / Model APIs: $104.30**
+  - Answer synthesis — Claude Sonnet 4.6 ($3 / $15 per M tok), ~2,000 queries (dev + pilot), prompt caching on: $56.40
+  - Structured extraction at ingest (records → SQL + graph) — Claude Haiku 4.5 ($1 / $5 per M tok), ~4,000 chunks: $20.00
+  - Document parsing / OCR fallback — Claude Sonnet 4.6 Vision, ~500 scanned / slide-deck page-passes: $15.00
+  - Self-scoring eval judge — Claude Haiku 4.5, ~1,200 sampled eval runs: $7.50
+  - Query routing / classifier — Claude Haiku 4.5, ~2,000 queries: $4.80
+  - Embeddings — OpenAI text-embedding-3-small ($0.02 per M tok), corpus + re-ingests: $0.60
+- **Hosting & Domain: $14.99**
+  - Domain — clerkflow.org, .org 1-yr registration (Namecheap): $14.99
+  - Web app hosting — Vercel Hobby tier: $0.00
+  - SSL certificate — Let's Encrypt (auto-provisioned via Vercel): $0.00
+  - Source + CI — GitHub Free: $0.00
 
-*(Roughly two-thirds of this is database + hosting; API usage is the smaller share and is metered per call inside the app.)*
+**Total: $466.39**
 
 ---
 
 ## Share what you're working on
 
-I'm building a knowledge base for the City of Harrisburg's government — a tool that turns thousands of pages of dense civic documents into something a council member, the city clerk, or an ordinary resident can actually *ask questions of*.
+I grew up in a town in Kansas where AI was barely part of the conversation. Then I got to MIT, and the gap hit me immediately — the tools and fluency my classmates took for granted were things people back home had hardly heard of. That contrast is what I can't stop thinking about: the places that could benefit most from AI are often the ones least set up to adopt it. I wanted to work on that gap — to bring real AI solutions to the people and institutions that aren't predisposed to use them.
 
-Local government runs on paperwork: quarterly department reports, budgets, council resolutions, meeting minutes, legislation, grant records. The information people need to hold a city accountable technically exists — it's just buried across hundreds of PDFs that almost no one has the time to read. "Did we spend more than the council authorized this year?" "Which grants are still active, and did the matching funds roll forward?" "What did the Public Works department promise last quarter, and did they deliver?" These are answerable questions today only if you're willing to dig through a filing cabinet's worth of documents. My system answers them in seconds, with a citation back to the exact source.
+So I started asking around, and one conversation stuck with me more than any other. The city clerk of Harrisburg, Pennsylvania told me that city councils have essentially all of their data locked in PDFs — budgets, resolutions, meeting minutes, vote records — and that anyone who needs an answer has to go in by hand, pull it out, and build their plans from scratch. Local government barely uses modern technology. In some cases councils had gone as far as restricting AI outright — not out of principle, but because members didn't know how to use it safely or well. Here was a place drowning in its own documents, and the one tool that could help had been ruled out because no one had built it *for them*.
 
-Under the hood it's a retrieval system built on three coordinated databases. A vector store handles semantic search over document text. A SQL database holds the structured numbers I extract — expenditures, metrics, grants, vacancies, resolutions, votes, appropriations. A graph database captures relationships: which person directs which department, which resolution awarded a contract to which vendor, how each council member voted. When a question comes in, a classifier decides which stores to hit, pulls the evidence, and an LLM writes a plain-English answer with citations. Getting messy government PDFs — including white-on-black slide decks and scanned pages — to parse cleanly meant building a multi-parser ingestion pipeline with an OCR fallback, and an evaluation suite so I can measure whether answers are actually correct rather than just plausible.
+That's why I'm building ClerkFlow: an intelligent knowledge base for city government, made for the people who actually run it. A clerk shouldn't have to spend a weekend digging through PDFs to answer something as basic as "did we already authorize this?" or "which grants are still active?" ClerkFlow reads a city's raw records and builds a structured understanding of how that government actually works — it extracts the people, departments, resolutions, vendors, grants, dollar amounts, and votes out of every file and assembles them into a knowledge graph, keeps the numbers in a structured database, and leaves the full text semantically searchable. Ask it something and it reasons across all three at once: the graph resolves relationships, the database does the math, and retrieval grounds every answer in the source. Plain-English questions are just the front door.
 
-What makes this compelling to me is that it isn't hypothetical. I sat down with Harrisburg's City Clerk, and he walked me through what he actually needs: not just a Q&A box, but *tracking over time* and a *dashboard* — a way to surface spending that council never authorized, follow grants and their matching funds, watch departmental goals across quarters, and even generate sharper questions to put into the next quarter's reports. Harrisburg runs a strong-mayor system where spending authority sits with the council, so "authorized vs. unauthorized spending" isn't a gimmick — it's a real accountability mechanism that no one currently has the tooling to check. That conversation reshaped my roadmap, and I've already shipped the first pieces of the dashboard.
+That structure is what turns hours of work into seconds. Because ClerkFlow knows *who authorized what* and *who voted how*, a council can instantly reconcile what they approved against what the city actually spent and catch overspending that was never authorized, track grants across fiscal years — active status, matching funds, rollover — and line each department's stated goals up against what it delivered. Getting messy government PDFs to parse cleanly — scanned pages, white-on-black slide decks — was genuinely hard, so I built an ingestion pipeline with an OCR fallback, and the system scores its own answers so I know when it's wrong instead of just confident. It even closes a loop: the gaps it surfaces become sharper questions the clerk can put into the *next* quarter's reports, so it gets better every cycle.
 
-I started this because I care about the unglamorous infrastructure of democracy. Transparency portals usually stop at *dumping* documents online; almost none help you *understand* them. I wanted to close that gap for one real city, with one real user who needs it, and build it in the open so other municipalities can adopt the same approach. It's a genuinely hard technical problem — reconciling numbers across inconsistent documents, attributing actions to the right branch of government, keeping answers grounded and citable — and it's one where getting it right actually helps people.
+I'll be honest about where I am: the core works, I'm building it solo, and I've been paying for it out of pocket. `[Optional: one line of candor — something that's been hard, a mistake you made, or what you've learned building this. Winning apps do this well and it makes you human.]` This grant wouldn't fund a vision deck — it would keep the databases and APIs running so I can finish the features the clerk actually asked for, instead of throttling usage because the monthly bill is a student's problem.
 
-The core system works. The grant would let me keep the databases and APIs running and finish the tracking-and-dashboard features the clerk asked for, rather than shutting things down because the monthly cloud bill is coming out of a student's pocket.
+And the dream is bigger than one clerk's office. There are nearly 20,000 municipal governments in the U.S., almost all running on the same PDFs and the same blind spots — and disproportionately the smaller towns, the ones like where I'm from, that never get built for. Once a city's records are legible to the people running it, they're legible to everyone. I want ClerkFlow to be the intelligence layer underneath local government: first making the people who run our cities faster and sharper, and ultimately making government legible by default. Harrisburg is where I prove it works, and building it in the open is how it reaches everywhere else — because bringing AI to the places it's been kept out of is exactly the problem I set out to solve.
 
-*(Word count: ~560 / 1,000)*
+*(Word count: ~600 / 1,000)*
 
 ---
 
