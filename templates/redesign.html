@@ -512,7 +512,7 @@ function renderActivity(){
   const cols=['committee','passed','introduced','tabled'].map(s=>({s,items:byStatus(s)})).filter(g=>g.items.length);
   $('#act-items').innerHTML = items.length
     ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">`
-      + cols.map(g=>`<div><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;position:sticky;top:0"><span style="width:8px;height:8px;border-radius:2px;background:${{passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a'}[g.s]}"></span><h2 class="sec" style="font-size:15px">${STAGE_LBL[g.s]}</h2><span style="font-size:12px;color:#a7a298">${g.items.length}</span></div><div style="display:flex;flex-direction:column;gap:10px">${g.items.sort(bynum).map(itemCard).join('')}</div></div>`).join('')
+      + cols.map(g=>`<div><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;position:sticky;top:0"><span style="width:8px;height:8px;border-radius:2px;background:${bars[g.s]}"></span><h2 class="sec" style="font-size:15px">${STAGE_LBL[g.s]}</h2><span style="font-size:12px;color:#a7a298">${g.items.length}</span></div><div style="display:flex;flex-direction:column;gap:10px">${g.items.sort(bynum).map(itemCard).join('')}</div></div>`).join('')
       + `</div>`
     : '<div class="empty">No legislation recorded yet.</div>';
   $('#act-items').querySelectorAll('.res-row').forEach(el=>el.onclick=()=>openDossier(el.dataset.rn));
