@@ -16,7 +16,7 @@ _QUARTERLY_REPORT = DocumentType(
                  "vacancies, community engagement."),
     identifying_signals=["quarterly report", "Q1", "Q2", "Q3", "Q4", "year-to-date", "annual goals"],
     content_vocab=["narrative", "table", "metrics", "org_data", "project", "header"],
-    sql_targets=["expenditures", "metrics", "grants", "vacancies"],
+    sql_targets=["expenditures", "metrics", "grants", "vacancies", "goals", "projects"],
     graph_targets=["Department", "Person", "Project", "Grant"],
     chunking=ChunkingHints(),  # use default section-aware chunking
     extraction_schema=QuarterlyReportExtraction,
