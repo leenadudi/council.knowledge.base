@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS vacancies (
     department      VARCHAR(100),
     position_title  VARCHAR(200),
     status          VARCHAR(50),
+    open_count      INTEGER,            -- number of open positions of this title (from "Patrol Officer- (25)")
     quarter         VARCHAR(5),
     year            INTEGER,
     source_chunk_id UUID,
