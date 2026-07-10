@@ -774,7 +774,7 @@ function applyPolish(dept,data){
     worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w; });
   }
   // (re)render synthesis cards once, at the TOP under their own header
-  $('#q-list').querySelectorAll('.qsynth').forEach(n=>n.remove());
+  $('#q-list').querySelectorAll('.qsynth,.qgen').forEach(n=>n.remove());
   const synth=data.synthesis||[];
   if(synth.length){
     const wrap=document.createElement('div');
@@ -784,6 +784,24 @@ function applyPolish(dept,data){
     $('#q-list').prepend(wrap);
     wrap.querySelectorAll('.qcopy').forEach(bindCopy);
   }
+}
+// Explicit, click-to-run AI generation (no spend until the clerk asks).
+function renderGenPrompt(dept){
+  $('#q-list').querySelectorAll('.qsynth,.qgen').forEach(n=>n.remove());
+  const box=document.createElement('div');
+  box.className='qgen';
+  box.style.cssText='display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;margin-bottom:20px;padding:15px 17px;background:rgba(107,74,138,.05);border:1px solid rgba(107,74,138,.2);border-radius:12px';
+  box.innerHTML=`<div style="flex:1;min-width:190px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="font-size:14px">✨</span><span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b4a8a">AI-generated smart questions</span></div><div style="font-size:12px;line-height:1.4;color:#8a867d">Synthesize cross-cutting questions across this department's goals, budget, staffing and grants, and refine the wording below. Uses AI.</div></div><button class="qgenbtn" style="flex-shrink:0;background:#6b4a8a;border:none;border-radius:8px;padding:9px 16px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer">Generate</button>`;
+  $('#q-list').prepend(box);
+  box.querySelector('.qgenbtn').onclick=()=>generateSmart(dept,box);
+}
+function generateSmart(dept,box){
+  const btn=box.querySelector('.qgenbtn'); btn.textContent='Generating…'; btn.disabled=true; btn.style.opacity='.6';
+  fetch('/questions/'+encodeURIComponent(dept)).then(r=>r.json()).then(j=>{
+    if(state.qDept!==dept) return;                   // user switched away
+    if(j&&Array.isArray(j.questions)){ _qData[dept]={polished:(j.polished?j.questions.map(x=>x.question):null)||[],synthesis:j.synthesis||[]}; applyPolish(dept,_qData[dept]); }
+    else { btn.textContent='Generate'; btn.disabled=false; btn.style.opacity='1'; }
+  }).catch(()=>{ btn.textContent='Try again'; btn.disabled=false; btn.style.opacity='1'; });
 }
 const Q_CAP=8;
 function renderQuestions(){
@@ -809,14 +827,13 @@ function renderQuestions(){
   el.querySelectorAll('.qcopy').forEach(bindCopy);
   copyBtn.style.display='';
   copyBtn.onclick=()=>{ const all=[...$('#q-list').querySelectorAll('.qtext')].map(t=>'• '+t.textContent).join('\n'); if(navigator.clipboard) navigator.clipboard.writeText(all); copyBtn.textContent='Copied ✓'; setTimeout(()=>copyBtn.textContent='Copy all',1400); };
-  // On-demand LLM polish + synthesis for a single selected department only (cached;
-  // never for "All" — that would fan out one call per department). Respects the funds rule.
+  // For a single selected department: if AI questions were already generated this
+  // session (cached, free) show them; otherwise show a Generate button and spend
+  // nothing until the clerk clicks it. Never fires for "All". Respects the funds rule.
   if(state.qDept!=='All'){
     const dept=state.qDept;
     if(_qData[dept]) applyPolish(dept,_qData[dept]);
-    else fetch('/questions/'+encodeURIComponent(dept)).then(r=>r.json()).then(j=>{
-      if(j&&Array.isArray(j.questions)){ _qData[dept]={polished:(j.polished?j.questions.map(x=>x.question):null)||[],synthesis:j.synthesis||[]}; applyPolish(dept,_qData[dept]); }
-    }).catch(()=>{});
+    else renderGenPrompt(dept);
   }
 }
 
