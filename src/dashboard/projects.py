@@ -63,6 +63,21 @@ def _iso(d):
     return d.isoformat() if hasattr(d, "isoformat") else d
 
 
+_PARTY_SUFFIX_RE = re.compile(
+    r"[,\.]?\s*\b(llc|l\.l\.c|inc|incorporated|co|company|corp|corporation|lp|llp|pllc)\b\.?",
+    re.I,
+)
+
+
+def _normalize_party(vendor: str) -> str:
+    """Canonicalize a vendor/party string so trivial variants group together:
+    lowercase, drop trailing corporate suffixes/punctuation, collapse whitespace."""
+    s = (vendor or "").lower()
+    s = _PARTY_SUFFIX_RE.sub(" ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return " ".join(s.split())
+
+
 class Projects:
     """Assembles the live Projects layer from grants + resolutions."""
 
@@ -112,6 +127,7 @@ class Projects:
                 "date": _iso(r.get("start_date")), "end_date": _iso(end),
                 "source_file": r.get("source_file"), "resolution_number": None,
                 "attention": expiring or status == "Stalled",
+                "group_key": None,
             })
 
         for r in res_rows:
@@ -121,13 +137,15 @@ class Projects:
             typ = classify_resolution(title)
             amount = float(r["amount"]) if r.get("amount") is not None else None
             status = normalize_resolution_status(r.get("status"))
+            party = r.get("vendor") or None
             rec = {
                 "id": f"res-{r.get('resolution_number')}", "source": "resolution", "type": typ,
                 "title": title, "department": r.get("department"),
-                "party": (r.get("vendor") or None), "amount": amount, "status": status,
+                "party": party, "amount": amount, "status": status,
                 "date": _iso(r.get("adopted_date")), "end_date": None,
                 "source_file": r.get("source_file"), "resolution_number": r.get("resolution_number"),
                 "attention": status == "Stalled",
+                "group_key": (f"{_normalize_party(party)}|{typ}" if party else None),
             }
             (administrative if typ in _ADMIN_TYPES else projects).append(rec)
 
