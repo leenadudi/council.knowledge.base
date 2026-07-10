@@ -73,7 +73,19 @@ class SQLExtractor:
                 r["department"] = department
                 r["quarter"] = quarter
                 r["year"] = year
-        return {k: v for k, v in merged.items() if v}
+        # A report section that straddles a batch boundary gets extracted in more
+        # than one batch, yielding identical rows. Collapse exact duplicates (keeps
+        # genuinely distinct rows — different value/count/name — untouched).
+        def _dedup(rows):
+            seen, out = set(), []
+            for r in rows:
+                key = tuple(sorted((str(k), str(v)) for k, v in r.items()))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(r)
+            return out
+        return {k: _dedup(v) for k, v in merged.items() if v}
 
     def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
         """

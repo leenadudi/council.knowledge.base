@@ -59,6 +59,23 @@ def test_extract_quarterly_merges_batches_tags_and_filters():
     assert "source_text" not in v and "confidence" not in v
 
 
+def test_extract_quarterly_dedups_identical_rows_across_batches():
+    # Same vacancy section spans a batch boundary → extracted twice, identically.
+    dup = {"position_title": "Patrol Officer", "status": "open", "count": 30,
+           "source_text": "Patrol Officer Vacancies: 30", "confidence": "high"}
+    batch1 = json.dumps({"vacancies": [dup]})
+    batch2 = json.dumps({"vacancies": [dup,
+        {"position_title": "Supervisor", "status": "open", "count": 7,
+         "source_text": "Supervisor Vacancies: 7", "confidence": "high"}]})
+    from src.config import Settings
+    cfg = Settings(); cfg.extraction_batch_size = 1
+    ext = SQLExtractor(settings=cfg, llm=_SeqClient([batch1, batch2]))
+    out = ext.extract_quarterly([_chunk("a", 0), _chunk("b", 1)],
+                                department="Bureau of Police", quarter="Q1", year=2026)
+    titles = sorted(r["position_title"] for r in out["vacancies"])
+    assert titles == ["Patrol Officer", "Supervisor"]  # Patrol Officer collapsed from 2 → 1
+
+
 def test_extract_quarterly_empty_and_bad_json_safe():
     assert SQLExtractor(llm=_SeqClient(["{}"])).extract_quarterly([]) == {}
     ext = SQLExtractor(llm=_SeqClient(["not json"]))
