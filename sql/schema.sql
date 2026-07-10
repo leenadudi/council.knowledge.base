@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS votes (
     id                 SERIAL PRIMARY KEY,
     resolution_number  VARCHAR(50),
     council_member     VARCHAR(120),
-    vote               VARCHAR(10),
+    vote               VARCHAR(50),
     source_chunk_id    UUID,
     source_file        VARCHAR(255),
     ingested_at        TIMESTAMP DEFAULT NOW()

@@ -35,6 +35,18 @@ def _dumps(obj: Any) -> str:
     return json.dumps(obj, default=_json_default)
 
 
+_VOTE_MAXLEN = 50
+
+
+def sanitize_vote(value) -> str | None:
+    """Trim and cap a vote value so an over-long/garbled value can never crash the
+    votes insert (votes.vote is VARCHAR(50))."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s[:_VOTE_MAXLEN] if s else None
+
+
 class SQLStore:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
@@ -205,7 +217,7 @@ class SQLStore:
             for r in rows:
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
-                    r.get("vote"), source_chunk_id, source_file,
+                    sanitize_vote(r.get("vote")), source_chunk_id, source_file,
                 ))
 
     def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
