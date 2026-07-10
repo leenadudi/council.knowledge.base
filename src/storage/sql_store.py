@@ -341,11 +341,27 @@ class SQLStore:
                     source_chunk_id, source_file,
                 ))
 
+    def insert_project_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO projects
+              (department, project_name, description, status, funding_source,
+               quarter, year, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        with self.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("department"), r.get("project_name"), r.get("description"),
+                    r.get("status"), r.get("funding_source"), r.get("quarter"),
+                    r.get("year"), source_chunk_id, source_file,
+                ))
+
     def delete_structured_rows(self, source_file: str) -> None:
         """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
         with self.cursor() as cur:
             for table in ["expenditures", "metrics", "grants", "resolutions", "votes",
-                          "meetings", "meeting_actions", "legislation", "appropriations", "goals"]:
+                          "meetings", "meeting_actions", "legislation", "appropriations",
+                          "goals", "projects"]:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
             cur.execute("""
                 DELETE FROM vacancies WHERE source_chunk_id IN (
