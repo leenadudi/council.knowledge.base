@@ -147,6 +147,57 @@ class SQLExtractor:
             logger.error("SQL extraction failed for batch of %d chunks: %s", len(chunks), e)
             return {}
 
+    def _schema_extract_batch(self, chunks, schema_cls) -> dict[str, list[dict]]:
+        """One LLM call over a chunk batch against schema_cls. Returns raw dict of
+        lists filtered to high/medium confidence. Never raises → {} on failure."""
+        try:
+            text = "\n\n---\n\n".join(c.text for c in chunks)
+            schema_json = json.dumps(schema_cls.model_json_schema())
+            prompt = (
+                "You are a precise data extractor for City of Harrisburg quarterly reports.\n"
+                "Extract EVERYTHING matching this JSON schema, wherever it appears in the text "
+                "(sections are labeled differently by each department — do not rely on headings).\n"
+                f"{schema_json}\n\n"
+                "Rules: include a verbatim 'source_text' for every row; set 'confidence' "
+                "high|medium|low and omit low-confidence rows; dollar amounts as plain numbers; "
+                "dates YYYY-MM-DD or null. Return ONLY the JSON object.\n\nText:\n---\n" + text + "\n---"
+            )
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model, max_tokens=8000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            data = schema_cls.model_validate_json(raw).model_dump()
+            return {k: [r for r in v if r.get("confidence") in ("high", "medium")]
+                    for k, v in data.items() if v}
+        except Exception as e:
+            logger.warning("quarterly batch extraction failed: %s", e)
+            return {}
+
+    def extract_quarterly(self, chunks, department: str = "", quarter: str = "",
+                          year: Optional[int] = None) -> dict[str, list[dict[str, Any]]]:
+        """Unified schema-driven extraction for a whole quarterly report. Batches ALL
+        chunks (no routes_to_sql gate, no keyword filter), merges rows across batches,
+        tags each with department/quarter/year, strips extraction-only fields."""
+        from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+        if not chunks:
+            return {}
+        merged: dict[str, list] = {}
+        batch_size = self.cfg.extraction_batch_size
+        for i in range(0, len(chunks), batch_size):
+            part = self._schema_extract_batch(chunks[i:i + batch_size], QuarterlyReportExtraction)
+            for key, rows in part.items():
+                merged.setdefault(key, []).extend(rows)
+        for rows in merged.values():
+            for r in rows:
+                r.pop("source_text", None)
+                r.pop("confidence", None)
+                r["department"] = department
+                r["quarter"] = quarter
+                r["year"] = year
+        return {k: v for k, v in merged.items() if v}
+
     def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
         """
         Extract structured data against the document type's Pydantic extraction_schema.
