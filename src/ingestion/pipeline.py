@@ -420,31 +420,6 @@ class IngestionPipeline:
         except Exception as e:
             logger.warning("Graph store write failed (vector+SQL still complete): %s", e)
 
-    def _write_sql_data(
-        self,
-        sql_data: dict,
-        sql_chunks: list[Chunk],
-        source_file: str,
-    ) -> None:
-        chunk_id = sql_chunks[0].chunk_id  # representative chunk for source reference
-
-        if sql_data.get("expenditures"):
-            self.sql_store.insert_expenditure_rows(
-                sql_data["expenditures"], chunk_id, source_file
-            )
-        if sql_data.get("metrics"):
-            self.sql_store.insert_metric_rows(
-                sql_data["metrics"], chunk_id, source_file
-            )
-        if sql_data.get("grants"):
-            self.sql_store.insert_grant_rows(
-                sql_data["grants"], chunk_id, source_file
-            )
-        if sql_data.get("vacancies"):
-            self.sql_store.insert_vacancy_rows(
-                sql_data["vacancies"], chunk_id
-            )
-
     def _write_graph_data(self, graph_data: dict, source_file: str, meta: ChunkMetadata) -> None:
         if graph_data.get("departments"):
             self.graph_store.upsert_departments(graph_data["departments"])
