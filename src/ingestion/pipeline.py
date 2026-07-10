@@ -354,22 +354,25 @@ class IngestionPipeline:
 
         # SQL — only keys the type declares as sql_targets; insert methods ignore
         # extra dict keys (e.g. source_text/confidence) via explicit column lists.
-        if "resolutions" in doc_type.sql_targets and extracted.get("resolutions"):
-            self.sql_store.insert_resolution_rows(extracted["resolutions"], chunk_id, source_file)
-        if "votes" in doc_type.sql_targets and extracted.get("votes"):
-            self.sql_store.insert_vote_rows(extracted["votes"], chunk_id, source_file)
-        if "meetings" in doc_type.sql_targets and extracted.get("meetings"):
-            self.sql_store.insert_meeting_rows(extracted["meetings"], chunk_id, source_file)
-        if "meeting_actions" in doc_type.sql_targets and extracted.get("meeting_actions"):
-            # stamp each action with the session date so actions link back to the meeting
-            mdate = (extracted.get("meetings") or [{}])[0].get("meeting_date")
-            for a in extracted["meeting_actions"]:
-                a.setdefault("meeting_date", mdate)
-            self.sql_store.insert_meeting_action_rows(extracted["meeting_actions"], chunk_id, source_file)
-        if "legislation" in doc_type.sql_targets and extracted.get("legislation"):
-            self.sql_store.insert_legislation_rows(extracted["legislation"], chunk_id, source_file)
-        if "appropriations" in doc_type.sql_targets and extracted.get("appropriations"):
-            self.sql_store.insert_appropriation_rows(extracted["appropriations"], chunk_id, source_file)
+        # All of one document's structured rows commit together (atomic), so a failure
+        # can never leave a half-ingested doc (e.g. a resolution row with no votes).
+        with self.sql_store.transaction():
+            if "resolutions" in doc_type.sql_targets and extracted.get("resolutions"):
+                self.sql_store.insert_resolution_rows(extracted["resolutions"], chunk_id, source_file)
+            if "votes" in doc_type.sql_targets and extracted.get("votes"):
+                self.sql_store.insert_vote_rows(extracted["votes"], chunk_id, source_file)
+            if "meetings" in doc_type.sql_targets and extracted.get("meetings"):
+                self.sql_store.insert_meeting_rows(extracted["meetings"], chunk_id, source_file)
+            if "meeting_actions" in doc_type.sql_targets and extracted.get("meeting_actions"):
+                # stamp each action with the session date so actions link back to the meeting
+                mdate = (extracted.get("meetings") or [{}])[0].get("meeting_date")
+                for a in extracted["meeting_actions"]:
+                    a.setdefault("meeting_date", mdate)
+                self.sql_store.insert_meeting_action_rows(extracted["meeting_actions"], chunk_id, source_file)
+            if "legislation" in doc_type.sql_targets and extracted.get("legislation"):
+                self.sql_store.insert_legislation_rows(extracted["legislation"], chunk_id, source_file)
+            if "appropriations" in doc_type.sql_targets and extracted.get("appropriations"):
+                self.sql_store.insert_appropriation_rows(extracted["appropriations"], chunk_id, source_file)
 
         # Graph — derived from the SAME extracted dict (resolutions/votes → nodes).
         try:

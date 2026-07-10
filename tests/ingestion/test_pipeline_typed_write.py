@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 from src.ingestion import pipeline as P
 from src.ingestion.registry import get_document_type
 from src.models import Chunk, ChunkMetadata
@@ -13,6 +15,9 @@ def _chunk():
 
 class _FakeSQL:
     def __init__(self): self.votes = None; self.res = None
+    @contextmanager
+    def transaction(self):
+        yield
     def insert_resolution_rows(self, rows, cid, sf): self.res = rows
     def insert_vote_rows(self, rows, cid, sf): self.votes = rows
 

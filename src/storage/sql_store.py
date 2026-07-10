@@ -51,6 +51,7 @@ class SQLStore:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
         self._conn: Optional[psycopg2.extensions.connection] = None
+        self._in_txn = False
 
     def connect(self) -> None:
         self._conn = psycopg2.connect(
@@ -77,18 +78,45 @@ class SQLStore:
         self.connect()
         return self._conn
 
+    def _txn_conn(self) -> psycopg2.extensions.connection:
+        """Connection for a transaction / nested cursor: reuse the open connection
+        directly. Skips the _get_live_conn ping, whose rollback would abort the
+        in-progress transaction. Reconnects only if there is no open connection."""
+        if self._conn and not self._conn.closed:
+            return self._conn
+        return self._get_live_conn()
+
     @contextmanager
     def cursor(self):
-        conn = self._get_live_conn()
+        # Inside a transaction() block, reuse the live connection directly and defer
+        # the commit to transaction(); pinging mid-transaction would abort the work.
+        conn = self._txn_conn() if self._in_txn else self._get_live_conn()
         cur = conn.cursor()
         try:
             yield cur
-            conn.commit()
+            if not self._in_txn:
+                conn.commit()
         except Exception:
             conn.rollback()
             raise
         finally:
             cur.close()
+
+    @contextmanager
+    def transaction(self):
+        """Group multiple insert calls into one atomic commit. cursor() calls inside
+        this block defer their commit; the whole block commits once on success or
+        rolls back entirely on any exception."""
+        conn = self._txn_conn()
+        self._in_txn = True
+        try:
+            yield
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._in_txn = False
 
     # ------------------------------------------------------------------
     # Ingestion methods
