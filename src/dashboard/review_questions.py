@@ -21,12 +21,29 @@ _EXPECTED_PACE = {"Q1": 0.25, "Q2": 0.50, "Q3": 0.75, "Q4": 1.00}
 _PACE_AHEAD = 1.5   # pace > 1.5x expected  -> flag "elevated spend"
 _PACE_BEHIND = 0.5  # pace < 0.5x expected  -> flag "behind pace"
 
+# Priority ordering for ranking findings within a department (lower = shown first).
+_PRIORITY = {"highest": 0, "high": 1, "medium": 2, "low": 3}
+# A goal status containing any of these words is treated as completed.
+_STATUS_COMPLETE = ("complete", "done", "achieved", "finished", "closed", "met")
+_GRANTS_PER_DEPT = 5
+_GRANT_CLOSED = ("closed", "complete", "expired", "terminated", "ended")
+
 _dept_key = DashboardAggregator._dept_key
 _dept_display = DashboardAggregator._dept_display
 
 
 def _norm_title(t: str) -> str:
     return re.sub(r"\s+", " ", (t or "").strip().lower())
+
+
+def _classify_status(s: str) -> str:
+    """none (no status), completed, or in_progress (any other non-empty status)."""
+    s = (s or "").strip().lower()
+    if not s:
+        return "none"
+    if any(w in s for w in _STATUS_COMPLETE):
+        return "completed"
+    return "in_progress"
 
 
 def _period_label(year, quarter) -> str:
@@ -43,21 +60,20 @@ class ReviewQuestions:
     def __init__(self, sql_store):
         self.sql = sql_store
 
-    # -- signal: goals with no reported progress ------------------------------
+    # -- signal: goal follow-ups (all statuses) -------------------------------
     def _goal_findings(self):
-        """Returns (findings_by_key, names_by_key, stalled_titles_by_key).
+        """Returns (findings_by_key, meta).
 
-        `stalled_titles` lets the caller suppress a redundant no-progress finding
-        for a goal already flagged as stalled (multi-quarter is the sharper signal).
+        Every goal produces a forward-looking question. Priority ranks gaps above
+        routine follow-ups: stalled > no-progress > in-progress > completed. A
+        clerk-set user_status demotes a goal to an in-progress/completed follow-up
+        rather than removing it (it still prompts a next-quarter question).
         """
         with self.sql.cursor() as cur:
             cur.execute("SELECT id, department, year, quarter, goal_title, description, "
                         "target, status, user_status FROM goals ORDER BY department, id")
             rows = [dict(r) for r in cur.fetchall()]
 
-        # Effective status: a clerk-set user_status overrides the extracted status.
-        # Once a clerk marks a goal (in progress / completed / even not started), we
-        # know where it stands, so it should no longer generate a question.
         def eff(r):
             return (r.get("user_status") or r.get("status") or "").strip()
 
@@ -65,72 +81,73 @@ class ReviewQuestions:
         for r in rows:
             names_by_key.setdefault(_dept_key(r["department"]), set()).add(r["department"])
 
-        # latest goal period overall (drives the "as of" label + no-progress scope)
         periods = {_period_tuple(r.get("year"), r.get("quarter")) for r in rows}
         latest = max(periods) if periods else (0, "")
 
-        # group by (dept_key, normalized title) across periods for the stalled signal
         history: dict = {}
         for r in rows:
             k = (_dept_key(r["department"]), _norm_title(r["goal_title"]))
             history.setdefault(k, []).append(r)
 
-        no_progress: dict = {}   # key -> [finding]
-        stalled: dict = {}       # key -> [finding]
-        stalled_titles: dict = {}  # key -> {normalized titles}
-
+        findings: dict = {}   # dept_key -> [finding]
         for (dkey, ntitle), hist in history.items():
             if not dkey or not ntitle:
                 continue
             hist.sort(key=lambda r: _period_tuple(r.get("year"), r.get("quarter")))
-            hp = [_period_tuple(r.get("year"), r.get("quarter")) for r in hist]
-            distinct_periods = sorted(set(hp))
+            distinct_periods = sorted({_period_tuple(r.get("year"), r.get("quarter")) for r in hist})
             display = _dept_display(dkey, names_by_key[dkey])
             latest_row = hist[-1]
             title = latest_row.get("goal_title") or ntitle
+            e = eff(latest_row)
+            cls = _classify_status(e)
+            in_latest = _period_tuple(latest_row.get("year"), latest_row.get("quarter")) == latest
+            tgt = str(latest_row.get("target") or "").strip()
+            tgt_clause = f" (target: {tgt})" if tgt else ""
 
-            # If the latest report (or the clerk) gives this goal a status, we know
-            # where it stands — no question needed.
-            if eff(latest_row):
-                continue
-
-            # stalled: carried across >=2 distinct quarters, still no status anywhere
-            if len(distinct_periods) >= 2:
+            # stalled: same title across >=2 periods, no status anywhere -> sharpest gap
+            if len(distinct_periods) >= 2 and all(not eff(r) for r in hist):
                 first_lbl = _period_label(*distinct_periods[0])
                 last_lbl = _period_label(*distinct_periods[-1])
-                stalled.setdefault(dkey, []).append({
-                    "signal": "goal_stalled",
-                    "department": display,
-                    "question": (f"“{title}” has appeared in {len(distinct_periods)} "
-                                 f"quarterly reports ({first_lbl}→{last_lbl}) with no status "
-                                 f"update — what progress has been made since {last_lbl}?"),
+                findings.setdefault(dkey, []).append({
+                    "signal": "goal_stalled", "department": display, "priority": "highest",
+                    "question": (f"“{title}” has appeared in {len(distinct_periods)} quarterly "
+                                 f"reports ({first_lbl}→{last_lbl}) with no status update — what "
+                                 f"progress has been made since {last_lbl}?"),
                     "evidence": {"goal_title": title, "periods": [_period_label(*p) for p in distinct_periods],
                                  "count": len(distinct_periods)},
                 })
-                stalled_titles.setdefault(dkey, set()).add(ntitle)
                 continue
 
-            # no progress: appears in the latest reporting period with no status
-            # (eff() already confirmed empty above). A target is NOT required — a goal
-            # with no numeric target is still worth asking; we fold it in when present.
-            if _period_tuple(latest_row.get("year"), latest_row.get("quarter")) == latest:
-                tgt = str(latest_row.get("target") or "").strip()
-                tgt_clause = f" (target: {tgt})" if tgt else ""
-                no_progress.setdefault(dkey, []).append({
-                    "signal": "goal_no_progress",
-                    "department": display,
+            # only ask about goals whose latest appearance is in the latest period
+            if not in_latest:
+                continue
+
+            if cls == "none":
+                findings.setdefault(dkey, []).append({
+                    "signal": "goal_no_progress", "department": display, "priority": "high",
                     "question": (f"{display}'s goal “{title}”{tgt_clause} has no progress "
                                  f"reported for {_period_label(*latest)}. What's the current status?"),
                     "evidence": {"goal_title": title, "target": tgt or None,
                                  "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
                 })
+            elif cls == "completed":
+                findings.setdefault(dkey, []).append({
+                    "signal": "goal_completed", "department": display, "priority": "low",
+                    "question": (f"{display} reported goal “{title}” as complete (“{e}”). "
+                                 f"What's the follow-on objective for next quarter?"),
+                    "evidence": {"goal_title": title, "status": e,
+                                 "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
+                })
+            else:  # in_progress
+                findings.setdefault(dkey, []).append({
+                    "signal": "goal_in_progress", "department": display, "priority": "medium",
+                    "question": (f"{display}'s goal “{title}”{tgt_clause} was reported “{e}” as of "
+                                 f"{_period_label(*latest)}. What progress has been made since?"),
+                    "evidence": {"goal_title": title, "target": tgt or None, "status": e,
+                                 "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
+                })
 
-        merged: dict = {}
-        for k, v in stalled.items():
-            merged.setdefault(k, []).extend(v)
-        for k, v in no_progress.items():
-            merged.setdefault(k, []).extend(v)
-        return merged, names_by_key, {"period": _period_label(*latest) if latest[0] else ""}
+        return findings, {"period": _period_label(*latest) if latest[0] else ""}
 
     # -- signal: budget pace anomaly ------------------------------------------
     def _budget_findings(self):
@@ -179,8 +196,7 @@ class ReviewQuestions:
                 q = (f"{display} has spent only {pace_pct}% of its revised budget by {plbl} "
                      f"(≈{exp_pct}% expected) — why is spending behind pace?")
             findings.setdefault(k, []).append({
-                "signal": "budget_pace",
-                "department": display,
+                "signal": "budget_pace", "department": display, "priority": "high",
                 "question": q,
                 "evidence": {"revised_budget": v["rb"], "ytd_expended": v["ytd"],
                              "pace": round(pace, 3), "expected": expected,
@@ -190,19 +206,20 @@ class ReviewQuestions:
 
     # -- assembly -------------------------------------------------------------
     def build(self) -> dict:
-        goals, _names, meta = self._goal_findings()
+        goals, meta = self._goal_findings()
         budget = self._budget_findings()
 
         by_key: dict = {}
-        for k, v in goals.items():
-            by_key.setdefault(k, []).extend(v)
-        for k, v in budget.items():
-            by_key.setdefault(k, []).extend(v)
+        for src in (goals, budget):
+            for k, v in src.items():
+                by_key.setdefault(k, []).extend(v)
 
-        departments = [
-            {"department": findings[0]["department"], "findings": findings}
-            for findings in by_key.values() if findings
-        ]
+        departments = []
+        for findings in by_key.values():
+            if not findings:
+                continue
+            findings.sort(key=lambda f: (_PRIORITY.get(f.get("priority", "medium"), 9), f["signal"]))
+            departments.append({"department": findings[0]["department"], "findings": findings})
         departments.sort(key=lambda d: d["department"].lower())
         return {"period": meta.get("period") or None, "departments": departments}
 

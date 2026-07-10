@@ -83,7 +83,7 @@ def test_goal_stalled_across_quarters_is_flagged_and_suppresses_no_progress():
     assert ev["periods"] == ["Q3 2025", "Q4 2025"]
 
 
-def test_goal_with_changing_status_is_not_stalled():
+def test_goal_with_reported_status_is_in_progress_not_stalled():
     store = _FakeStore({
         GOALS: [
             _goal(1, "Bureau of Fire", 2025, "Q3", "Hire 3 EMTs", target="3 hires", status="1 of 3 hired"),
@@ -91,22 +91,25 @@ def test_goal_with_changing_status_is_not_stalled():
         ],
         PERIOD: [], BUDGET: [],
     })
-    # progress is being reported (status changes) -> not a gap
-    assert ReviewQuestions(store).build()["departments"] == []
+    d = ReviewQuestions(store).build()["departments"][0]
+    # progress is being reported -> not stalled; a forward-looking follow-up instead
+    assert [f["signal"] for f in d["findings"]] == ["goal_in_progress"]
+    assert d["findings"][0]["priority"] == "medium"
+    assert "2 of 3 hired" in d["findings"][0]["question"]
 
 
-def test_clerk_user_status_suppresses_no_progress():
-    # same no-status latest goal, but the clerk marked it in_progress -> no question
+def test_clerk_user_status_demotes_no_progress_to_followup():
     store = _FakeStore({
         GOALS: [_goal(1, "Bureau of Fire", 2026, "Q1", "Reduce response time",
                       target="< 6 min", status=None, user_status="in_progress")],
         PERIOD: [], BUDGET: [],
     })
-    assert ReviewQuestions(store).build()["departments"] == []
+    d = ReviewQuestions(store).build()["departments"][0]
+    assert [f["signal"] for f in d["findings"]] == ["goal_in_progress"]
+    assert d["findings"][0]["priority"] == "medium"
 
 
-def test_clerk_user_status_suppresses_stalled():
-    # a goal carried across quarters, but the clerk marked the latest completed
+def test_clerk_completed_status_yields_followon_question():
     store = _FakeStore({
         GOALS: [
             _goal(1, "Bureau of Fire", 2025, "Q3", "Hire 3 EMTs", target="3", status=None),
@@ -115,7 +118,10 @@ def test_clerk_user_status_suppresses_stalled():
         ],
         PERIOD: [], BUDGET: [],
     })
-    assert ReviewQuestions(store).build()["departments"] == []
+    d = ReviewQuestions(store).build()["departments"][0]
+    assert [f["signal"] for f in d["findings"]] == ["goal_completed"]
+    assert d["findings"][0]["priority"] == "low"
+    assert "follow-on" in d["findings"][0]["question"]
 
 
 def test_budget_pace_flags_ahead_and_ignores_on_pace():
@@ -155,6 +161,35 @@ def test_department_name_variants_merge():
     out = ReviewQuestions(store).build()
     assert len(out["departments"]) == 1   # merged into one canonical department
     assert out["departments"][0]["findings"][0]["evidence"]["count"] == 2
+
+
+def test_in_progress_and_no_progress_sort_by_priority():
+    # same dept: one no-status goal (high) and one in-progress goal (medium);
+    # build() must order high before medium.
+    store = _FakeStore({
+        GOALS: [
+            _goal(1, "Public Works", 2026, "Q2", "Pave 10 roads", target="10", status=None),
+            _goal(2, "Public Works", 2026, "Q2", "Replace signals", target="5", status="3 replaced"),
+        ],
+        PERIOD: [], BUDGET: [],
+    })
+    d = ReviewQuestions(store).build()["departments"][0]
+    assert [f["signal"] for f in d["findings"]] == ["goal_no_progress", "goal_in_progress"]
+
+
+def test_old_goal_not_in_latest_period_is_skipped():
+    # a lone goal from an older period (not repeated) is not asked about.
+    store = _FakeStore({
+        GOALS: [
+            _goal(1, "Bureau of Fire", 2025, "Q1", "Old goal", status="done"),
+            _goal(2, "Bureau of Fire", 2026, "Q1", "New goal", status=None),
+        ],
+        PERIOD: [], BUDGET: [],
+    })
+    d = ReviewQuestions(store).build()["departments"][0]
+    # only the latest-period goal surfaces
+    assert [f["signal"] for f in d["findings"]] == ["goal_no_progress"]
+    assert "New goal" in d["findings"][0]["question"]
 
 
 # ── phrasing pass (mocked LLM — no real spend) ───────────────────────────────

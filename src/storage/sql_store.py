@@ -189,13 +189,15 @@ class SQLStore:
     def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str) -> None:
         sql = """
             INSERT INTO vacancies
-                (department, position_title, status, quarter, year, source_chunk_id)
+                (department, position_title, status, open_count, quarter, year, source_chunk_id)
             VALUES
-                (%(department)s, %(position_title)s, %(status)s, %(quarter)s,
-                 %(year)s, %(source_chunk_id)s)
+                (%(department)s, %(position_title)s, %(status)s, %(open_count)s,
+                 %(quarter)s, %(year)s, %(source_chunk_id)s)
         """
         with self.cursor() as cur:
             for row in rows:
+                # extractor emits "count"; the column is open_count. Tolerate either.
+                row.setdefault("open_count", row.get("count"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 cur.execute(sql, row)
 

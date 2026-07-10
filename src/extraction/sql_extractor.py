@@ -311,6 +311,57 @@ class SQLExtractor:
             logger.warning("grant extraction failed for %s: %s", department, e)
             return []
 
+    def extract_vacancies(self, texts: list[str], department: str = "",
+                          quarter: str = "", year: Optional[int] = None) -> list[dict[str, Any]]:
+        """Extract POSITION VACANCIES from a quarterly report's 'Department Vacancy
+        Updates' section, using a focused prompt. `texts` are the vacancy-bearing chunk
+        texts (selected by keyword upstream). Returns validated vacancy rows tagged with
+        department/quarter/year, each carrying the stated open-position COUNT. Never
+        raises — returns [] on any failure.
+
+        This bypasses the per-chunk routes_to_sql() gate that silently dropped vacancies
+        whenever the classifier tagged the block org_data/narrative/header; it mirrors the
+        keyword-selected extract_grants/extract_goals paths."""
+        from src.ingestion.schemas.vacancies import VacanciesExtraction
+        if not texts:
+            return []
+        try:
+            body = "\n\n---\n\n".join(texts)[:16000]
+            schema_json = json.dumps(VacanciesExtraction.model_json_schema())
+            prompt = (
+                f"You extract POSITION VACANCIES from a City of Harrisburg quarterly report "
+                f"(department: {department or 'unknown'}, period: {quarter or ''} {year or ''}).\n"
+                "Reports contain a 'Department Vacancy Updates' / 'Vacancies' section listing "
+                "open (or recently filled) positions, often with a COUNT in parentheses, e.g. "
+                "'Patrol Officer- (25)', 'Supervisors- (4)', 'Civilian — (2)'.\n"
+                f"Extract vacancies matching THIS JSON schema:\n{schema_json}\n\n"
+                "Rules: one row per distinct position title; 'position_title' is the role name "
+                "(singular, without the count); 'status' must be exactly 'open' or 'filled' based "
+                "on the text; 'count' is the integer number of positions stated for that title "
+                "(the parenthesized number) or null if no number is given; include a verbatim "
+                "'source_text' quote and 'confidence' (high|medium|low); OMIT low-confidence rows. "
+                "If there is no vacancy section, return an empty list. Return ONLY the JSON object.\n\n"
+                "Text:\n---\n" + body + "\n---"
+            )
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model, max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            raw = raw[raw.find("{"): raw.rfind("}") + 1]
+            rows = [r for r in VacanciesExtraction.model_validate_json(raw).model_dump()["vacancies"]
+                    if r.get("confidence") in ("high", "medium")]
+            for r in rows:
+                r.pop("source_text", None)
+                r.pop("confidence", None)
+                r["department"] = department
+                r["quarter"] = quarter
+                r["year"] = year
+            return rows
+        except Exception as e:
+            logger.warning("vacancy extraction failed for %s: %s", department, e)
+            return []
+
     def extract_meeting(self, texts: list[str], source_file: str = "") -> dict[str, list[dict[str, Any]]]:
         """Extract ONE meeting record + its actions from a council minutes document,
         using a focused prompt (more reliable than the generic schema path for minutes).
@@ -383,10 +434,12 @@ def _parse_extraction_response(raw: str) -> dict[str, list[dict]]:
         return {}
 
     result = {}
-    # NOTE: "grants" intentionally excluded — grants now come from the strict
-    # SQLExtractor.extract_grants path (external awards only), not this generic
-    # extractor which over-counted budget/spending figures as grants.
-    for key in ("expenditures", "metrics", "vacancies"):
+    # NOTE: "grants" and "vacancies" intentionally excluded — both now come from
+    # dedicated keyword-selected paths (extract_grants / extract_vacancies) that
+    # bypass the per-chunk routes_to_sql() gate. The generic batched path only saw
+    # chunks the classifier tagged table/metrics, silently dropping the vacancy
+    # section whenever it landed in org_data/narrative/header (~68% of the time).
+    for key in ("expenditures", "metrics"):
         rows = data.get(key, [])
         if isinstance(rows, list) and rows:
             result[key] = _sanitize_rows(rows, key)

@@ -327,6 +327,18 @@ class IngestionPipeline:
                 if grant_rows:
                     self.sql_store.insert_grant_rows(grant_rows, chunks[0].chunk_id, source_file)
 
+            # Vacancies: keyword-selected extraction. Must NOT ride the routes_to_sql()
+            # gate — the 'Department Vacancy Updates' block is routinely classified
+            # org_data/narrative/header (sql:False), which silently dropped ~68% of
+            # vacancy sections. Mirror the goals/grants keyword path instead.
+            vacancy_texts = [c.text for c in chunks if "vacan" in c.text.lower()]
+            if vacancy_texts and profile is not None:
+                q, y = metadata._split_period(profile.period)
+                vacancy_rows = self.sql_extractor.extract_vacancies(
+                    vacancy_texts, department=profile.department or "", quarter=q or "", year=y)
+                if vacancy_rows:
+                    self.sql_store.insert_vacancy_rows(vacancy_rows, chunks[0].chunk_id)
+
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:
                 try:
