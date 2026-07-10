@@ -361,39 +361,50 @@ class ReviewQuestions:
 
 _PHRASE_SYSTEM = (
     "You are helping a city clerk prepare pointed follow-up questions for a "
-    "department's next quarterly report. You will receive a JSON array of draft "
-    "questions already grounded in real data. Rewrite each into one natural, "
-    "specific, professional question a clerk could put directly into the report "
-    "request. Frame each as a neutral request for a progress update — the clerk "
-    "simply lacks a newer report, so do NOT assume the work is blocked, stalled, "
-    "or failing. RULES: (1) preserve every number, percentage, target, goal name and "
-    "department name exactly — do not invent, drop, or alter any fact; (2) return "
-    "ONLY a JSON array of strings, same length and order as the input; (3) one "
-    "question per item, no preamble."
+    "department's next quarterly report. You receive a JSON object with `questions` "
+    "(draft questions already grounded in real data) and `signals` (the structured "
+    "facts behind each). Do TWO things. (1) POLISH: rewrite each question in "
+    "`questions` into one natural, specific, professional question a clerk could put "
+    "directly into the report request — a neutral request for a progress update (the "
+    "clerk simply lacks a newer report; do NOT assume work is blocked or failing). "
+    "(2) SYNTHESIZE: from the `signals` taken together, propose 0 to 3 sharper "
+    "cross-cutting questions that connect two or more facts (e.g. rising vacancies "
+    "alongside a stalled goal). RULES: preserve every number, percentage, target, "
+    "goal name, grant name and department name exactly — never invent, drop, or alter "
+    "a fact; synthesis questions must rest only on facts present in `signals`. Return "
+    "ONLY a JSON object: {\"polished\": [<same length and order as questions>], "
+    "\"synthesis\": [<0-3 strings>]}. No preamble."
 )
 
 
-def phrase_questions(questions, settings, client=None):
-    """Rewrite templated questions into clerk-ready wording via Haiku.
+def phrase_questions(findings, settings, client=None):
+    """Polish templated questions and synthesize cross-cutting ones via Haiku.
 
-    Returns a list of strings aligned 1:1 with `questions`. Raises ValueError if
-    the model returns the wrong count (caller should fall back to the templated
-    wording). Anthropic/transport errors propagate for the caller to handle.
+    `findings` is the list of finding dicts for one department. Returns
+    {"polished": [str aligned 1:1 with findings], "synthesis": [0-3 str]}.
+    Raises ValueError if the model returns the wrong `polished` count (caller
+    should fall back to templated wording). Transport errors propagate.
     """
-    if not questions:
-        return []
+    if not findings:
+        return {"polished": [], "synthesis": []}
     from src.llm.client import TrackedAnthropic
     llm = client or TrackedAnthropic(settings, call_site="dashboard.review_questions")
+    questions = [f["question"] for f in findings]
+    signals = [{"signal": f.get("signal"), "evidence": f.get("evidence", {})} for f in findings]
+    payload = {"questions": questions, "signals": signals}
     msg = llm.messages.create(
         model=settings.profiler_model,
-        max_tokens=1200,
+        max_tokens=1400,
         system=_PHRASE_SYSTEM,
-        messages=[{"role": "user", "content": json.dumps(questions, ensure_ascii=False)}],
+        messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)}],
     )
     raw = msg.content[0].text.strip()
-    raw = raw[raw.find("["): raw.rfind("]") + 1]
+    raw = raw[raw.find("{"): raw.rfind("}") + 1]
     out = json.loads(raw)
-    if not isinstance(out, list) or len(out) != len(questions):
-        raise ValueError(f"phrasing returned {len(out) if isinstance(out, list) else '?'} "
-                         f"items, expected {len(questions)}")
-    return [str(x).strip() for x in out]
+    polished = out.get("polished") or []
+    synthesis = out.get("synthesis") or []
+    if not isinstance(polished, list) or len(polished) != len(questions):
+        raise ValueError(f"phrasing returned {len(polished) if isinstance(polished, list) else '?'} "
+                         f"polished items, expected {len(questions)}")
+    return {"polished": [str(x).strip() for x in polished],
+            "synthesis": [str(x).strip() for x in synthesis if str(x).strip()][:3]}
