@@ -130,15 +130,7 @@ class ReviewQuestions:
                     "evidence": {"goal_title": title, "target": tgt or None,
                                  "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
                 })
-            elif cls == "completed":
-                findings.setdefault(dkey, []).append({
-                    "signal": "goal_completed", "department": display, "priority": "low",
-                    "question": (f"{display} reported goal “{title}” as complete (“{e}”). "
-                                 f"What's the follow-on objective for next quarter?"),
-                    "evidence": {"goal_title": title, "status": e,
-                                 "year": latest_row.get("year"), "quarter": latest_row.get("quarter")},
-                })
-            else:  # in_progress
+            elif cls == "in_progress":
                 findings.setdefault(dkey, []).append({
                     "signal": "goal_in_progress", "department": display, "priority": "medium",
                     "question": (f"{display}'s goal “{title}”{tgt_clause} was reported “{e}” as of "

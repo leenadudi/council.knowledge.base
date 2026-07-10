@@ -109,7 +109,8 @@ def test_clerk_user_status_demotes_no_progress_to_followup():
     assert d["findings"][0]["priority"] == "medium"
 
 
-def test_clerk_completed_status_yields_followon_question():
+def test_completed_goal_generates_no_question():
+    # completed goals are not actionable follow-ups -> no question at all
     store = _FakeStore({
         GOALS: [
             _goal(1, "Bureau of Fire", 2025, "Q3", "Hire 3 EMTs", target="3", status=None),
@@ -118,10 +119,7 @@ def test_clerk_completed_status_yields_followon_question():
         ],
         PERIOD: [], BUDGET: [],
     })
-    d = ReviewQuestions(store).build()["departments"][0]
-    assert [f["signal"] for f in d["findings"]] == ["goal_completed"]
-    assert d["findings"][0]["priority"] == "low"
-    assert "follow-on" in d["findings"][0]["question"]
+    assert ReviewQuestions(store).build()["departments"] == []
 
 
 def test_budget_pace_flags_ahead_and_ignores_on_pace():
