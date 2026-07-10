@@ -250,14 +250,58 @@ class ReviewQuestions:
             })
         return findings
 
+    # -- signal: active grants ------------------------------------------------
+    def _grant_findings(self):
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, grant_name, grant_number, amount, end_date, status "
+                        "FROM grants WHERE department IS NOT NULL AND grant_name IS NOT NULL "
+                        "AND grant_name <> ''")
+            rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            return {}
+
+        by_key: dict = {}
+        for r in rows:
+            status = (r.get("status") or "").strip().lower()
+            if any(w in status for w in _GRANT_CLOSED):
+                continue
+            k = _dept_key(r["department"])
+            by_key.setdefault(k, {"names": set(), "rows": []})
+            by_key[k]["names"].add(r["department"])
+            by_key[k]["rows"].append(r)
+
+        findings: dict = {}
+        for k, acc in by_key.items():
+            if not k:
+                continue
+            display = _dept_display(k, acc["names"])
+            ranked = sorted(acc["rows"], key=lambda r: float(r.get("amount") or 0), reverse=True)
+            for r in ranked[:_GRANTS_PER_DEPT]:
+                amt = r.get("amount")
+                amt_clause = f" (${float(amt):,.0f})" if amt is not None else ""
+                status_word = (r.get("status") or "active").strip() or "active"
+                end = r.get("end_date")
+                findings.setdefault(k, []).append({
+                    "signal": "grant", "department": display, "priority": "low",
+                    "question": (f"{display}'s grant “{r['grant_name']}”{amt_clause} was "
+                                 f"reported {status_word}. What's the current status / drawdown "
+                                 f"for next quarter?"),
+                    "evidence": {"grant_name": r["grant_name"], "grant_number": r.get("grant_number"),
+                                 "amount": float(amt) if amt is not None else None,
+                                 "status": r.get("status"),
+                                 "end_date": end.isoformat() if hasattr(end, "isoformat") else end},
+                })
+        return findings
+
     # -- assembly -------------------------------------------------------------
     def build(self) -> dict:
         goals, meta = self._goal_findings()
         budget = self._budget_findings()
         vac = self._vacancy_findings()
+        grant = self._grant_findings()
 
         by_key: dict = {}
-        for src in (goals, budget, vac):
+        for src in (goals, budget, vac, grant):
             for k, v in src.items():
                 by_key.setdefault(k, []).extend(v)
 

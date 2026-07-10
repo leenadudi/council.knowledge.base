@@ -227,6 +227,41 @@ def test_vacancy_signal_uses_only_latest_period():
     assert f["evidence"]["total_open"] == 2 and "Detective" in f["question"]
 
 
+GRANTS = "FROM grants"
+
+
+def test_grant_signal_flags_active_and_skips_closed():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        GRANTS: [
+            {"department": "Bureau of Fire", "grant_name": "SAFER Grant", "grant_number": "S-1",
+             "amount": 500000.0, "end_date": None, "status": "active"},
+            {"department": "Bureau of Fire", "grant_name": "Old Grant", "grant_number": "O-1",
+             "amount": 10000.0, "end_date": None, "status": "closed"},
+        ],
+    })
+    d = ReviewQuestions(store).build()["departments"][0]
+    sigs = [f["signal"] for f in d["findings"]]
+    assert sigs == ["grant"]                       # closed grant excluded
+    assert "SAFER Grant" in d["findings"][0]["question"]
+    assert d["findings"][0]["priority"] == "low"
+
+
+def test_grant_signal_caps_per_department():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        GRANTS: [
+            {"department": "Public Works", "grant_name": f"Grant {i}", "grant_number": str(i),
+             "amount": float(i), "end_date": None, "status": "active"}
+            for i in range(1, 9)   # 8 active grants
+        ],
+    })
+    d = ReviewQuestions(store).build()["departments"][0]
+    assert len(d["findings"]) == 5                 # capped at _GRANTS_PER_DEPT
+    # highest amount first
+    assert "Grant 8" in d["findings"][0]["question"]
+
+
 # ── phrasing pass (mocked LLM — no real spend) ───────────────────────────────
 
 class _FakeMsg:
