@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     garbled_ratio_threshold: float = 0.10
     text_per_page_threshold: int = 100   # chars/page below which vision LLM kicks in
 
+    # Readability gate: docs whose parsed text scores below this are treated as
+    # garbled (bad OCR) and re-read with the Vision LLM. See src/ingestion/quality.py.
+    garble_readability_threshold: float = 0.35
+    enable_vision_escalation: bool = True
+
     # Tesseract OCR (scanned/low-text PDFs)
     ocr_dpi: int = 200                    # render resolution for OCR
     ocr_min_chars_per_page: int = 150     # below this, OCR is poor -> fall back to Vision LLM
