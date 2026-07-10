@@ -286,7 +286,7 @@
 
       <!-- NEXT QUARTER (generated questions) -->
       <div class="view" id="v-questions">
-        <div style="margin-bottom:22px"><h1 class="page">Questions for next quarter</h1><p class="psub">Data-grounded follow-ups to put into each department's next quarterly report — built from goals with no reported progress, goals that have stalled across quarters, and budgets running off pace.</p></div>
+        <div style="margin-bottom:22px"><h1 class="page">Questions for next quarter</h1><p class="psub">Data-grounded follow-ups to put into each department's next quarterly report — built from prior goals, open vacancies, active grants, budget pace, and departments behind on filing.</p></div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
           <select class="filter" id="q-dept" onchange="state.qDept=this.value;renderQuestions()"></select>
           <span id="q-count" style="font-size:12.5px;color:#8a867d;white-space:nowrap"></span>
@@ -746,14 +746,46 @@ function renderGoals(){
 
 
 // ---- next quarter: generated questions ----
-const Q_SIG={goal_no_progress:{lbl:'No reported progress',col:'#c4691e'},goal_stalled:{lbl:'Stalled goal',col:'#a0302a'},budget_pace:{lbl:'Budget off pace',col:'#16344f'}};
-let _qPolished={};   // dept display name -> polished question strings (client cache)
-function applyPolish(dept,worded){
-  if(state.qDept!==dept) return;   // user switched away before it returned
-  const texts=$('#q-list').querySelectorAll('.qtext'), btns=$('#q-list').querySelectorAll('.qcopy');
-  if(worded.length!==texts.length) return;   // ordering drifted — keep templated wording
-  worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w; });
+const Q_SIG={
+  goal_stalled:{lbl:'Stalled goal',col:'#a0302a'},
+  goal_no_progress:{lbl:'No reported progress',col:'#c4691e'},
+  goal_in_progress:{lbl:'Goal follow-up',col:'#3f6f52'},
+  goal_completed:{lbl:'Completed goal',col:'#5a7a6a'},
+  vacancy:{lbl:'Open vacancies',col:'#7a5c1e'},
+  grant:{lbl:'Grant status',col:'#4a5a8a'},
+  quiet_department:{lbl:'Behind on filing',col:'#a0302a'},
+  budget_pace:{lbl:'Budget off pace',col:'#16344f'},
+  synthesis:{lbl:'Cross-cutting',col:'#6b4a8a'}
+};
+let _qData={};   // dept display name -> {polished:[...], synthesis:[...]} (client cache)
+function card(f){ const sg=Q_SIG[f.signal]||{lbl:f.signal,col:'#8a867d'};
+  return `<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;gap:12px">
+    <span style="width:7px;height:7px;border-radius:2px;background:${sg.col};margin-top:6px;flex-shrink:0"></span>
+    <div style="flex:1;min-width:0"><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${sg.col};margin-bottom:5px">${sg.lbl}</div>
+    <div class="qtext" style="font-size:14px;line-height:1.5;color:#1c1b19">${esc(f.question)}</div></div>
+    <button class="qcopy" data-q="${esc(f.question)}" title="Copy question" style="flex-shrink:0;background:none;border:1px solid rgba(28,27,25,.12);border-radius:7px;padding:5px 9px;cursor:pointer;color:#8a867d;font-size:13px">⧉</button></div></div>`;
 }
+function bindCopy(b){ b.onclick=()=>{ if(navigator.clipboard) navigator.clipboard.writeText(b.dataset.q); const o=b.textContent; b.textContent='✓'; setTimeout(()=>b.textContent=o,1200); }; }
+function applyPolish(dept,data){
+  if(state.qDept!==dept) return;                     // user switched away before it returned
+  const texts=$('#q-list').querySelectorAll('.qtext'), btns=$('#q-list').querySelectorAll('.qcopy');
+  const worded=data.polished||[];
+  if(worded.length===texts.length){
+    worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w; });
+  }
+  // (re)render synthesis cards once, appended after the department's questions
+  $('#q-list').querySelectorAll('.qsynth').forEach(n=>n.remove());
+  const synth=data.synthesis||[];
+  if(synth.length){
+    const wrap=document.createElement('div');
+    wrap.className='qsynth';
+    wrap.style.cssText='display:flex;flex-direction:column;gap:10px;margin-top:8px';
+    wrap.innerHTML=synth.map(q=>card({signal:'synthesis',question:q})).join('');
+    $('#q-list').appendChild(wrap);
+    wrap.querySelectorAll('.qcopy').forEach(bindCopy);
+  }
+}
+const Q_CAP=8;
 function renderQuestions(){
   const rq=D.review_questions||{period:null,departments:[]};
   const depts=rq.departments||[];
@@ -762,31 +794,28 @@ function renderQuestions(){
   sel.innerHTML=`<option value="All">All departments</option>`+depts.map(d=>`<option value="${esc(d.department)}">${esc(d.department)}</option>`).join('');
   sel.value=[...sel.options].some(o=>o.value===cur)?cur:'All';
   state.qDept=sel.value;
-  if(!depts.length){ el.innerHTML='<div class="empty">No gaps flagged right now — tracked goals show recent progress and budgets are on pace.</div>'; $('#q-count').textContent=''; copyBtn.style.display='none'; return; }
+  if(!depts.length){ el.innerHTML='<div class="empty">No items flagged right now — tracked goals show recent progress, staffing and grants are current, and budgets are on pace.</div>'; $('#q-count').textContent=''; copyBtn.style.display='none'; return; }
   const shown = state.qDept==='All' ? depts : depts.filter(d=>d.department===state.qDept);
   const totalQ = shown.reduce((s,d)=>s+d.findings.length,0);
   $('#q-count').textContent=`${totalQ} question${totalQ===1?'':'s'}`+(rq.period?` · for the report after ${esc(rq.period)}`:'');
-  const card=(f)=>{ const sg=Q_SIG[f.signal]||{lbl:f.signal,col:'#8a867d'};
-    return `<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;gap:12px">
-      <span style="width:7px;height:7px;border-radius:2px;background:${sg.col};margin-top:6px;flex-shrink:0"></span>
-      <div style="flex:1;min-width:0"><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${sg.col};margin-bottom:5px">${sg.lbl}</div>
-      <div class="qtext" style="font-size:14px;line-height:1.5;color:#1c1b19">${esc(f.question)}</div></div>
-      <button class="qcopy" data-q="${esc(f.question)}" title="Copy question" style="flex-shrink:0;background:none;border:1px solid rgba(28,27,25,.12);border-radius:7px;padding:5px 9px;cursor:pointer;color:#8a867d;font-size:13px">⧉</button></div></div>`;
-  };
-  el.innerHTML=shown.map(d=>{
+  el.innerHTML=shown.map((d,di)=>{
     const head=state.qDept==='All'?`<div style="display:flex;align-items:baseline;justify-content:space-between;margin:10px 0 6px"><h2 class="sec" style="font-size:16px">${esc(d.department)}</h2><span style="font-size:12px;color:#a7a298">${d.findings.length} question${d.findings.length===1?'':'s'}</span></div>`:'';
-    return head+`<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:8px">${d.findings.map(card).join('')}</div>`;
+    const vis=d.findings.slice(0,Q_CAP).map(card).join('');
+    const rest=d.findings.slice(Q_CAP);
+    const more=rest.length?`<div class="qhidden" data-di="${di}" style="display:none;flex-direction:column;gap:10px;margin-top:10px">${rest.map(card).join('')}</div><button class="qshowall" data-di="${di}" style="align-self:flex-start;margin-top:8px;background:none;border:none;color:#16344f;font-size:12.5px;font-weight:600;cursor:pointer">Show all ${d.findings.length}</button>`:'';
+    return head+`<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:8px">${vis}${more}</div>`;
   }).join('');
-  el.querySelectorAll('.qcopy').forEach(b=>b.onclick=()=>{ if(navigator.clipboard) navigator.clipboard.writeText(b.dataset.q); const o=b.textContent; b.textContent='✓'; setTimeout(()=>b.textContent=o,1200); });
+  el.querySelectorAll('.qshowall').forEach(b=>b.onclick=()=>{ const box=el.querySelector('.qhidden[data-di="'+b.dataset.di+'"]'); if(box){ box.style.display='flex'; b.style.display='none'; } });
+  el.querySelectorAll('.qcopy').forEach(bindCopy);
   copyBtn.style.display='';
   copyBtn.onclick=()=>{ const all=[...$('#q-list').querySelectorAll('.qtext')].map(t=>'• '+t.textContent).join('\n'); if(navigator.clipboard) navigator.clipboard.writeText(all); copyBtn.textContent='Copied ✓'; setTimeout(()=>copyBtn.textContent='Copy all',1400); };
-  // On-demand LLM polish for a single selected department only (cached; never for
-  // "All" — that would fan out one call per department). Respects the funds rule.
+  // On-demand LLM polish + synthesis for a single selected department only (cached;
+  // never for "All" — that would fan out one call per department). Respects the funds rule.
   if(state.qDept!=='All'){
     const dept=state.qDept;
-    if(_qPolished[dept]) applyPolish(dept,_qPolished[dept]);
+    if(_qData[dept]) applyPolish(dept,_qData[dept]);
     else fetch('/questions/'+encodeURIComponent(dept)).then(r=>r.json()).then(j=>{
-      if(j&&j.polished&&Array.isArray(j.questions)){ _qPolished[dept]=j.questions.map(x=>x.question); applyPolish(dept,_qPolished[dept]); }
+      if(j&&Array.isArray(j.questions)){ _qData[dept]={polished:(j.polished?j.questions.map(x=>x.question):null)||[],synthesis:j.synthesis||[]}; applyPolish(dept,_qData[dept]); }
     }).catch(()=>{});
   }
 }
