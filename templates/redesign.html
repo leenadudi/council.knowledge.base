@@ -773,15 +773,15 @@ function applyPolish(dept,data){
   if(worded.length===texts.length){
     worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w; });
   }
-  // (re)render synthesis cards once, appended after the department's questions
+  // (re)render synthesis cards once, at the TOP under their own header
   $('#q-list').querySelectorAll('.qsynth').forEach(n=>n.remove());
   const synth=data.synthesis||[];
   if(synth.length){
     const wrap=document.createElement('div');
     wrap.className='qsynth';
-    wrap.style.cssText='display:flex;flex-direction:column;gap:10px;margin-top:8px';
-    wrap.innerHTML=synth.map(q=>card({signal:'synthesis',question:q})).join('');
-    $('#q-list').appendChild(wrap);
+    wrap.style.cssText='display:flex;flex-direction:column;gap:10px;margin-bottom:20px;padding:15px 17px;background:rgba(107,74,138,.05);border:1px solid rgba(107,74,138,.2);border-radius:12px';
+    wrap.innerHTML=`<div style="display:flex;align-items:center;gap:7px"><span style="font-size:14px">✨</span><span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b4a8a">AI-generated smart questions</span></div><div style="font-size:12px;line-height:1.4;color:#8a867d;margin-bottom:4px">Synthesized across this department's goals, budget, staffing and grants — review before sending.</div>`+synth.map(q=>card({signal:'synthesis',question:q})).join('');
+    $('#q-list').prepend(wrap);
     wrap.querySelectorAll('.qcopy').forEach(bindCopy);
   }
 }
