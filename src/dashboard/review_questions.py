@@ -204,13 +204,60 @@ class ReviewQuestions:
             })
         return findings
 
+    # -- signal: open vacancies -----------------------------------------------
+    def _vacancy_findings(self):
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, position_title, open_count, quarter, year "
+                        "FROM vacancies WHERE LOWER(COALESCE(status,'')) = 'open' "
+                        "AND department IS NOT NULL AND position_title IS NOT NULL "
+                        "AND position_title <> '' AND LOWER(position_title) <> 'none'")
+            rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            return {}
+
+        by_key: dict = {}
+        for r in rows:
+            k = _dept_key(r["department"])
+            acc = by_key.setdefault(k, {"names": set(), "latest": (0, ""), "rows": {}})
+            acc["names"].add(r["department"])
+            p = _period_tuple(r.get("year"), r.get("quarter"))
+            if p > acc["latest"]:
+                acc["latest"] = p
+            acc["rows"].setdefault(p, []).append(r)
+
+        findings: dict = {}
+        for k, acc in by_key.items():
+            if not k:
+                continue
+            latest_rows = acc["rows"].get(acc["latest"], [])
+            positions = [{"title": r["position_title"].strip(),
+                          "count": int(r["open_count"]) if r.get("open_count") is not None else None}
+                         for r in latest_rows]
+            if not positions:
+                continue
+            total = sum(p["count"] for p in positions if p["count"]) or None
+            display = _dept_display(k, acc["names"])
+            plbl = _period_label(*acc["latest"])
+            listing = ", ".join(f"{p['title']}" + (f" ({p['count']})" if p["count"] else "")
+                                for p in positions)
+            count_clause = f"{total} open position{'s' if total != 1 else ''}" if total else \
+                           f"{len(positions)} open role{'s' if len(positions) != 1 else ''}"
+            findings.setdefault(k, []).append({
+                "signal": "vacancy", "department": display, "priority": "medium",
+                "question": (f"{display} reported {count_clause} in {plbl} ({listing}). "
+                             f"What's the current hiring status?"),
+                "evidence": {"period": plbl, "positions": positions, "total_open": total},
+            })
+        return findings
+
     # -- assembly -------------------------------------------------------------
     def build(self) -> dict:
         goals, meta = self._goal_findings()
         budget = self._budget_findings()
+        vac = self._vacancy_findings()
 
         by_key: dict = {}
-        for src in (goals, budget):
+        for src in (goals, budget, vac):
             for k, v in src.items():
                 by_key.setdefault(k, []).extend(v)
 

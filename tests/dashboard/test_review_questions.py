@@ -192,6 +192,41 @@ def test_old_goal_not_in_latest_period_is_skipped():
     assert "New goal" in d["findings"][0]["question"]
 
 
+VAC = "FROM vacancies"
+
+
+def test_vacancy_signal_aggregates_open_positions():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        VAC: [
+            {"department": "Bureau of Police", "position_title": "Patrol Officer", "open_count": 25,
+             "quarter": "Q1", "year": 2026},
+            {"department": "Bureau of Police", "position_title": "Supervisor", "open_count": 4,
+             "quarter": "Q1", "year": 2026},
+        ],
+    })
+    d = ReviewQuestions(store).build()["departments"][0]
+    f = d["findings"][0]
+    assert f["signal"] == "vacancy" and f["priority"] == "medium"
+    assert f["evidence"]["total_open"] == 29
+    assert "Patrol Officer" in f["question"] and "hiring status" in f["question"]
+
+
+def test_vacancy_signal_uses_only_latest_period():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        VAC: [
+            {"department": "Bureau of Police", "position_title": "Patrol Officer", "open_count": 25,
+             "quarter": "Q1", "year": 2025},
+            {"department": "Bureau of Police", "position_title": "Detective", "open_count": 2,
+             "quarter": "Q1", "year": 2026},
+        ],
+    })
+    f = ReviewQuestions(store).build()["departments"][0]["findings"][0]
+    # only the 2026 opening counts; the 2025 row is stale
+    assert f["evidence"]["total_open"] == 2 and "Detective" in f["question"]
+
+
 # ── phrasing pass (mocked LLM — no real spend) ───────────────────────────────
 
 class _FakeMsg:
