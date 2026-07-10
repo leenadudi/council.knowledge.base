@@ -224,10 +224,10 @@ def dashboard_data():
         return jsonify({"error": str(e)}), 500
 
 
-# Per-department phrasing cache: findings-hash -> polished questions. Keyed by the
-# content of a department's findings, so identical data is a guaranteed cache hit
-# and never re-triggers a Haiku call. Cleared implicitly on restart (cheap to rewarm).
-_questions_cache: dict[str, list[str]] = {}
+# Per-department phrasing cache: findings-hash -> (polished_questions, synthesis_questions).
+# Keyed by the content of a department's findings, so identical data is a guaranteed cache
+# hit and never re-triggers a Haiku call. Cleared implicitly on restart (cheap to rewarm).
+_questions_cache: dict[str, tuple[list[str], list[str]]] = {}
 
 
 @app.route("/questions/<path:department>")
@@ -252,18 +252,21 @@ def questions(department: str):
 
         polished = True
         if key in _questions_cache:
-            worded = _questions_cache[key]
+            worded, synthesis = _questions_cache[key]
         else:
             try:
-                worded = phrase_questions(templated, get_settings())
-                _questions_cache[key] = worded
+                res = phrase_questions(findings, get_settings())
+                worded, synthesis = res["polished"], res["synthesis"]
+                _questions_cache[key] = (worded, synthesis)
             except Exception as e:
                 logger.warning("Question phrasing failed, using templated: %s", e)
-                worded, polished = templated, False
+                worded, synthesis, polished = templated, [], False
 
-        out = [{"question": w, "signal": f["signal"], "evidence": f["evidence"]}
+        out = [{"question": w, "signal": f["signal"], "priority": f.get("priority"),
+                "evidence": f["evidence"]}
                for w, f in zip(worded, findings)]
-        return jsonify({"department": match["department"], "questions": out, "polished": polished})
+        return jsonify({"department": match["department"], "questions": out,
+                        "synthesis": synthesis, "polished": polished})
     except Exception as e:
         logger.exception("Questions failed")
         return jsonify({"error": str(e)}), 500

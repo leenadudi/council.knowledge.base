@@ -308,18 +308,31 @@ class _Settings:
     profiler_model = "claude-haiku-4-5"
 
 
-def test_phrase_questions_returns_aligned_list():
-    llm = _FakeLLM('["Q1 polished", "Q2 polished"]')
-    out = phrase_questions(["Q1", "Q2"], _Settings(), client=llm)
-    assert out == ["Q1 polished", "Q2 polished"] and llm.calls == 1
+def _finding(q):
+    return {"question": q, "signal": "goal_no_progress", "priority": "high", "evidence": {}}
+
+
+def test_phrase_questions_returns_polished_and_synthesis():
+    llm = _FakeLLM('{"polished": ["Q1 polished", "Q2 polished"], "synthesis": ["Cross-cut?"]}')
+    out = phrase_questions([_finding("Q1"), _finding("Q2")], _Settings(), client=llm)
+    assert out["polished"] == ["Q1 polished", "Q2 polished"]
+    assert out["synthesis"] == ["Cross-cut?"]
+    assert llm.calls == 1
 
 
 def test_phrase_questions_empty_makes_no_call():
-    llm = _FakeLLM("[]")
-    assert phrase_questions([], _Settings(), client=llm) == [] and llm.calls == 0
+    llm = _FakeLLM("{}")
+    out = phrase_questions([], _Settings(), client=llm)
+    assert out == {"polished": [], "synthesis": []} and llm.calls == 0
 
 
-def test_phrase_questions_count_mismatch_raises():
-    llm = _FakeLLM('["only one"]')
+def test_phrase_questions_polished_count_mismatch_raises():
+    llm = _FakeLLM('{"polished": ["only one"], "synthesis": []}')
     with pytest.raises(ValueError):
-        phrase_questions(["Q1", "Q2"], _Settings(), client=llm)
+        phrase_questions([_finding("Q1"), _finding("Q2")], _Settings(), client=llm)
+
+
+def test_phrase_questions_caps_synthesis_at_three():
+    llm = _FakeLLM('{"polished": ["p"], "synthesis": ["a", "b", "c", "d"]}')
+    out = phrase_questions([_finding("Q1")], _Settings(), client=llm)
+    assert out["synthesis"] == ["a", "b", "c"]

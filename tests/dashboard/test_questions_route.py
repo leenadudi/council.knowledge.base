@@ -39,9 +39,10 @@ def _setup(monkeypatch, store):
 
 def test_polishes_once_then_serves_from_cache(monkeypatch):
     calls = {"n": 0}
-    def fake_phrase(questions, settings, client=None):
+    def fake_phrase(findings, settings, client=None):
         calls["n"] += 1
-        return [q + " [polished]" for q in questions]
+        return {"polished": [f["question"] + " [polished]" for f in findings],
+                "synthesis": ["Cross-cutting question?"]}
     monkeypatch.setattr(rqmod, "phrase_questions", fake_phrase)
 
     client = _setup(monkeypatch, _store_with_one_finding())
@@ -52,6 +53,8 @@ def test_polishes_once_then_serves_from_cache(monkeypatch):
     assert body["polished"] is True
     assert body["questions"][0]["question"].endswith("[polished]")
     assert body["questions"][0]["signal"] == "goal_no_progress"
+    assert body["questions"][0]["priority"] == "high"
+    assert body["synthesis"] == ["Cross-cutting question?"]
     assert calls["n"] == 1
 
     # identical request -> cache hit, no second LLM call
@@ -70,10 +73,11 @@ def test_falls_back_to_templated_on_phrasing_error(monkeypatch):
     assert body["polished"] is False
     # templated wording preserved, still grounded in the real target
     assert "< 6 min" in body["questions"][0]["question"]
+    assert body["synthesis"] == []
 
 
 def test_unknown_department_returns_empty(monkeypatch):
-    monkeypatch.setattr(rqmod, "phrase_questions", lambda *a, **k: [])
+    monkeypatch.setattr(rqmod, "phrase_questions", lambda *a, **k: {"polished": [], "synthesis": []})
     client = _setup(monkeypatch, _store_with_one_finding())
     body = client.get("/questions/Nonexistent Dept").get_json()
     assert body["questions"] == [] and body["polished"] is False
