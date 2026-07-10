@@ -300,44 +300,33 @@ class IngestionPipeline:
         if quarantined or doc_type is None:
             return
 
-        # quarterly_report keeps its EXISTING extraction/routing path unchanged
-        # (regression-safe): generic batched SQL extraction + the legacy graph path.
+        # quarterly_report: ONE schema-driven pass over all chunks (no routes_to_sql
+        # gate, no keyword filters) → all six structured targets. See
+        # docs/superpowers/specs/2026-07-10-quarterly-report-extraction-unification-design.md
         if doc_type.name == "quarterly_report":
-            sql_chunks = [c for c in chunks if c.routes_to_sql()]
-            if sql_chunks:
-                sql_data = self.sql_extractor.extract_chunks_batched(sql_chunks)
-                self._write_sql_data(sql_data, sql_chunks, source_file)
-
-            # Department goals from the report's "Annual Goals" section (chunks that
-            # mention "goal"); written to the goals table. Idempotent via the
-            # delete_structured_rows cleanup on re-ingest.
-            goal_texts = [c.text for c in chunks if "goal" in c.text.lower()]
-            if goal_texts and profile is not None:
-                q, y = metadata._split_period(profile.period)
-                goal_rows = self.sql_extractor.extract_goals(
-                    goal_texts, department=profile.department or "", quarter=q or "", year=y)
-                if goal_rows:
-                    self.sql_store.insert_goal_rows(goal_rows, chunks[0].chunk_id, source_file)
-
-            # Grants: strict external-award extraction (excludes budget/spending lines).
-            grant_texts = [c.text for c in chunks if "grant" in c.text.lower()]
-            if grant_texts and profile is not None:
-                grant_rows = self.sql_extractor.extract_grants(
-                    grant_texts, department=profile.department or "")
-                if grant_rows:
-                    self.sql_store.insert_grant_rows(grant_rows, chunks[0].chunk_id, source_file)
-
-            # Vacancies: keyword-selected extraction. Must NOT ride the routes_to_sql()
-            # gate — the 'Department Vacancy Updates' block is routinely classified
-            # org_data/narrative/header (sql:False), which silently dropped ~68% of
-            # vacancy sections. Mirror the goals/grants keyword path instead.
-            vacancy_texts = [c.text for c in chunks if "vacan" in c.text.lower()]
-            if vacancy_texts and profile is not None:
-                q, y = metadata._split_period(profile.period)
-                vacancy_rows = self.sql_extractor.extract_vacancies(
-                    vacancy_texts, department=profile.department or "", quarter=q or "", year=y)
-                if vacancy_rows:
-                    self.sql_store.insert_vacancy_rows(vacancy_rows, chunks[0].chunk_id)
+            q, y = metadata._split_period(profile.period) if profile else ("", None)
+            dept = (profile.department if profile else "") or ""
+            data = self.sql_extractor.extract_quarterly(
+                chunks, department=dept, quarter=q or "", year=y)
+            problems = validation.validate_extraction("quarterly_report", data or {}, profile)
+            if problems:
+                logger.warning("  → %s failed validation, withholding structured write: %s",
+                               source_file, "; ".join(problems))
+                self.sql_store.insert_review_flag(source_file, "validate", "; ".join(problems), "")
+            elif data:
+                cid = str(chunks[0].chunk_id)
+                if data.get("expenditures"):
+                    self.sql_store.insert_expenditure_rows(data["expenditures"], cid, source_file)
+                if data.get("metrics"):
+                    self.sql_store.insert_metric_rows(data["metrics"], cid, source_file)
+                if data.get("grants"):
+                    self.sql_store.insert_grant_rows(data["grants"], cid, source_file)
+                if data.get("vacancies"):
+                    self.sql_store.insert_vacancy_rows(data["vacancies"], cid)
+                if data.get("goals"):
+                    self.sql_store.insert_goal_rows(data["goals"], cid, source_file)
+                if data.get("projects"):
+                    self.sql_store.insert_project_rows(data["projects"], cid, source_file)
 
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:
@@ -430,31 +419,6 @@ class IngestionPipeline:
                 self.graph_store.upsert_votes(votes)
         except Exception as e:
             logger.warning("Graph store write failed (vector+SQL still complete): %s", e)
-
-    def _write_sql_data(
-        self,
-        sql_data: dict,
-        sql_chunks: list[Chunk],
-        source_file: str,
-    ) -> None:
-        chunk_id = sql_chunks[0].chunk_id  # representative chunk for source reference
-
-        if sql_data.get("expenditures"):
-            self.sql_store.insert_expenditure_rows(
-                sql_data["expenditures"], chunk_id, source_file
-            )
-        if sql_data.get("metrics"):
-            self.sql_store.insert_metric_rows(
-                sql_data["metrics"], chunk_id, source_file
-            )
-        if sql_data.get("grants"):
-            self.sql_store.insert_grant_rows(
-                sql_data["grants"], chunk_id, source_file
-            )
-        if sql_data.get("vacancies"):
-            self.sql_store.insert_vacancy_rows(
-                sql_data["vacancies"], chunk_id
-            )
 
     def _write_graph_data(self, graph_data: dict, source_file: str, meta: ChunkMetadata) -> None:
         if graph_data.get("departments"):
