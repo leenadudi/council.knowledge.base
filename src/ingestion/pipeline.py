@@ -25,7 +25,7 @@ import voyageai
 from src.config import Settings, get_settings
 from src.extraction.graph_extractor import GraphExtractor
 from src.extraction.sql_extractor import SQLExtractor
-from src.ingestion import chunker, classifier, detector, metadata
+from src.ingestion import chunker, classifier, detector, metadata, quality, validation
 from src.ingestion.names import normalize_person_name
 from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
@@ -151,6 +151,12 @@ class IngestionPipeline:
             path.name, profile.document_type, profile.confidence,
             " — QUARANTINED (needs review)" if quarantined else "",
         )
+        if quarantined:
+            self.sql_store.insert_review_flag(
+                path.name, "classify",
+                f"quarantined: type={profile.document_type} confidence={profile.confidence:.2f}",
+                profile.document_type or "",
+            )
 
         # Step 4: Chunk (with the type's chunking hints when known)
         raw_chunks = chunker.chunk_document(
@@ -232,7 +238,7 @@ class IngestionPipeline:
             try:
                 parsed = tesseract_parser.parse(path, self.cfg)
                 if tesseract_parser.ocr_quality_ok(parsed, self.cfg):
-                    return parsed
+                    return self._escalate_if_garbled(path, parsed)
                 logger.info("OCR quality low for %s — falling back to Vision LLM", path.name)
             except Exception as e:
                 logger.warning("Tesseract failed for %s: %s — falling back to Vision LLM", path.name, e)
@@ -241,12 +247,26 @@ class IngestionPipeline:
         if doc_kind in ("clean_text_pdf", "word_doc"):
             try:
                 parsed = unstructured_parser.parse(path)
-                return parsed
             except ParseQualityError as e:
                 logger.warning("Unstructured quality check failed: %s — retrying with Vision LLM", e)
                 return vision_parser.parse(path, self.cfg)
+            return self._escalate_if_garbled(path, parsed)
 
         raise ValueError(f"Unsupported document kind: {doc_kind}")
+
+    @staticmethod
+    def _assemble_text(parsed) -> str:
+        return "\n".join(e.text for e in parsed.elements if getattr(e, "text", None))
+
+    def _escalate_if_garbled(self, path: Path, parsed):
+        """If parsed text reads as gibberish (bad embedded OCR layer), re-read once
+        with the Vision LLM, which reads the page images directly."""
+        if not self.cfg.enable_vision_escalation or parsed.parser_used == "vision_llm":
+            return parsed
+        if quality.is_garbled(self._assemble_text(parsed), self.cfg):
+            logger.info("%s → parsed text is garbled — re-reading with Vision LLM", path.name)
+            return vision_parser.parse(path, self.cfg)
+        return parsed
 
     # Voyage caps embed requests at 1000 inputs (and has a per-request token
     # limit); batch well under both so large documents don't fail to ingest.
@@ -337,6 +357,15 @@ class IngestionPipeline:
         # registry types declare targets at the type level, and extract_for_type's
         # Pydantic schema + confidence filter already does the precision filtering.
         extracted = self.sql_extractor.extract_for_type(chunks, doc_type, profile=profile)
+        problems = validation.validate_extraction(doc_type.name, extracted or {}, profile)
+        if problems:
+            logger.warning("  → %s failed validation, withholding structured write: %s",
+                           source_file, "; ".join(problems))
+            self.sql_store.insert_review_flag(
+                source_file, "validate", "; ".join(problems),
+                str((extracted or {}).get(doc_type.sql_targets[0], "")),
+            )
+            return
         if extracted:
             self._write_typed_data(extracted, chunks, source_file, doc_type)
 

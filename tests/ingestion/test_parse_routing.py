@@ -1,7 +1,7 @@
 # tests/ingestion/test_parse_routing.py
 from pathlib import Path
 from src.ingestion import pipeline as P
-from src.models import ParsedDocument
+from src.models import ParsedDocument, ParsedElement
 
 
 def _pipe():
@@ -11,7 +11,15 @@ def _pipe():
     return pipe
 
 
-def _tess_doc(): return ParsedDocument("f.pdf", "tesseract", [], 3)
+# A quality-OK parse carries readable text (so it does not trip the garble escalation).
+_READABLE = "The City Council of the City of Harrisburg shall meet and be it resolved."
+
+
+def _tess_doc():
+    el = ParsedElement(text=_READABLE, element_type="NarrativeText", page_number=1)
+    return ParsedDocument("f.pdf", "tesseract", [el], 3)
+
+
 def _vis_doc():  return ParsedDocument("f.pdf", "vision_llm", [], 3)
 
 
