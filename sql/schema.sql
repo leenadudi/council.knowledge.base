@@ -221,6 +221,18 @@ CREATE INDEX IF NOT EXISTS idx_resolutions_number ON resolutions(resolution_numb
 CREATE INDEX IF NOT EXISTS idx_resolutions_vendor ON resolutions(vendor);
 CREATE INDEX IF NOT EXISTS idx_votes_resolution ON votes(resolution_number);
 
+-- Documents/rows withheld from structured tables pending human review.
+CREATE TABLE IF NOT EXISTS review_flags (
+    id           SERIAL PRIMARY KEY,
+    source_file  VARCHAR(255) NOT NULL,
+    stage        VARCHAR(20)  NOT NULL,   -- parse | classify | validate
+    reason       TEXT         NOT NULL,
+    detail       TEXT,
+    resolved     BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMP    DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_review_flags_unresolved ON review_flags(resolved);
+
 -- City Council legislative session minutes: one row per session
 CREATE TABLE IF NOT EXISTS meetings (
     id                     SERIAL PRIMARY KEY,

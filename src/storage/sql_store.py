@@ -220,6 +220,22 @@ class SQLStore:
                 "parser_used": parser_used, "total_chunks": total_chunks,
             })
 
+    def insert_review_flag(self, source_file: str, stage: str, reason: str, detail: str = "") -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "INSERT INTO review_flags (source_file, stage, reason, detail) "
+                "VALUES (%s, %s, %s, %s)",
+                (source_file, stage, reason, detail),
+            )
+
+    def get_unresolved_review_flags(self) -> list[dict[str, Any]]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT source_file, stage, reason, detail, created_at "
+                "FROM review_flags WHERE resolved = FALSE ORDER BY created_at DESC"
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO resolutions
