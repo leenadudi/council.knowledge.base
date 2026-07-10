@@ -45,26 +45,45 @@ class DashboardAggregator:
             q = cur.fetchone()
             return {"year": int(year), "quarter": (q and q.get("quarter")) or ""}
 
+    # -- Grant de-duplication (same grant is re-extracted from every report) ---
+    @staticmethod
+    def _grant_key(r) -> tuple:
+        name = re.sub(r"\s+", " ", (r.get("grant_name") or "").strip().lower())
+        return (name, DashboardAggregator._dept_key(r.get("department") or ""))
+
+    @staticmethod
+    def _dedupe_grants(rows: list) -> list:
+        """Collapse repeated grant rows (the same grant re-extracted from each
+        quarterly report) into one per (normalized name, canonical department),
+        keeping the most complete row. Blank-name rows are left as-is (cannot be
+        keyed safely). Used everywhere grants are read so counts, funding totals,
+        lists, and projects never double-count."""
+        def score(r) -> int:
+            s = sum(1 for f in ("amount", "start_date", "end_date") if r.get(f) is not None)
+            if (r.get("grant_number") or "").strip():
+                s += 1
+            if (r.get("status") or "").strip().lower() in _ACTIVE_STATUSES:
+                s += 1
+            return s
+        best: dict = {}
+        blanks: list = []
+        for r in rows:
+            if not re.sub(r"\s+", " ", (r.get("grant_name") or "").strip().lower()):
+                blanks.append(r)
+                continue
+            key = DashboardAggregator._grant_key(r)
+            if key not in best or score(r) > score(best[key]):
+                best[key] = r
+        return list(best.values()) + blanks
+
     def _build_kpis(self) -> dict:
         today = self.now.date()
         soon = today + datetime.timedelta(days=90)
-        statuses = list(_ACTIVE_STATUSES)
         with self.sql.cursor() as cur:
-            cur.execute(
-                """SELECT
-                     COUNT(*) FILTER (WHERE LOWER(status) = ANY(%s) OR end_date >= %s) AS active,
-                     COUNT(*) FILTER (WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)
-                                       AND end_date IS NOT NULL AND end_date <= %s) AS expiring
-                   FROM grants""",
-                (statuses, today, statuses, today, soon),
-            )
-            g = cur.fetchone() or {}
-            cur.execute(
-                "SELECT COALESCE(SUM(amount),0) AS funds FROM grants "
-                "WHERE (LOWER(status) = ANY(%s) OR end_date >= %s)",
-                (statuses, today),
-            )
-            gf = cur.fetchone() or {}
+            # De-duplicate grants before counting/summing so KPIs aren't inflated
+            # by the same grant repeating across reports.
+            cur.execute("SELECT id, grant_name, department, amount, end_date, status FROM grants")
+            grant_rows = self._dedupe_grants([dict(r) for r in cur.fetchall()])
             # Latest reporting period only (YTD is cumulative within a year), and
             # exclude Munis subtotal/total rows — otherwise we double-count across
             # years and sum subtotals into the headline figures.
@@ -101,10 +120,19 @@ class DashboardAggregator:
             filed.discard("")
             coverage = {"filed": len(filed), "total_departments": len(roster)}
 
+        # Grant KPIs over the de-duplicated set. A grant is "live" if its status is
+        # active-ish or its end date hasn't passed; "expiring" if live and ending soon.
+        def _live(r) -> bool:
+            st = (r.get("status") or "").strip().lower()
+            return st in _ACTIVE_STATUSES or (r.get("end_date") is not None and r["end_date"] >= today)
+        active = sum(1 for r in grant_rows if _live(r))
+        expiring = sum(1 for r in grant_rows if _live(r) and r.get("end_date") is not None and r["end_date"] <= soon)
+        funds = sum(float(r["amount"]) for r in grant_rows if _live(r) and r.get("amount") is not None)
+
         return {
-            "active_grants": int(g.get("active", 0) or 0),
-            "grants_expiring_soon": int(g.get("expiring", 0) or 0),
-            "grant_funds_active": float(gf.get("funds", 0) or 0),
+            "active_grants": active,
+            "grants_expiring_soon": expiring,
+            "grant_funds_active": funds,
             "ytd_spend": float(e.get("ytd", 0) or 0),
             "revised_budget": float(e.get("budget", 0) or 0),
             "latest_period": latest,
@@ -134,7 +162,7 @@ class DashboardAggregator:
                 "FROM grants WHERE start_date IS NOT NULL ORDER BY start_date"
             )
             grants = []
-            for r in cur.fetchall():
+            for r in self._dedupe_grants([dict(x) for x in cur.fetchall()]):
                 start = r["start_date"]
                 end = r["end_date"] if r["end_date"] is not None else (_plus_one_year(start) if start else None)
                 grants.append({
@@ -196,7 +224,7 @@ class DashboardAggregator:
                 "SELECT grant_name, department, amount, start_date, end_date, status "
                 "FROM grants ORDER BY start_date DESC NULLS LAST LIMIT 200"
             )
-            grants = [dict(r) for r in cur.fetchall()]
+            grants = self._dedupe_grants([dict(r) for r in cur.fetchall()])
             cur.execute(
                 "SELECT department, COALESCE(SUM(revised_budget),0) AS revised_budget, "
                 "COALESCE(SUM(ytd_expended),0) AS ytd_expended FROM expenditures "
@@ -546,7 +574,7 @@ class DashboardAggregator:
 
             cur.execute("SELECT grant_name, department, end_date, amount FROM grants\n"
                         "            WHERE end_date IS NOT NULL ORDER BY end_date")
-            grant_rows = [dict(r) for r in cur.fetchall()]
+            grant_rows = self._dedupe_grants([dict(r) for r in cur.fetchall()])
 
         # merge authorized + spend on canonical department key
         merged: dict = {}

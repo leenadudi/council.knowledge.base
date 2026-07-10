@@ -38,6 +38,33 @@ def test_dept_key_merges_known_variants_without_over_merging():
     assert disp("city council", ["City of Harrisburg City Council", "City Council"]) == "City Council"
 
 
+def test_dedupe_grants_collapses_repeats_keeping_most_complete():
+    d = DashboardAggregator._dedupe_grants
+    rows = [
+        # same grant (name + dept variant) three times; the middle one is richest
+        {"grant_name": "TASA Grant", "department": "Public Works", "amount": None,
+         "start_date": None, "end_date": None, "status": "awarded"},
+        {"grant_name": "tasa grant", "department": "Bureau of Public Works", "amount": 1000.0,
+         "start_date": datetime.date(2025, 1, 1), "end_date": datetime.date(2026, 1, 1), "status": "awarded"},
+        {"grant_name": "TASA  Grant", "department": "Public Works", "amount": None,
+         "start_date": None, "end_date": None, "status": "awarded"},
+        # a genuinely different grant
+        {"grant_name": "CDBG", "department": "Budget & Finance", "amount": 5.0,
+         "start_date": None, "end_date": None, "status": "active"},
+        # a blank-name row is preserved (cannot key it)
+        {"grant_name": "", "department": "X", "amount": None,
+         "start_date": None, "end_date": None, "status": "active"},
+    ]
+    out = d(rows)
+    # exactly one TASA survives, and it's the most complete (amount + dates)
+    tasa = [r for r in out if (r.get("grant_name") or "").strip().lower().replace("  ", " ") == "tasa grant"]
+    assert len(tasa) == 1 and tasa[0]["amount"] == 1000.0
+    # CDBG kept, blank-name row kept
+    assert any(r["grant_name"] == "CDBG" for r in out)
+    assert any(r["grant_name"] == "" for r in out)
+    assert len(out) == 3  # TASA(1) + CDBG(1) + blank(1)
+
+
 def test_quarter_start_mapping():
     assert quarter_start(2026, "Q1") == datetime.date(2026, 1, 1)
     assert quarter_start(2026, "Q3") == datetime.date(2026, 7, 1)
@@ -47,7 +74,18 @@ def test_quarter_start_mapping():
 def test_kpis_shape_and_coverage():
     now = datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc)
     store = _FakeStore({
-        "FROM grants": [{"active": 12, "expiring": 3}],
+        # raw grant rows (incl. a duplicate of "A" that must collapse); KPIs count
+        # the de-duplicated set. today=2026-06-01, soon=2026-08-30.
+        "FROM grants": [
+            {"id": 1, "grant_name": "A", "department": "Bureau of Fire", "amount": 100.0,
+             "end_date": None, "status": "active"},
+            {"id": 2, "grant_name": "A", "department": "Bureau of Fire", "amount": 100.0,
+             "end_date": None, "status": "active"},  # duplicate -> collapses
+            {"id": 3, "grant_name": "B", "department": "Police", "amount": 50.0,
+             "end_date": datetime.date(2026, 7, 1), "status": "awarded"},   # live + expiring
+            {"id": 4, "grant_name": "C", "department": "Parks", "amount": 9.0,
+             "end_date": datetime.date(2025, 1, 1), "status": "closed"},     # not live
+        ],
         "FROM expenditures": [{"ytd": 4200000.0, "budget": 9000000.0}],
         "MAX(year)": [{"year": 2026}],
         "MAX(quarter)": [{"quarter": "Q1"}],
@@ -63,8 +101,10 @@ def test_kpis_shape_and_coverage():
         "document_type='unclassified'": [{"c": 1}],
     })
     kpis = DashboardAggregator(store, now=now)._build_kpis()
-    assert kpis["active_grants"] == 12
-    assert kpis["grants_expiring_soon"] == 3
+    # A (dup collapsed) + B are live; C is closed & past. B expires within 90 days.
+    assert kpis["active_grants"] == 2
+    assert kpis["grants_expiring_soon"] == 1
+    assert kpis["grant_funds_active"] == 150.0
     assert kpis["ytd_spend"] == 4200000.0
     assert kpis["revised_budget"] == 9000000.0
     assert kpis["latest_period"] == {"year": 2026, "quarter": "Q1"}
@@ -307,8 +347,9 @@ def test_build_resolutions_none_passthrough():
 
 def test_build_includes_new_panels():
     store = _FakeStore({
-        "FILTER (WHERE": [{"active": 0, "expiring": 0}],
-        "SUM(amount)": [{"funds": 500000.0}],
+        # kpis now reads grant rows and sums the de-duplicated live set
+        "FROM grants": [{"id": 1, "grant_name": "G", "department": "D", "amount": 500000.0,
+                         "end_date": None, "status": "active"}],
         "FROM expenditures": [{"ytd": 0, "budget": 0}],
         "MAX(year)": [{"year": None}], "FROM resolutions": [],
         "document_type='unclassified'": [{"c": 0}],

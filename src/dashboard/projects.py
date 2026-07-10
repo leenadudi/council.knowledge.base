@@ -76,10 +76,23 @@ class Projects:
         with self.sql.cursor() as cur:
             cur.execute("SELECT id, grant_name, department, amount, start_date, "
                         "end_date, status, source_file FROM grants")
-            grant_rows = [dict(r) for r in cur.fetchall()]
+            grant_rows = DashboardAggregator._dedupe_grants([dict(r) for r in cur.fetchall()])
             cur.execute("SELECT resolution_number, title, vendor, amount, department, "
                         "adopted_date, status, source_file FROM resolutions")
             res_rows = [dict(r) for r in cur.fetchall()]
+
+        # De-duplicate resolutions by number (defensive — same resolution could be
+        # extracted from more than one document), keeping the first seen.
+        seen_res: set = set()
+        deduped_res = []
+        for r in res_rows:
+            rn = (r.get("resolution_number") or "").strip()
+            if rn and rn in seen_res:
+                continue
+            if rn:
+                seen_res.add(rn)
+            deduped_res.append(r)
+        res_rows = deduped_res
 
         projects: list[dict] = []
         administrative: list[dict] = []
