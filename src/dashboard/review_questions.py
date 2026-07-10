@@ -293,15 +293,57 @@ class ReviewQuestions:
                 })
         return findings
 
+    # -- signal: department behind on filing ----------------------------------
+    def _quiet_department_findings(self):
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT department, quarter, year FROM documents "
+                        "WHERE document_type = 'quarterly_report' "
+                        "AND department IS NOT NULL AND department <> ''")
+            rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            return {}
+
+        by_key: dict = {}
+        for r in rows:
+            k = _dept_key(r["department"])
+            if not k:
+                continue
+            acc = by_key.setdefault(k, {"names": set(), "latest": (0, "")})
+            acc["names"].add(r["department"])
+            p = _period_tuple(r.get("year"), r.get("quarter"))
+            if p > acc["latest"]:
+                acc["latest"] = p
+
+        overall = max((acc["latest"] for acc in by_key.values()), default=(0, ""))
+        if not overall[0]:
+            return {}
+
+        findings: dict = {}
+        for k, acc in by_key.items():
+            if acc["latest"] >= overall:
+                continue
+            display = _dept_display(k, acc["names"])
+            last_lbl = _period_label(*acc["latest"])
+            overall_lbl = _period_label(*overall)
+            since = last_lbl or "the period on record"
+            findings.setdefault(k, []).append({
+                "signal": "quiet_department", "department": display, "priority": "high",
+                "question": (f"{display} hasn't filed a quarterly report since {since} "
+                             f"(latest on record is {overall_lbl}). Please provide an update."),
+                "evidence": {"last_filed_period": last_lbl or None, "latest_period": overall_lbl},
+            })
+        return findings
+
     # -- assembly -------------------------------------------------------------
     def build(self) -> dict:
         goals, meta = self._goal_findings()
         budget = self._budget_findings()
         vac = self._vacancy_findings()
         grant = self._grant_findings()
+        quiet = self._quiet_department_findings()
 
         by_key: dict = {}
-        for src in (goals, budget, vac, grant):
+        for src in (goals, budget, vac, grant, quiet):
             for k, v in src.items():
                 by_key.setdefault(k, []).extend(v)
 

@@ -262,6 +262,35 @@ def test_grant_signal_caps_per_department():
     assert "Grant 8" in d["findings"][0]["question"]
 
 
+DOCS = "FROM documents"
+
+
+def test_quiet_department_flagged_when_behind():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        DOCS: [
+            {"department": "Bureau of Fire", "quarter": "Q2", "year": 2026},   # current
+            {"department": "City Planning", "quarter": "Q4", "year": 2025},    # behind
+        ],
+    })
+    depts = ReviewQuestions(store).build()["departments"]
+    quiet = [d for d in depts if d["findings"][0]["signal"] == "quiet_department"]
+    assert len(quiet) == 1 and quiet[0]["department"] == "City Planning"
+    f = quiet[0]["findings"][0]
+    assert f["priority"] == "high" and "Q4 2025" in f["question"]
+
+
+def test_no_quiet_department_when_all_current():
+    store = _FakeStore({
+        GOALS: [], PERIOD: [], BUDGET: [],
+        DOCS: [
+            {"department": "Bureau of Fire", "quarter": "Q2", "year": 2026},
+            {"department": "Public Works", "quarter": "Q2", "year": 2026},
+        ],
+    })
+    assert ReviewQuestions(store).build()["departments"] == []
+
+
 # ── phrasing pass (mocked LLM — no real spend) ───────────────────────────────
 
 class _FakeMsg:
