@@ -59,7 +59,50 @@ def test_extract_quarterly_merges_batches_tags_and_filters():
     assert "source_text" not in v and "confidence" not in v
 
 
+def test_extract_quarterly_dedups_identical_rows_across_batches():
+    # Same vacancy section spans a batch boundary → extracted twice, identically.
+    dup = {"position_title": "Patrol Officer", "status": "open", "count": 30,
+           "source_text": "Patrol Officer Vacancies: 30", "confidence": "high"}
+    batch1 = json.dumps({"vacancies": [dup]})
+    batch2 = json.dumps({"vacancies": [dup,
+        {"position_title": "Supervisor", "status": "open", "count": 7,
+         "source_text": "Supervisor Vacancies: 7", "confidence": "high"}]})
+    from src.config import Settings
+    cfg = Settings(); cfg.extraction_batch_size = 1
+    ext = SQLExtractor(settings=cfg, llm=_SeqClient([batch1, batch2]))
+    out = ext.extract_quarterly([_chunk("a", 0), _chunk("b", 1)],
+                                department="Bureau of Police", quarter="Q1", year=2026)
+    titles = sorted(r["position_title"] for r in out["vacancies"])
+    assert titles == ["Patrol Officer", "Supervisor"]  # Patrol Officer collapsed from 2 → 1
+
+
 def test_extract_quarterly_empty_and_bad_json_safe():
     assert SQLExtractor(llm=_SeqClient(["{}"])).extract_quarterly([]) == {}
     ext = SQLExtractor(llm=_SeqClient(["not json"]))
     assert ext.extract_quarterly([_chunk("x")]) == {}
+
+
+# --- shared primitives the async Batch API path calls directly ---
+
+def test_parse_quarterly_response_filters_and_is_safe():
+    from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+    payload = json.dumps({"vacancies": [
+        {"position_title": "Patrol Officer", "status": "open", "count": 25,
+         "source_text": "x", "confidence": "high"},
+        {"position_title": "Ghost", "status": "open", "count": 1, "source_text": "x", "confidence": "low"}]})
+    out = SQLExtractor.parse_quarterly_response(payload, QuarterlyReportExtraction)
+    assert [r["position_title"] for r in out["vacancies"]] == ["Patrol Officer"]
+    assert SQLExtractor.parse_quarterly_response("garbage", QuarterlyReportExtraction) == {}
+
+
+def test_merge_quarterly_parts_tags_and_dedups():
+    dup = {"position_title": "Patrol Officer", "status": "open", "count": 30,
+           "source_text": "x", "confidence": "high"}
+    parts = [{"vacancies": [dict(dup)]},
+             {"vacancies": [dict(dup), {"position_title": "Supervisor", "status": "open",
+                                        "count": 7, "source_text": "y", "confidence": "high"}]}]
+    out = SQLExtractor.merge_quarterly_parts(parts, "Bureau of Police", "Q1", 2026)
+    assert sorted(r["position_title"] for r in out["vacancies"]) == ["Patrol Officer", "Supervisor"]
+    v = out["vacancies"][0]
+    assert v["department"] == "Bureau of Police" and v["year"] == 2026
+    assert "source_text" not in v and "confidence" not in v

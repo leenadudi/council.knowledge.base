@@ -24,46 +24,48 @@ class SQLExtractor:
         self.cfg = settings or get_settings()
         self.client = llm or TrackedAnthropic(self.cfg, call_site="ingestion.sql_extractor")
 
-    def _schema_extract_batch(self, chunks, schema_cls) -> dict[str, list[dict]]:
-        """One LLM call over a chunk batch against schema_cls. Returns raw dict of
-        lists filtered to high/medium confidence. Never raises → {} on failure."""
+    # -- shared quarterly extraction primitives (used by the sync path here AND by
+    #    the async Batch API backfill in scripts/reextract_quarterly_batch.py) ----
+
+    @staticmethod
+    def quarterly_prompt(texts: list[str], schema_cls) -> str:
+        """Build the extraction prompt for one chunk-batch. Format-agnostic: the model
+        finds targets wherever they appear rather than relying on section headings."""
+        body = "\n\n---\n\n".join(texts)
+        schema_json = json.dumps(schema_cls.model_json_schema())
+        return (
+            "You are a precise data extractor for City of Harrisburg quarterly reports.\n"
+            "Extract EVERYTHING matching this JSON schema, wherever it appears in the text "
+            "(sections are labeled differently by each department — do not rely on headings).\n"
+            f"{schema_json}\n\n"
+            "Rules: include a verbatim 'source_text' for every row; set 'confidence' "
+            "high|medium|low and omit low-confidence rows; dollar amounts as plain numbers; "
+            "dates YYYY-MM-DD or null. Return ONLY the JSON object.\n\nText:\n---\n" + body + "\n---"
+        )
+
+    @staticmethod
+    def parse_quarterly_response(raw: str, schema_cls) -> dict[str, list[dict]]:
+        """Validate one LLM response against schema_cls; keep high/medium confidence
+        rows. Never raises → {} on failure (bad JSON, schema mismatch)."""
         try:
-            text = "\n\n---\n\n".join(c.text for c in chunks)
-            schema_json = json.dumps(schema_cls.model_json_schema())
-            prompt = (
-                "You are a precise data extractor for City of Harrisburg quarterly reports.\n"
-                "Extract EVERYTHING matching this JSON schema, wherever it appears in the text "
-                "(sections are labeled differently by each department — do not rely on headings).\n"
-                f"{schema_json}\n\n"
-                "Rules: include a verbatim 'source_text' for every row; set 'confidence' "
-                "high|medium|low and omit low-confidence rows; dollar amounts as plain numbers; "
-                "dates YYYY-MM-DD or null. Return ONLY the JSON object.\n\nText:\n---\n" + text + "\n---"
-            )
-            msg = self.client.messages.create(
-                model=self.cfg.synthesis_model, max_tokens=8000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = msg.content[0].text.strip()
+            raw = raw.strip()
             raw = raw[raw.find("{"): raw.rfind("}") + 1]
             data = schema_cls.model_validate_json(raw).model_dump()
             return {k: [r for r in v if r.get("confidence") in ("high", "medium")]
                     for k, v in data.items() if v}
         except Exception as e:
-            logger.warning("quarterly batch extraction failed: %s", e)
+            logger.warning("quarterly response parse failed: %s", e)
             return {}
 
-    def extract_quarterly(self, chunks, department: str = "", quarter: str = "",
-                          year: Optional[int] = None) -> dict[str, list[dict[str, Any]]]:
-        """Unified schema-driven extraction for a whole quarterly report. Batches ALL
-        chunks (no routes_to_sql gate, no keyword filter), merges rows across batches,
-        tags each with department/quarter/year, strips extraction-only fields."""
-        from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
-        if not chunks:
-            return {}
+    @staticmethod
+    def merge_quarterly_parts(parts: list[dict], department: str, quarter: str,
+                              year: Optional[int]) -> dict[str, list[dict[str, Any]]]:
+        """Merge per-batch extraction results into one report's rows: concatenate,
+        strip extraction-only fields, tag with period, then collapse exact duplicates.
+        A section straddling a batch boundary gets extracted in >1 batch → identical
+        rows; dedup drops those while leaving genuinely distinct rows untouched."""
         merged: dict[str, list] = {}
-        batch_size = self.cfg.extraction_batch_size
-        for i in range(0, len(chunks), batch_size):
-            part = self._schema_extract_batch(chunks[i:i + batch_size], QuarterlyReportExtraction)
+        for part in parts:
             for key, rows in part.items():
                 merged.setdefault(key, []).extend(rows)
         for rows in merged.values():
@@ -73,7 +75,42 @@ class SQLExtractor:
                 r["department"] = department
                 r["quarter"] = quarter
                 r["year"] = year
-        return {k: v for k, v in merged.items() if v}
+
+        def _dedup(rows):
+            seen, out = set(), []
+            for r in rows:
+                key = tuple(sorted((str(k), str(v)) for k, v in r.items()))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(r)
+            return out
+        return {k: _dedup(v) for k, v in merged.items() if v}
+
+    def _schema_extract_batch(self, chunks, schema_cls) -> dict[str, list[dict]]:
+        """One synchronous LLM call over a chunk batch. Never raises → {} on failure."""
+        try:
+            msg = self.client.messages.create(
+                model=self.cfg.synthesis_model, max_tokens=8000,
+                messages=[{"role": "user", "content": self.quarterly_prompt([c.text for c in chunks], schema_cls)}],
+            )
+            return self.parse_quarterly_response(msg.content[0].text, schema_cls)
+        except Exception as e:
+            logger.warning("quarterly batch extraction failed: %s", e)
+            return {}
+
+    def extract_quarterly(self, chunks, department: str = "", quarter: str = "",
+                          year: Optional[int] = None) -> dict[str, list[dict[str, Any]]]:
+        """Unified schema-driven extraction for a whole quarterly report (synchronous).
+        Batches ALL chunks (no routes_to_sql gate, no keyword filter), then merges +
+        dedups + tags. The async Batch API path reuses the same primitives."""
+        from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+        if not chunks:
+            return {}
+        batch_size = self.cfg.extraction_batch_size
+        parts = [self._schema_extract_batch(chunks[i:i + batch_size], QuarterlyReportExtraction)
+                 for i in range(0, len(chunks), batch_size)]
+        return self.merge_quarterly_parts(parts, department, quarter, year)
 
     def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
         """

@@ -19,6 +19,28 @@ logger = logging.getLogger(__name__)
 
 psycopg2.extras.register_uuid()
 
+# Bounded VARCHAR limits for the quarterly-report structured tables. The schema-driven
+# extractor can emit an over-long value (e.g. a project "status" written as a sentence);
+# without this guard a single row aborts the whole batch backfill. Keyed by column name
+# (same-named columns share the tightest limit). goals.* columns are TEXT → not listed.
+_VARCHAR_LIMITS: dict[str, int] = {
+    "department": 100, "sub_department": 100, "account_number": 50, "line_item": 200,
+    "metric_name": 200, "metric_unit": 50, "grant_name": 255, "grant_number": 100,
+    "status": 50, "position_title": 200, "project_name": 300, "funding_source": 200,
+    "quarter": 5,
+}
+
+
+def _clip(row: dict) -> dict:
+    """Truncate over-long string fields to their column's VARCHAR limit, in place.
+    Logs each truncation so it can be reviewed. Prevents StringDataRightTruncation."""
+    for key, limit in _VARCHAR_LIMITS.items():
+        v = row.get(key)
+        if isinstance(v, str) and len(v) > limit:
+            logger.warning("truncating %s: %d→%d chars (%r)", key, len(v), limit, v[:60])
+            row[key] = v[:limit]
+    return row
+
 
 def _json_default(o: Any):
     """Serialize types pulled from Postgres (Decimal, date) that json can't handle."""
@@ -138,7 +160,7 @@ class SQLStore:
                 row.setdefault("account_number", None)
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
         logger.debug("Inserted %d expenditure rows from chunk %s", len(rows), source_chunk_id)
 
     def insert_metric_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
@@ -155,7 +177,7 @@ class SQLStore:
                 row.setdefault("metric_unit", None)
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
 
     def insert_grant_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -184,7 +206,7 @@ class SQLStore:
                 row["end_date"] = _norm_date(row.get("end_date"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
 
     def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str) -> None:
         sql = """
@@ -199,7 +221,7 @@ class SQLStore:
                 # extractor emits "count"; the column is open_count. Tolerate either.
                 row.setdefault("open_count", row.get("count"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
 
     def record_document(self, source_file: str, department: str, document_type: str,
                         quarter: str, year: int, parser_used: str, total_chunks: int) -> None:
@@ -350,6 +372,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("department"), r.get("project_name"), r.get("description"),
                     r.get("status"), r.get("funding_source"), r.get("quarter"),
