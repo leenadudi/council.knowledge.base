@@ -95,6 +95,27 @@ def test_parse_quarterly_response_filters_and_is_safe():
     assert SQLExtractor.parse_quarterly_response("garbage", QuarterlyReportExtraction) == {}
 
 
+def test_merge_drops_subtotal_expenditure_rows():
+    parts = [{"expenditures": [
+        {"line_item": "Building Maintenance", "revised_budget": 100, "source_text": "x", "confidence": "high"},
+        {"line_item": "TOTAL VEH/EQUIP PARTS", "revised_budget": 500, "source_text": "y", "confidence": "high"},
+        {"line_item": "total sewerage charges", "revised_budget": 50, "source_text": "z", "confidence": "high"}]}]
+    out = SQLExtractor.merge_quarterly_parts(parts, "Dept", "Q1", 2025)
+    items = [r["line_item"] for r in out["expenditures"]]
+    assert items == ["Building Maintenance"]  # both TOTAL/total subtotal rows dropped
+
+
+def test_merge_dedups_projects_by_name_keeping_longest():
+    parts = [{"projects": [
+        {"project_name": "Migration Project", "description": "short", "source_text": "a", "confidence": "high"},
+        {"project_name": "migration project ", "description": "a much longer description here", "source_text": "b", "confidence": "high"},
+        {"project_name": "Other", "description": "", "source_text": "c", "confidence": "high"}]}]
+    out = SQLExtractor.merge_quarterly_parts(parts, "Dept", "Q1", 2025)
+    assert len(out["projects"]) == 2  # the two same-name variants collapsed to one
+    mig = next(r for r in out["projects"] if r["project_name"].strip().lower() == "migration project")
+    assert mig["description"] == "a much longer description here"  # kept the most-detailed
+
+
 def test_merge_quarterly_parts_tags_and_dedups():
     dup = {"position_title": "Patrol Officer", "status": "open", "count": 30,
            "source_text": "x", "confidence": "high"}

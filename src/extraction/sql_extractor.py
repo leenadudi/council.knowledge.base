@@ -68,6 +68,14 @@ class SQLExtractor:
         for part in parts:
             for key, rows in part.items():
                 merged.setdefault(key, []).extend(rows)
+        # Deterministic cleanup: drop expenditure subtotal/total rows (e.g.
+        # "TOTAL VEH/EQUIP PARTS AND SUPPLIES") — they duplicate the detail lines
+        # they sum, so keeping them double-counts any spending aggregate.
+        if merged.get("expenditures"):
+            merged["expenditures"] = [
+                r for r in merged["expenditures"]
+                if not str(r.get("line_item", "")).strip().upper().startswith("TOTAL")
+            ]
         for rows in merged.values():
             for r in rows:
                 r.pop("source_text", None)
@@ -85,7 +93,25 @@ class SQLExtractor:
                 seen.add(key)
                 out.append(r)
             return out
-        return {k: _dedup(v) for k, v in merged.items() if v}
+
+        # Projects: the same initiative appears across several chunks with slightly
+        # different description/status, so exact-row dedup misses it (observed:
+        # "Operation Municipal Migration Project" ×6). Collapse by normalized name,
+        # keeping the most-detailed row (longest description).
+        def _dedup_projects(rows):
+            best: dict[str, dict] = {}
+            for r in rows:
+                k = str(r.get("project_name", "")).strip().lower()
+                if k not in best or len(str(r.get("description") or "")) > len(str(best[k].get("description") or "")):
+                    best[k] = r
+            return list(best.values())
+
+        out = {}
+        for k, v in merged.items():
+            if not v:
+                continue
+            out[k] = _dedup_projects(_dedup(v)) if k == "projects" else _dedup(v)
+        return out
 
     def _schema_extract_batch(self, chunks, schema_cls) -> dict[str, list[dict]]:
         """One synchronous LLM call over a chunk batch. Never raises → {} on failure."""

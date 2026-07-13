@@ -35,17 +35,17 @@ _BATCH_OUT_PER_TOK = 15.0 / 1_000_000 * 0.5
 _POLL_SECONDS = 30
 
 
-def _build_requests(store, ext, batch_size, limit=None):
+def _build_requests(store, ext, batch_size, limit=None, skip=0):
     """Return (requests, meta). meta[ridx] = per-report info for writing results back.
     custom_id encodes report + chunk-batch index: 'r{ridx}_b{bidx}'.
-    limit caps the number of reports (for small live tests)."""
+    Ordering is deterministic, so skip/limit select a stable slice — skip past reports
+    already backfilled, limit caps the count (for small tests)."""
     with store.cursor() as cur:
         cur.execute("SELECT DISTINCT source_file, department, quarter, year "
                     "FROM document_chunks WHERE document_type='quarterly_report' "
                     "ORDER BY department, year, quarter")
         reports = [dict(r) for r in cur.fetchall()]
-    if limit is not None:
-        reports = reports[:limit]
+    reports = reports[skip:] if limit is None else reports[skip:skip + limit]
 
     requests, meta = [], {}
     for ridx, rep in enumerate(reports):
@@ -92,14 +92,14 @@ def _write_report(store, ext, m, parts):
     print(f"   {m['source_file']}\n      {m['department']} {m['quarter']} {m['year']} -> {counts}")
 
 
-def main(write: bool, limit=None, from_batch=None):
+def main(write: bool, limit=None, from_batch=None, skip=0):
     cfg = get_settings()
     store = SQLStore(cfg); store.connect()
     ext = SQLExtractor(cfg)  # used only for its stateless prompt/merge helpers
-    requests, meta = _build_requests(store, ext, cfg.extraction_batch_size, limit=limit)
+    requests, meta = _build_requests(store, ext, cfg.extraction_batch_size, limit=limit, skip=skip)
     nreq = len(requests)
-    if limit is not None:
-        print(f"[--limit {limit}] reports: " + ", ".join(
+    if limit is not None or skip:
+        print(f"[skip={skip} limit={limit}] reports: " + ", ".join(
             f"{m['department']} {m['quarter']} {m['year']}" for m in meta.values()))
     mode = ("REUSE batch " + from_batch) if from_batch else \
         ("WRITE (submit batch)" if write else "DRY-RUN (no submit, no spend)")
@@ -173,4 +173,7 @@ if __name__ == "__main__":
     _from = None
     if "--from-batch" in sys.argv:
         _from = sys.argv[sys.argv.index("--from-batch") + 1]
-    main(write="--write" in sys.argv, limit=_limit, from_batch=_from)
+    _skip = 0
+    if "--skip" in sys.argv:
+        _skip = int(sys.argv[sys.argv.index("--skip") + 1])
+    main(write="--write" in sys.argv, limit=_limit, from_batch=_from, skip=_skip)
