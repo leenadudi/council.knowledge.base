@@ -251,6 +251,20 @@ CREATE TABLE IF NOT EXISTS review_flags (
 );
 CREATE INDEX IF NOT EXISTS idx_review_flags_unresolved ON review_flags(resolved);
 
+-- Agent-proposed structured-data types/mappings for unclassified docs, awaiting human
+-- review (see docs/superpowers/specs/2026-07-14-adaptive-structured-ingestion-design.md).
+CREATE TABLE IF NOT EXISTS type_proposals (
+    id            SERIAL PRIMARY KEY,
+    source_file   VARCHAR(255) NOT NULL,
+    proposed_type VARCHAR(100),
+    status        VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending|approved|rejected
+    payload       JSONB NOT NULL,
+    created_at    TIMESTAMP DEFAULT NOW(),
+    reviewed_at   TIMESTAMP,
+    reviewer_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_type_proposals_status ON type_proposals(status);
+
 -- City Council legislative session minutes: one row per session
 CREATE TABLE IF NOT EXISTS meetings (
     id                     SERIAL PRIMARY KEY,
