@@ -147,6 +147,18 @@ def admin_costs():
     })
 
 
+@app.route("/proposals", methods=["GET"])
+def proposals():
+    """Read-only: pending structured-data type proposals from ingest triage (M1)."""
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    try:
+        return jsonify(_sql_store.get_pending_type_proposals())
+    except Exception:
+        logger.exception("proposals route failed")
+        return jsonify({"error": "could not load proposals"}), 500
+
+
 @app.route("/feedback", methods=["POST"])
 def feedback():
     if not _ready:

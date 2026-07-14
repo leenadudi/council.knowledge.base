@@ -1339,6 +1339,34 @@ async function loadData(){
   render();            // re-render current tab now that data is in
 }
 boot();
+
+// Read-only structured-data proposals from ingest triage (M1). Self-contained and
+// hidden unless there are pending proposals, so it never clutters the dashboard.
+(async function(){
+  try{
+    const r = await fetch('/proposals'); if(!r.ok) return;
+    const items = await r.json(); if(!Array.isArray(items) || !items.length) return;
+    const panel = document.createElement('section');
+    panel.style.cssText = 'max-width:1100px;margin:24px auto;padding:0 26px';
+    panel.innerHTML =
+      '<h2 style="font-size:15px;font-weight:700;color:#16344f">Proposed data types (pending review)</h2>'
+      + '<div style="font-size:12px;color:#8a867d;margin-bottom:8px">'
+      + 'Structured data the ingest agent found with no clean home yet. Review-only for now.</div>'
+      + items.map(function(p){
+          var rts = ((p.payload && p.payload.record_types) || []).map(function(rt){
+            var tgt = rt.target==='existing'
+              ? 'map → '+esc(rt.existing_table||'?')
+              : 'new table';
+            return '<li>'+esc(rt.name||'')+' <span style="color:#8a867d">('+tgt+')</span></li>';
+          }).join('');
+          return '<div class="card" style="padding:12px;margin:8px 0">'
+            + '<div style="font-weight:600">'+esc(p.proposed_type||'?')+'</div>'
+            + '<div style="color:#8a867d;font-size:12px">'+esc(p.source_file||'')+'</div>'
+            + '<ul style="margin:6px 0 0 16px;font-size:13px">'+rts+'</ul></div>';
+        }).join('');
+    document.body.appendChild(panel);
+  }catch(e){ /* best-effort; never break the dashboard */ }
+})();
 </script>
 </body>
 </html>
