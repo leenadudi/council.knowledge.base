@@ -17,7 +17,9 @@ def test_prompt_states_quarter_is_quoted_string():
 
 
 def test_prompt_warns_grants_has_no_quarter_year():
-    assert "grants` table has NO `quarter`" in _CLASSIFY_PROMPT
+    # The prompt lists the tables that lack quarter/year; grants must be among them.
+    assert "have NO `quarter`/`year`" in _CLASSIFY_PROMPT
+    assert "`grants`" in _CLASSIFY_PROMPT
 
 
 def test_prompt_forbids_unbound_cypher_parameters():
