@@ -34,7 +34,8 @@ Given the user's question, produce a retrieval plan as JSON:
   "vector_query": "search terms ...",   // semantic search string, or null
   "graph_query": "MATCH ...",           // Cypher query, or null
   "metadata_filters": {{}},              // department/quarter/year filters extracted from the question
-  "reasoning": "..."
+  "reasoning": "...",
+  "resolved_question": "the question rewritten as a fully standalone question, or the original question unchanged if it is already self-contained"
 }}
 
 SQL schema reference:
@@ -73,11 +74,24 @@ Rules:
 - Cross-store questions → parallel with both required stores
 - If the question mentions a specific department, add it to metadata_filters
 - If the question mentions a specific quarter/year, add it to metadata_filters
+- FOLLOW-UPS: If a "Prior conversation" section is present AND the user question depends on it (pronouns like "that"/"those"/"it", ellipsis, "what about <X>", "break that down"), rewrite the question into a fully self-contained question in `resolved_question` and build the store queries from that rewrite. If the question is already self-contained or is a fresh unrelated topic, set `resolved_question` to the original question and ignore the prior conversation.
 
-User question: {question}
+{prior_conversation}User question: {question}
 
 Return ONLY the JSON object, no explanation.
 """
+
+
+def _build_prior_conversation(history: Optional[list[dict]]) -> str:
+    """Render prior turns as a delimited prompt block, or '' when none."""
+    if not history:
+        return ""
+    lines = ["Prior conversation (most recent last):"]
+    for turn in history:
+        q = str(turn.get("question", "")).strip()
+        a = str(turn.get("answer", "")).strip()
+        lines.append(f"- Q: {q}\n  A: {a}")
+    return "\n".join(lines) + "\n\n"
 
 
 class QueryClassifier:
@@ -85,17 +99,23 @@ class QueryClassifier:
         self.cfg = settings or get_settings()
         self.client = llm or TrackedAnthropic(self.cfg, call_site="query.classifier")
 
-    def classify(self, question: str, query_id: Optional[str] = None) -> QueryPlan:
+    def classify(
+        self,
+        question: str,
+        history: Optional[list[dict]] = None,
+        query_id: Optional[str] = None,
+    ) -> QueryPlan:
         """Classify the question and return a retrieval plan."""
         try:
+            prompt = _CLASSIFY_PROMPT.format(
+                question=question,
+                prior_conversation=_build_prior_conversation(history),
+            )
             msg = self.client.messages.create(
                 model=self.cfg.query_classifier_model,
                 max_tokens=1024,
                 query_id=query_id,
-                messages=[{
-                    "role": "user",
-                    "content": _CLASSIFY_PROMPT.format(question=question),
-                }],
+                messages=[{"role": "user", "content": prompt}],
             )
             raw = msg.content[0].text
             return _parse_plan(raw)
