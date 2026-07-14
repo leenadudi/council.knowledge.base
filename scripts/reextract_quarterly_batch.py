@@ -12,6 +12,7 @@ Usage:
   python3 scripts/reextract_quarterly_batch.py            # dry-run: build + estimate, NO submit, NO spend
   python3 scripts/reextract_quarterly_batch.py --write     # submit batch, poll, write results
 """
+import re
 import sys
 import time
 from collections import defaultdict
@@ -45,6 +46,13 @@ def _build_requests(store, ext, batch_size, limit=None, skip=0):
                     "FROM document_chunks WHERE document_type='quarterly_report' "
                     "ORDER BY department, year, quarter")
         reports = [dict(r) for r in cur.fetchall()]
+    # Duplicate guard: skip re-uploaded copies like "…Q4 2025 (1).pdf" so the same
+    # dept+period isn't double-counted (matches the resolutions re-ingest precedent).
+    dup = [r for r in reports if re.search(r" \(\d+\)\.pdf$", r["source_file"])]
+    if dup:
+        for r in dup:
+            print(f"[dup-skip] {r['source_file']}")
+        reports = [r for r in reports if r not in dup]
     reports = reports[skip:] if limit is None else reports[skip:skip + limit]
 
     requests, meta = [], {}
@@ -66,7 +74,7 @@ def _build_requests(store, ext, batch_size, limit=None, skip=0):
             requests.append(Request(
                 custom_id=f"r{ridx}_b{bidx}",
                 params=MessageCreateParamsNonStreaming(
-                    model=ext.cfg.synthesis_model, max_tokens=8000,
+                    model=ext.cfg.synthesis_model, max_tokens=16000,  # avoid truncating dense batches
                     messages=[{"role": "user", "content": prompt}]),
             ))
     return requests, meta

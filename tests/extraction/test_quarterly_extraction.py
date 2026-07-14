@@ -78,8 +78,17 @@ def test_extract_quarterly_dedups_identical_rows_across_batches():
 
 def test_extract_quarterly_empty_and_bad_json_safe():
     assert SQLExtractor(llm=_SeqClient(["{}"])).extract_quarterly([]) == {}
-    ext = SQLExtractor(llm=_SeqClient(["not json"]))
+    ext = SQLExtractor(llm=_SeqClient(["not json", "still not json", "nope"]))  # all attempts fail
     assert ext.extract_quarterly([_chunk("x")]) == {}
+
+
+def test_extract_quarterly_retries_on_bad_json():
+    good = json.dumps({"vacancies": [{"position_title": "Officer", "status": "open", "count": 3,
+                                       "source_text": "x", "confidence": "high"}]})
+    # first attempt returns malformed JSON, retry returns valid → should recover
+    ext = SQLExtractor(llm=_SeqClient(["{ broken json", good]))
+    out = ext.extract_quarterly([_chunk("a")], department="D", quarter="Q1", year=2025)
+    assert out["vacancies"][0]["position_title"] == "Officer"
 
 
 # --- shared primitives the async Batch API path calls directly ---

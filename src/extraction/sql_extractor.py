@@ -44,9 +44,11 @@ class SQLExtractor:
         )
 
     @staticmethod
-    def parse_quarterly_response(raw: str, schema_cls) -> dict[str, list[dict]]:
+    def parse_quarterly_response(raw: str, schema_cls, raise_on_error: bool = False) -> dict[str, list[dict]]:
         """Validate one LLM response against schema_cls; keep high/medium confidence
-        rows. Never raises → {} on failure (bad JSON, schema mismatch)."""
+        rows. By default never raises → {} on failure (used by the async batch path,
+        which can't re-roll a completed result). With raise_on_error=True it re-raises
+        so the sync path can retry (the model occasionally emits invalid JSON)."""
         try:
             raw = raw.strip()
             raw = raw[raw.find("{"): raw.rfind("}") + 1]
@@ -54,6 +56,8 @@ class SQLExtractor:
             return {k: [r for r in v if r.get("confidence") in ("high", "medium")]
                     for k, v in data.items() if v}
         except Exception as e:
+            if raise_on_error:
+                raise
             logger.warning("quarterly response parse failed: %s", e)
             return {}
 
@@ -113,17 +117,22 @@ class SQLExtractor:
             out[k] = _dedup_projects(_dedup(v)) if k == "projects" else _dedup(v)
         return out
 
-    def _schema_extract_batch(self, chunks, schema_cls) -> dict[str, list[dict]]:
-        """One synchronous LLM call over a chunk batch. Never raises → {} on failure."""
-        try:
-            msg = self.client.messages.create(
-                model=self.cfg.synthesis_model, max_tokens=8000,
-                messages=[{"role": "user", "content": self.quarterly_prompt([c.text for c in chunks], schema_cls)}],
-            )
-            return self.parse_quarterly_response(msg.content[0].text, schema_cls)
-        except Exception as e:
-            logger.warning("quarterly batch extraction failed: %s", e)
-            return {}
+    def _schema_extract_batch(self, chunks, schema_cls, attempts: int = 3) -> dict[str, list[dict]]:
+        """One synchronous LLM call over a chunk batch, with retry. The model
+        occasionally emits invalid JSON (a stray unescaped char) non-deterministically —
+        a re-roll almost always fixes it, so retry on parse failure. Also uses a 16000
+        max_tokens ceiling so dense batches don't truncate. Never raises → {}."""
+        prompt = self.quarterly_prompt([c.text for c in chunks], schema_cls)
+        for attempt in range(attempts):
+            try:
+                msg = self.client.messages.create(
+                    model=self.cfg.synthesis_model, max_tokens=16000,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return self.parse_quarterly_response(msg.content[0].text, schema_cls, raise_on_error=True)
+            except Exception as e:
+                logger.warning("quarterly batch extract attempt %d/%d failed: %s", attempt + 1, attempts, e)
+        return {}
 
     def extract_quarterly(self, chunks, department: str = "", quarter: str = "",
                           year: Optional[int] = None) -> dict[str, list[dict[str, Any]]]:
