@@ -31,6 +31,8 @@ from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
 from src.ingestion.registry import get_document_type
+from src.ingestion.triage import run_triage, schema_summary
+from src.llm.client import TrackedAnthropic
 from src.models import Chunk, ChunkMetadata
 from src.storage.graph_store import GraphStore
 from src.storage.sql_store import SQLStore
@@ -47,6 +49,7 @@ class IngestionPipeline:
         self.graph_store = GraphStore(self.cfg)
         self.sql_extractor = SQLExtractor(self.cfg)
         self.graph_extractor = GraphExtractor(self.cfg)
+        self.triage_llm = TrackedAnthropic(self.cfg, call_site="ingestion.triage")
         self._voyage = voyageai.Client(api_key=self.cfg.voyage_api_key)
 
     def initialize_stores(self) -> None:
@@ -298,6 +301,24 @@ class IngestionPipeline:
         self.vector_store.upsert_chunks(chunks)
 
         if quarantined or doc_type is None:
+            # Unclassified (no known type) → triage for structured data worth proposing.
+            # Only here (not for parse/garble quarantine of a KNOWN type) and only if
+            # enabled. Triage never writes structured rows or mutates schema (M1); it just
+            # queues a proposal for human review. Failures are non-fatal.
+            if doc_type is None and self.cfg.enable_triage and profile is not None:
+                try:
+                    text = "\n\n".join(c.text for c in chunks)
+                    result = run_triage(text, schema_summary(self.sql_store), self.triage_llm)
+                    if result.has_structured_data and result.record_types:
+                        self.sql_store.insert_type_proposal(
+                            source_file,
+                            result.proposed_type_name or (profile.proposed_type or "unknown"),
+                            result.model_dump(),
+                        )
+                        logger.info("  → %s: triage proposed type %r (%d record types)",
+                                    source_file, result.proposed_type_name, len(result.record_types))
+                except Exception as e:
+                    logger.warning("triage failed for %s (non-fatal): %s", source_file, e)
             return
 
         # quarterly_report: ONE schema-driven pass over all chunks (no routes_to_sql
