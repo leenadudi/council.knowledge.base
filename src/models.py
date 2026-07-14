@@ -150,6 +150,7 @@ class QueryPlan(BaseModel):
     graph_query: Optional[str] = None
     metadata_filters: dict[str, Any] = Field(default_factory=dict)
     reasoning: str = ""
+    resolved_question: Optional[str] = None
 
 
 class RetrievalResult(BaseModel):

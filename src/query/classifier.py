@@ -128,4 +128,5 @@ def _parse_plan(raw: str) -> QueryPlan:
         graph_query=data.get("graph_query"),
         metadata_filters=data.get("metadata_filters", {}),
         reasoning=data.get("reasoning", ""),
+        resolved_question=data.get("resolved_question"),
     )
