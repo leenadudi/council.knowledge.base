@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 
 from src.llm.client import TrackedAnthropic
 
@@ -46,20 +46,42 @@ class SQLExtractor:
     @staticmethod
     def parse_quarterly_response(raw: str, schema_cls, raise_on_error: bool = False) -> dict[str, list[dict]]:
         """Validate one LLM response against schema_cls; keep high/medium confidence
-        rows. By default never raises → {} on failure (used by the async batch path,
-        which can't re-roll a completed result). With raise_on_error=True it re-raises
-        so the sync path can retry (the model occasionally emits invalid JSON)."""
+        rows (confidence compared case-insensitively). Rows are validated INDIVIDUALLY
+        so a single malformed row (e.g. a non-numeric metric_value) is skipped rather
+        than discarding every row in the chunk-batch. Raises only on unparseable JSON;
+        by default that returns {} (the async batch path can't re-roll a completed
+        result), while raise_on_error=True lets the sync path retry."""
         try:
             raw = raw.strip()
             raw = raw[raw.find("{"): raw.rfind("}") + 1]
-            data = schema_cls.model_validate_json(raw).model_dump()
-            return {k: [r for r in v if r.get("confidence") in ("high", "medium")]
-                    for k, v in data.items() if v}
+            obj = json.loads(raw)
+            if not isinstance(obj, dict):
+                raise ValueError("expected a JSON object")
         except Exception as e:
             if raise_on_error:
                 raise
             logger.warning("quarterly response parse failed: %s", e)
             return {}
+        out: dict[str, list[dict]] = {}
+        for field, info in schema_cls.model_fields.items():
+            rows = obj.get(field)
+            if not isinstance(rows, list):
+                continue
+            args = get_args(info.annotation)
+            if not args:
+                continue
+            row_model = args[0]
+            kept = []
+            for rr in rows:
+                try:
+                    v = row_model.model_validate(rr).model_dump()
+                except Exception:
+                    continue  # drop just this row, keep the rest of the batch
+                if str(v.get("confidence", "")).strip().lower() in ("high", "medium"):
+                    kept.append(v)
+            if kept:
+                out[field] = kept
+        return out
 
     @staticmethod
     def merge_quarterly_parts(parts: list[dict], department: str, quarter: str,

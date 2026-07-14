@@ -165,9 +165,25 @@ def main(write: bool, limit=None, from_batch=None, skip=0):
             errored += 1
             print(f"   [batch] {result.custom_id} {result.result.type}")
 
-    print(f"\nWriting {len(parts_by_report)} reports ({errored} errored requests skipped)...")
-    for ridx, parts in sorted(parts_by_report.items()):
-        _write_report(store, ext, meta[ridx], parts)
+    # Guard: a report is written ONLY if every one of its chunk-batches came back
+    # parseable. _write_report deletes the report's existing rows before writing, so
+    # writing an incomplete set would silently drop data (an errored or malformed batch
+    # is not recoverable in the async path). Incomplete reports are left untouched and
+    # listed so they can be re-run synchronously (scripts/reextract_quarterly.py retries).
+    print(f"\nWriting reports ({errored} errored requests)...")
+    incomplete = []
+    for ridx, m in sorted(meta.items()):
+        parts = parts_by_report.get(ridx, [])
+        if len(parts) != m["nbatches"]:
+            incomplete.append((m, len(parts)))
+            print(f"   [INCOMPLETE] {m['source_file']}: {len(parts)}/{m['nbatches']} "
+                  f"batches parsed — SKIPPED (existing rows left intact)")
+            continue
+        _write_report(store, ext, m, parts)
+    if incomplete:
+        print(f"\n{len(incomplete)} report(s) incomplete and skipped — re-run synchronously:")
+        for m, got in incomplete:
+            print(f"   {m['department']} {m['quarter']} {m['year']} ({got}/{m['nbatches']})")
 
     cost = tok_in * _BATCH_IN_PER_TOK + tok_out * _BATCH_OUT_PER_TOK
     print(f"\nDone. Tokens: {tok_in:,} in / {tok_out:,} out. Actual batch cost: ${cost:,.2f}")

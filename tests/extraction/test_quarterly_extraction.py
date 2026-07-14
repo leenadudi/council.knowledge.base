@@ -104,6 +104,28 @@ def test_parse_quarterly_response_filters_and_is_safe():
     assert SQLExtractor.parse_quarterly_response("garbage", QuarterlyReportExtraction) == {}
 
 
+def test_parse_quarterly_tolerates_one_bad_row_keeps_rest_of_batch():
+    from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+    # One metric has a non-numeric metric_value (schema wants float). Previously the
+    # whole batch failed validation and ALL rows were lost; now only the bad row drops.
+    payload = json.dumps({"metrics": [
+        {"metric_name": "good", "metric_value": 52, "metric_unit": "count", "source_text": "x", "confidence": "high"},
+        {"metric_name": "bad", "metric_value": "N/A", "metric_unit": "count", "source_text": "y", "confidence": "high"},
+        {"metric_name": "also good", "metric_value": 3, "metric_unit": "count", "source_text": "z", "confidence": "high"}]})
+    out = SQLExtractor.parse_quarterly_response(payload, QuarterlyReportExtraction)
+    assert [r["metric_name"] for r in out["metrics"]] == ["good", "also good"]
+
+
+def test_parse_quarterly_confidence_is_case_insensitive():
+    from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
+    # Model sometimes capitalizes confidence ("High"); must not silently drop the row.
+    payload = json.dumps({"metrics": [
+        {"metric_name": "m", "metric_value": 1, "metric_unit": "count", "source_text": "x", "confidence": "High"},
+        {"metric_name": "n", "metric_value": 2, "metric_unit": "count", "source_text": "y", "confidence": "MEDIUM"}]})
+    out = SQLExtractor.parse_quarterly_response(payload, QuarterlyReportExtraction)
+    assert [r["metric_name"] for r in out["metrics"]] == ["m", "n"]
+
+
 def test_merge_drops_subtotal_expenditure_rows():
     parts = [{"expenditures": [
         {"line_item": "Building Maintenance", "revised_budget": 100, "source_text": "x", "confidence": "high"},

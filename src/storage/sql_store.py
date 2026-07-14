@@ -19,15 +19,23 @@ logger = logging.getLogger(__name__)
 
 psycopg2.extras.register_uuid()
 
-# Bounded VARCHAR limits for the quarterly-report structured tables. The schema-driven
-# extractor can emit an over-long value (e.g. a project "status" written as a sentence);
-# without this guard a single row aborts the whole batch backfill. Keyed by column name
-# (same-named columns share the tightest limit). goals.* columns are TEXT → not listed.
+# Bounded VARCHAR limits across the structured tables. The schema-driven extractor can
+# emit an over-long value (e.g. a "status" written as a sentence, or a council_member
+# rendered as a whole clause); without this guard a single row raises
+# StringDataRightTruncation and — now that the inserts are transactional — rolls back
+# the whole document. Keyed by column name (same-named columns share the tightest limit;
+# clipping to the tightest is always safe). TEXT columns (goals.*, titles) are not listed.
 _VARCHAR_LIMITS: dict[str, int] = {
+    # quarterly-report tables
     "department": 100, "sub_department": 100, "account_number": 50, "line_item": 200,
     "metric_name": 200, "metric_unit": 50, "grant_name": 255, "grant_number": 100,
     "status": 50, "position_title": 200, "project_name": 300, "funding_source": 200,
     "quarter": 5,
+    # council / legislation / meeting / appropriation tables
+    "resolution_number": 50, "vendor": 255, "council_member": 120, "sponsor": 255,
+    "bill_number": 50, "session_type": 60, "president": 120, "call_to_order": 20,
+    "adjourned": 20, "item_type": 30, "item_number": 50, "action": 150, "committee": 120,
+    "fund": 100, "category": 150,
 }
 
 
@@ -208,19 +216,21 @@ class SQLStore:
                 row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
 
-    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str) -> None:
+    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO vacancies
-                (department, position_title, status, open_count, quarter, year, source_chunk_id)
+                (department, position_title, status, open_count, quarter, year,
+                 source_chunk_id, source_file)
             VALUES
                 (%(department)s, %(position_title)s, %(status)s, %(open_count)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s)
         """
         with self.cursor() as cur:
             for row in rows:
                 # extractor emits "count"; the column is open_count. Tolerate either.
                 row.setdefault("open_count", row.get("count"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+                row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
 
     def record_document(self, source_file: str, department: str, document_type: str,
@@ -269,6 +279,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("title"), r.get("amount"),
                     r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
@@ -283,6 +294,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
                     sanitize_vote(r.get("vote")), source_chunk_id, source_file,
@@ -298,6 +310,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
                     r.get("members_present"), r.get("members_present_names"),
@@ -314,6 +327,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
                     r.get("title"), r.get("action"), r.get("committee"),
@@ -329,6 +343,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
                     r.get("adopted_date") or None, r.get("status"),
@@ -343,6 +358,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("department"), r.get("fiscal_year"), r.get("fund"),
                     r.get("category"), r.get("amount"), source_chunk_id, source_file,
@@ -380,14 +396,19 @@ class SQLStore:
                 ))
 
     def delete_structured_rows(self, source_file: str) -> None:
-        """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
+        """Delete only the extracted rows for a file (called before re-ingestion to
+        prevent duplicates). All tables — vacancies included, since it now carries
+        source_file — delete by file. The legacy fallback below also clears any old
+        vacancy rows whose source_file predates the 2026-07-14 backfill (still NULL)."""
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants", "resolutions", "votes",
-                          "meetings", "meeting_actions", "legislation", "appropriations",
-                          "goals", "projects"]:
+            for table in ["expenditures", "metrics", "grants", "vacancies", "resolutions",
+                          "votes", "meetings", "meeting_actions", "legislation",
+                          "appropriations", "goals", "projects"]:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
+            # Fallback for pre-migration rows that never got a source_file backfilled.
             cur.execute("""
-                DELETE FROM vacancies WHERE source_chunk_id IN (
+                DELETE FROM vacancies
+                WHERE source_file IS NULL AND source_chunk_id IN (
                     SELECT chunk_id FROM document_chunks WHERE source_file = %s
                 )
             """, (source_file,))

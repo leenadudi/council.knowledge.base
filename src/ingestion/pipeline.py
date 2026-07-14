@@ -315,18 +315,28 @@ class IngestionPipeline:
                 self.sql_store.insert_review_flag(source_file, "validate", "; ".join(problems), "")
             elif data:
                 cid = str(chunks[0].chunk_id)
-                if data.get("expenditures"):
-                    self.sql_store.insert_expenditure_rows(data["expenditures"], cid, source_file)
-                if data.get("metrics"):
-                    self.sql_store.insert_metric_rows(data["metrics"], cid, source_file)
-                if data.get("grants"):
-                    self.sql_store.insert_grant_rows(data["grants"], cid, source_file)
-                if data.get("vacancies"):
-                    self.sql_store.insert_vacancy_rows(data["vacancies"], cid)
-                if data.get("goals"):
-                    self.sql_store.insert_goal_rows(data["goals"], cid, source_file)
-                if data.get("projects"):
-                    self.sql_store.insert_project_rows(data["projects"], cid, source_file)
+                # One atomic transaction: a mid-sequence failure rolls back the whole
+                # document rather than leaving a half-written (and, on re-ingest,
+                # duplicated) report.
+                with self.sql_store.transaction():
+                    if data.get("expenditures"):
+                        self.sql_store.insert_expenditure_rows(data["expenditures"], cid, source_file)
+                    if data.get("metrics"):
+                        self.sql_store.insert_metric_rows(data["metrics"], cid, source_file)
+                    if data.get("grants"):
+                        self.sql_store.insert_grant_rows(data["grants"], cid, source_file)
+                    if data.get("vacancies"):
+                        self.sql_store.insert_vacancy_rows(data["vacancies"], cid, source_file)
+                    if data.get("goals"):
+                        self.sql_store.insert_goal_rows(data["goals"], cid, source_file)
+                    if data.get("projects"):
+                        self.sql_store.insert_project_rows(data["projects"], cid, source_file)
+            else:
+                # No validation problem, but the pass produced zero rows — flag it rather
+                # than silently recording a "successfully ingested" doc with no data.
+                logger.warning("  → %s produced no structured rows", source_file)
+                self.sql_store.insert_review_flag(
+                    source_file, "validate", "quarterly extraction produced no structured rows", "")
 
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:

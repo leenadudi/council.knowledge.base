@@ -35,7 +35,7 @@ _TABLE_INSERT = [
     ("expenditures", "insert_expenditure_rows", True),
     ("metrics", "insert_metric_rows", True),
     ("grants", "insert_grant_rows", True),
-    ("vacancies", "insert_vacancy_rows", False),   # no source_file arg
+    ("vacancies", "insert_vacancy_rows", True),
     ("goals", "insert_goal_rows", True),
     ("projects", "insert_project_rows", True),
 ]

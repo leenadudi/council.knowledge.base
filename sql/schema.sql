@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS vacancies (
     quarter         VARCHAR(5),
     year            INTEGER,
     source_chunk_id UUID,
+    source_file     VARCHAR(255),       -- delete-by-file on re-ingest, like every other structured table
     ingested_at     TIMESTAMP DEFAULT NOW()
 );
 
