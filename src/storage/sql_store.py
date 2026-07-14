@@ -270,6 +270,23 @@ class SQLStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def insert_type_proposal(self, source_file: str, proposed_type: str, payload: dict) -> None:
+        """Queue an agent-proposed structured-data type/mapping for human review."""
+        with self.cursor() as cur:
+            cur.execute(
+                "INSERT INTO type_proposals (source_file, proposed_type, payload) "
+                "VALUES (%s, %s, %s)",
+                (source_file, proposed_type, psycopg2.extras.Json(payload)),
+            )
+
+    def get_pending_type_proposals(self) -> list[dict[str, Any]]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT id, source_file, proposed_type, payload, created_at "
+                "FROM type_proposals WHERE status = 'pending' ORDER BY created_at DESC"
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO resolutions
