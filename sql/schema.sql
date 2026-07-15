@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS document_type_registry (
     type_id             SERIAL PRIMARY KEY,
     type_name           VARCHAR(100),
     display_name        VARCHAR(100),
+    description         TEXT,
     chunking_strategy   JSONB,
     content_type_rules  JSONB,
     extraction_templates JSONB,

@@ -30,7 +30,7 @@ from src.ingestion.names import normalize_person_name
 from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
-from src.ingestion.registry import get_document_type
+from src.ingestion.registry import get_document_type, refresh_from_db
 from src.ingestion.triage import run_triage, schema_summary
 from src.llm.client import TrackedAnthropic
 from src.models import Chunk, ChunkMetadata
@@ -58,6 +58,19 @@ class IngestionPipeline:
         self.graph_store.ensure_constraints()
         logger.info("All stores initialized")
 
+    def _ensure_types_loaded(self) -> None:
+        """Register data-driven document types from the DB once per run, before any
+        profiling/extraction, so approved types are seen by standalone/script ingestion
+        (the app loads them at startup). Guarded so it runs once — never concurrently
+        under the ingest_directory worker pool."""
+        if getattr(self, "_types_refreshed", False):
+            return
+        self._types_refreshed = True
+        try:
+            refresh_from_db(self.sql_store)
+        except Exception as e:
+            logger.warning("could not refresh data-driven document types: %s", e)
+
     def ingest_directory(
         self,
         docs_dir: str | Path,
@@ -70,6 +83,7 @@ class IngestionPipeline:
         each remaining PDF to a ThreadPoolExecutor. Per-document failures are
         caught and logged so one bad document never aborts the batch.
         """
+        self._ensure_types_loaded()
         path = Path(docs_dir)
         pdfs = sorted(path.glob("*.pdf"))
         todo = [
@@ -123,6 +137,7 @@ class IngestionPipeline:
           - known type -> chunk with the type's hints, classify with its vocab,
             extract against its schema, and route to that type's SQL/graph targets.
         """
+        self._ensure_types_loaded()
         path = Path(file_path)
         start = time.time()
         logger.info("Ingesting: %s", path.name)

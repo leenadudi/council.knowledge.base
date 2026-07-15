@@ -75,6 +75,13 @@ def _init():
         _pipeline  = QueryPipeline(vector_store, sql_store, graph_store, cfg)
         _evaluator = Evaluator(cfg)
         _sql_store = sql_store
+        # Load data-driven document types (approved via triage) from the DB so both
+        # ingestion and query see them without a code deploy. Built-ins always win.
+        try:
+            from src.ingestion.registry import refresh_from_db
+            logger.info("Loaded %d data-driven document type(s)", refresh_from_db(sql_store))
+        except Exception as reg_err:
+            logger.warning("could not load data-driven document types: %s", reg_err)
         _ready = True
         logger.info("Pipeline ready")
     except Exception as e:
