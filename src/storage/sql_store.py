@@ -287,6 +287,75 @@ class SQLStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def get_type_proposal(self, proposal_id: int) -> Optional[dict[str, Any]]:
+        with self.cursor() as cur:
+            cur.execute("SELECT id, source_file, proposed_type, payload, status "
+                        "FROM type_proposals WHERE id = %s", (proposal_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def set_type_proposal_status(self, proposal_id: int, status: str, note: str = "") -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE type_proposals SET status = %s, reviewed_at = NOW(), reviewer_note = %s "
+                "WHERE id = %s",
+                (status, note, proposal_id),
+            )
+
+    def execute_ddl(self, ddl: str) -> None:
+        """Run a DDL string (CREATE TABLE / INDEX). Callers MUST pass only DDL built by
+        src.storage.ddl.build_create_table, which validates identifiers/types and never
+        emits destructive statements."""
+        with self.cursor() as cur:
+            cur.execute(ddl)
+
+    def upsert_document_type(self, type_name: str, description: str,
+                             extraction_templates: dict, sql_tables: list[str],
+                             graph_node_types: Optional[list[str]] = None) -> None:
+        """Register (or replace) a data-driven document type. Delete-then-insert keeps it
+        idempotent (type_name has no unique constraint)."""
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM document_type_registry WHERE type_name = %s", (type_name,))
+            cur.execute(
+                "INSERT INTO document_type_registry "
+                "(type_name, display_name, description, extraction_templates, sql_tables, "
+                " graph_node_types, added_by, active) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'triage', TRUE)",
+                (type_name, type_name, description,
+                 psycopg2.extras.Json(extraction_templates),
+                 list(sql_tables), list(graph_node_types or [])),
+            )
+
+    def insert_dynamic_rows(self, table: str, rows: list[dict[str, Any]],
+                            source_chunk_id: str, source_file: str) -> None:
+        """Insert rows into a data-driven (approved) table. Table name is identifier-
+        validated; only columns that actually exist on the table are written (values are
+        parameterized); strings are clipped to each column's VARCHAR limit."""
+        from src.storage.ddl import _valid_ident
+        if not _valid_ident(table):
+            raise ValueError(f"refusing to insert into invalid table name: {table!r}")
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, character_maximum_length FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s", (table,))
+            meta = {r["column_name"]: r["character_maximum_length"] for r in cur.fetchall()}
+        if not meta:
+            raise ValueError(f"table {table!r} does not exist")
+        writable = set(meta) - {"id", "ingested_at"}
+        with self.cursor() as cur:
+            for row in rows:
+                data = {k: v for k, v in row.items() if k in writable}
+                data["source_chunk_id"] = uuid.UUID(source_chunk_id)
+                data["source_file"] = source_file
+                for k, v in list(data.items()):          # generic length clip
+                    lim = meta.get(k)
+                    if isinstance(v, str) and lim and len(v) > lim:
+                        data[k] = v[:lim]
+                cols = list(data.keys())
+                sql = (f"INSERT INTO {table} (" + ", ".join(cols) + ") VALUES ("
+                       + ", ".join(f"%({c})s" for c in cols) + ")")
+                cur.execute(sql, data)
+
     def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO resolutions
