@@ -202,6 +202,7 @@
           </div>
         </div>
         <div id="ask-answer" style="margin-top:28px;max-width:820px"></div>
+        <div id="ask-controls" style="margin-top:6px;max-width:820px"></div>
         <div id="ask-suggest" style="margin-top:34px;max-width:820px"></div>
       </div>
 
@@ -414,7 +415,7 @@ function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); co
 
 // ---- nav ----
 const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Finances'],projects:['Explore','Projects'],questions:['Explore','Next quarter'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
-function go(tab){ state.tab=tab; render(); }
+function go(tab){ if(state.tab==='ask' && tab!=='ask') resetAskThread(false); state.tab=tab; render(); }
 function render(){
   const t=state.tab;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
@@ -1225,22 +1226,56 @@ function mdToHtml(src){
   return out.join('\n');
 }
 
+// ---- Ask: follow-up-aware thread (client-side state; last 2 turns sent as history) ----
+let askThread=[];   // [{question, answer}] of COMPLETED turns
+let _askSeq=0;      // monotonic id for stacked cards
+
+function _citesInner(cites){
+  return `<div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:8px">Sources</div><div style="display:flex;flex-wrap:wrap;gap:6px">${cites.slice(0,8).map(c=>`<span style="background:#eaf0f7;border:1px solid rgba(22,52,79,.15);border-radius:6px;padding:3px 9px;font-size:11.5px;color:#16344f">${esc(typeof c==='string'?c:(c.source_file||c.title||c.source||'source'))}</span>`).join('')}</div>`;
+}
+function _askCardShell(q, n){
+  return `<div class="card" id="askcard-${n}" style="overflow:hidden;margin-bottom:16px">
+      <div style="padding:16px 26px;border-bottom:1px solid rgba(28,27,25,.07);display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:7px;background:#e7f2f0;color:#0f6e63;display:flex;align-items:center;justify-content:center">★</span><span style="font-size:14px;font-weight:600">${esc(q)}</span></div>
+      <div class="serif" style="padding:22px 26px;font-size:15.5px;line-height:1.7;color:#2a2825" id="ans-body-${n}"><span style="display:inline-flex;align-items:center;gap:10px;color:#6f6b64"><span style="width:16px;height:16px;border:2px solid rgba(28,27,25,.15);border-top-color:#16344f;border-radius:50%;display:inline-block;animation:hbspin .7s linear infinite"></span> Searching city records…</span></div>
+      <div id="ans-cites-${n}" style="padding:0 26px"></div>
+    </div>`;
+}
+function renderAskControls(){
+  const el=$('#ask-controls');
+  el.innerHTML = _askSeq>0 ? `<button id="ask-new" style="background:none;border:1px solid rgba(28,27,25,.14);border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;color:#16344f;cursor:pointer;display:inline-flex;align-items:center;gap:6px"><span style="font-size:16px;line-height:1">+</span> New question</button>` : '';
+  const b=$('#ask-new'); if(b) b.onclick=()=>resetAskThread(true);
+}
+function resetAskThread(focus){
+  askThread=[]; _askSeq=0;
+  $('#ask-answer').innerHTML='';
+  $('#ask-controls').innerHTML='';
+  $('#ask-input').value='';
+  $('#ask-input').placeholder='e.g. How much has each department spent this year?';
+  renderSuggest();
+  if(focus) $('#ask-input').focus();
+}
+
 async function runAsk(){
   const q=$('#ask-input').value.trim(); if(!q) return;
   $('#ask-suggest').innerHTML='';
-  $('#ask-answer').innerHTML=`<div class="card" style="padding:20px 24px;display:flex;align-items:center;gap:12px;color:#6f6b64"><span style="width:16px;height:16px;border:2px solid rgba(28,27,25,.15);border-top-color:#16344f;border-radius:50%;display:inline-block;animation:hbspin .7s linear infinite"></span> Searching city records…</div>`;
+  $('#ask-input').value='';
+  $('#ask-input').placeholder='Ask a follow-up…';
+  const n=++_askSeq;
+  $('#ask-answer').insertAdjacentHTML('beforeend', _askCardShell(q, n));
+  renderAskControls();
+  const card=document.getElementById('askcard-'+n);
+  if(card) card.scrollIntoView({behavior:'smooth', block:'nearest'});
+  // Only the last 2 completed turns travel as context (backend caps too).
+  const history=askThread.slice(-2).map(t=>({question:t.question, answer:t.answer}));
   try{
-    const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q, history})});
     const j=await r.json();
     const ans=j.answer||j.final_answer||j.response||'No answer returned.';
     const cites=j.citations||j.sources||[];
-    $('#ask-answer').innerHTML=`<div class="card" style="overflow:hidden">
-      <div style="padding:16px 26px;border-bottom:1px solid rgba(28,27,25,.07);display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:7px;background:#e7f2f0;color:#0f6e63;display:flex;align-items:center;justify-content:center">★</span><span style="font-size:14px;font-weight:600">${esc(q)}</span></div>
-      <div class="serif" style="padding:22px 26px;font-size:15.5px;line-height:1.7;color:#2a2825" id="ans-body"></div>
-      ${cites.length?`<div style="padding:13px 26px;background:#f7f6f2;border-top:1px solid rgba(28,27,25,.07)"><div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a7a298;margin-bottom:8px">Sources</div><div style="display:flex;flex-wrap:wrap;gap:6px">${cites.slice(0,8).map(c=>`<span style="background:#eaf0f7;border:1px solid rgba(22,52,79,.15);border-radius:6px;padding:3px 9px;font-size:11.5px;color:#16344f">${esc(typeof c==='string'?c:(c.source_file||c.title||c.source||'source'))}</span>`).join('')}</div></div>`:''}
-    </div>`;
-    $('#ans-body').innerHTML=mdToHtml(ans);
-  }catch(e){ $('#ask-answer').innerHTML=`<div class="card" style="padding:20px 24px;color:#a0302a">Could not reach the answer engine.</div>`; }
+    $('#ans-body-'+n).innerHTML=mdToHtml(ans);
+    if(cites.length){ const c=$('#ans-cites-'+n); c.style.padding='13px 26px'; c.style.background='#f7f6f2'; c.style.borderTop='1px solid rgba(28,27,25,.07)'; c.innerHTML=_citesInner(cites); }
+    askThread.push({question:q, answer:ans});
+  }catch(e){ $('#ans-body-'+n).innerHTML=`<span style="color:#a0302a">Could not reach the answer engine.</span>`; }
 }
 
 // ---- nav wiring ----
