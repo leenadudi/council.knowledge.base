@@ -63,6 +63,9 @@ def test_build_triage_prompt_includes_schema_and_rules():
     p = build_triage_prompt("BODY TEXT", "grants(department, amount)")
     assert "grants(department, amount)" in p
     assert "existing" in p and "BODY TEXT" in p
+    # required refinements: confidence must be demanded, prose must be excluded
+    assert "match_confidence" in p and "REQUIRED" in p
+    assert "narrative prose" in p
 
 
 def test_triage_result_parses_fit_and_new():
