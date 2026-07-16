@@ -27,13 +27,16 @@ _BOARDS_ROW = {
 
 
 def test_refresh_registers_db_type_with_compiled_schema():
-    n = registry.refresh_from_db(_FakeStore([_BOARDS_ROW]))
-    assert n == 1
-    dt = registry.get_document_type("board_memberships")
-    assert dt is not None
-    assert dt.sql_targets == ["board_members"]
-    assert dt.extraction_schema is not None
-    assert set(dt.extraction_schema.model_fields.keys()) == {"board_members"}
+    try:
+        n = registry.refresh_from_db(_FakeStore([_BOARDS_ROW]))
+        assert n == 1
+        dt = registry.get_document_type("board_memberships")
+        assert dt is not None
+        assert dt.sql_targets == ["board_members"]
+        assert dt.extraction_schema is not None
+        assert set(dt.extraction_schema.model_fields.keys()) == {"board_members"}
+    finally:
+        registry.unregister("board_memberships")   # don't leak into other tests
 
 
 def test_refresh_never_clobbers_builtin_types():

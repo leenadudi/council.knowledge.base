@@ -31,7 +31,7 @@ from src.ingestion.names import normalize_person_name
 from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
-from src.ingestion.registry import get_document_type, refresh_from_db
+from src.ingestion.registry import get_document_type, refresh_from_db, KNOWN_TYPE_NAMES
 from src.ingestion.triage import run_triage, schema_summary
 from src.llm.client import TrackedAnthropic
 from src.models import Chunk, ChunkMetadata
@@ -419,7 +419,14 @@ class IngestionPipeline:
         # routes_to_sql() filter, which is a quarterly_report-era per-chunk gate):
         # registry types declare targets at the type level, and extract_for_type's
         # Pydantic schema + confidence filter already does the precision filtering.
-        extracted = self.sql_extractor.extract_for_type(chunks, doc_type, profile=profile)
+        # Built-in registry types use extract_for_type (single call + anchor guard, tuned
+        # for small single-record docs). Data-driven types (onboarded via triage) can be
+        # large multi-record documents, so they use the BATCHED extractor to avoid the
+        # single-call truncation that drops the whole extraction.
+        if doc_type.name in KNOWN_TYPE_NAMES:
+            extracted = self.sql_extractor.extract_for_type(chunks, doc_type, profile=profile)
+        else:
+            extracted = self.sql_extractor.extract_type_batched(chunks, doc_type)
         problems = validation.validate_extraction(doc_type.name, extracted or {}, profile)
         if problems:
             logger.warning("  → %s failed validation, withholding structured write: %s",

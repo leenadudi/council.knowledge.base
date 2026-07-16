@@ -11,13 +11,16 @@ def test_prompt_lists_approved_data_driven_tables():
             {"name": "qty", "type": "INTEGER"}]}])
     registry.register(DocumentType(name="m4_test_type", description="test",
                                    sql_targets=["m4_widgets"], extraction_schema=schema))
-    p = build_classify_prompt("how many widgets are there")
-    # the approved table + its columns are visible to the router
-    assert "m4_widgets(id, widget_name, qty, source_chunk_id, source_file)" in p
-    # built-in schema + guards are preserved, and the question is injected
-    assert "quarter = 'Q1'" in p
-    assert "resolutions(" in p
-    assert "how many widgets are there" in p
+    try:
+        p = build_classify_prompt("how many widgets are there")
+        # the approved table + its columns are visible to the router
+        assert "m4_widgets(id, widget_name, qty, source_chunk_id, source_file)" in p
+        # built-in schema + guards are preserved, and the question is injected
+        assert "quarter = 'Q1'" in p
+        assert "resolutions(" in p
+        assert "how many widgets are there" in p
+    finally:
+        registry.unregister("m4_test_type")   # don't leak into other tests
 
 
 def test_prompt_builds_with_no_data_driven_types():

@@ -28,13 +28,15 @@ class SQLExtractor:
     #    the async Batch API backfill in scripts/reextract_quarterly_batch.py) ----
 
     @staticmethod
-    def quarterly_prompt(texts: list[str], schema_cls) -> str:
+    def quarterly_prompt(texts: list[str], schema_cls, doc_label: str = "quarterly reports") -> str:
         """Build the extraction prompt for one chunk-batch. Format-agnostic: the model
-        finds targets wherever they appear rather than relying on section headings."""
+        finds targets wherever they appear rather than relying on section headings.
+        doc_label names the document kind (default 'quarterly reports'; data-driven types
+        pass their own name)."""
         body = "\n\n---\n\n".join(texts)
         schema_json = json.dumps(schema_cls.model_json_schema())
         return (
-            "You are a precise data extractor for City of Harrisburg quarterly reports.\n"
+            f"You are a precise data extractor for City of Harrisburg {doc_label}.\n"
             "Extract EVERYTHING matching this JSON schema, wherever it appears in the text "
             "(sections are labeled differently by each department — do not rely on headings).\n"
             f"{schema_json}\n\n"
@@ -139,12 +141,13 @@ class SQLExtractor:
             out[k] = _dedup_projects(_dedup(v)) if k == "projects" else _dedup(v)
         return out
 
-    def _schema_extract_batch(self, chunks, schema_cls, attempts: int = 3) -> dict[str, list[dict]]:
+    def _schema_extract_batch(self, chunks, schema_cls, attempts: int = 3,
+                              doc_label: str = "quarterly reports") -> dict[str, list[dict]]:
         """One synchronous LLM call over a chunk batch, with retry. The model
         occasionally emits invalid JSON (a stray unescaped char) non-deterministically —
         a re-roll almost always fixes it, so retry on parse failure. Also uses a 16000
         max_tokens ceiling so dense batches don't truncate. Never raises → {}."""
-        prompt = self.quarterly_prompt([c.text for c in chunks], schema_cls)
+        prompt = self.quarterly_prompt([c.text for c in chunks], schema_cls, doc_label=doc_label)
         for attempt in range(attempts):
             try:
                 msg = self.client.messages.create(
@@ -168,6 +171,44 @@ class SQLExtractor:
         parts = [self._schema_extract_batch(chunks[i:i + batch_size], QuarterlyReportExtraction)
                  for i in range(0, len(chunks), batch_size)]
         return self.merge_quarterly_parts(parts, department, quarter, year)
+
+    @staticmethod
+    def merge_type_parts(parts: list[dict], sql_targets: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Merge batched extraction parts for a data-driven type: keep only the type's
+        sql_targets, strip extraction-only fields, and drop exact-duplicate rows (a section
+        straddling a batch boundary is extracted twice). No quarterly-specific cleanup."""
+        merged: dict[str, list] = {}
+        for part in parts:
+            for key, rows in (part or {}).items():
+                if key in sql_targets and rows:
+                    merged.setdefault(key, []).extend(rows)
+        out: dict[str, list] = {}
+        for key, rows in merged.items():
+            seen, cleaned = set(), []
+            for r in rows:
+                r = {k: v for k, v in r.items() if k not in ("source_text", "confidence")}
+                sig = tuple(sorted((str(k), str(v)) for k, v in r.items()))
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                cleaned.append(r)
+            if cleaned:
+                out[key] = cleaned
+        return out
+
+    def extract_type_batched(self, chunks, doc_type, batch_size: Optional[int] = None
+                             ) -> dict[str, list[dict[str, Any]]]:
+        """Batched schema-driven extraction for a DATA-DRIVEN type (onboarded via triage).
+        Mirrors extract_quarterly: split chunks into batches so a large document (e.g. a
+        20-board roster booklet) never truncates a single call, then merge/dedup. Returns
+        {table: [rows]} over the type's sql_targets."""
+        if not chunks or doc_type is None or doc_type.extraction_schema is None:
+            return {}
+        bs = batch_size or self.cfg.extraction_batch_size
+        parts = [self._schema_extract_batch(chunks[i:i + bs], doc_type.extraction_schema,
+                                            doc_label=doc_type.name)
+                 for i in range(0, len(chunks), bs)]
+        return self.merge_type_parts(parts, doc_type.sql_targets)
 
     def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
         """

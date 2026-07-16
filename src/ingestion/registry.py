@@ -101,6 +101,12 @@ def register(dt: DocumentType) -> None:
     _REGISTRY[dt.name] = dt
 
 
+def unregister(name: str) -> None:
+    """Remove a (typically data-driven/test) type. Never removes a built-in."""
+    if name not in KNOWN_TYPE_NAMES:
+        _REGISTRY.pop(name, None)
+
+
 def get_document_type(name: str) -> DocumentType | None:
     return _REGISTRY.get(name)
 
