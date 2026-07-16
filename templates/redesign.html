@@ -1382,6 +1382,60 @@ async function loadData(){
   render();            // re-render current tab now that data is in
 }
 boot();
+
+// Read-only structured-data proposals from ingest triage (M1). Self-contained and
+// hidden unless there are pending proposals, so it never clutters the dashboard.
+(async function(){
+  try{
+    const r = await fetch('/proposals'); if(!r.ok) return;
+    const items = await r.json(); if(!Array.isArray(items) || !items.length) return;
+    const panel = document.createElement('section');
+    panel.style.cssText = 'max-width:1100px;margin:24px auto;padding:0 26px';
+    const btn = 'padding:5px 12px;border-radius:7px;border:1px solid rgba(28,27,25,.15);'
+      + 'cursor:pointer;font-size:13px;margin-right:8px';
+    function card(p){
+      var rts = ((p.payload && p.payload.record_types) || []).map(function(rt){
+        var tgt = rt.target==='existing' ? 'map → '+esc(rt.existing_table||'?') : 'new table';
+        var cols = ((rt.proposed_columns||[]).map(function(c){return esc(c.name);}).join(', '));
+        return '<li>'+esc(rt.name||'')+' <span style="color:#8a867d">('+tgt+')</span>'
+          + (cols?'<div style="color:#8a867d;font-size:12px;margin-left:4px">'+cols+'</div>':'')+'</li>';
+      }).join('');
+      return '<div class="card" data-pid="'+p.id+'" style="padding:12px;margin:8px 0">'
+        + '<div style="font-weight:600">'+esc(p.proposed_type||'?')+'</div>'
+        + '<div style="color:#8a867d;font-size:12px">'+esc(p.source_file||'')+'</div>'
+        + '<ul style="margin:6px 0 10px 16px;font-size:13px">'+rts+'</ul>'
+        + '<button class="pa" data-pid="'+p.id+'" style="'+btn+'background:#e7f2f0;color:#0f6e63">Approve</button>'
+        + '<button class="pr" data-pid="'+p.id+'" style="'+btn+'background:none;color:#a0302a">Reject</button>'
+        + '<span class="pmsg" style="font-size:12px;color:#8a867d"></span></div>';
+    }
+    panel.innerHTML =
+      '<h2 style="font-size:15px;font-weight:700;color:#16344f">Proposed data types (pending review)</h2>'
+      + '<div style="font-size:12px;color:#8a867d;margin-bottom:8px">'
+      + 'Structured data the ingest agent found with no clean home yet. Approving creates the '
+      + 'table(s) and makes the type queryable.</div>'
+      + items.map(card).join('');
+    document.body.appendChild(panel);
+    async function act(pid, kind, b){
+      var msg = b.parentElement.querySelector('.pmsg');
+      b.parentElement.querySelectorAll('button').forEach(function(x){x.disabled=true;});
+      msg.textContent = kind==='approve' ? ' approving…' : ' rejecting…';
+      try{
+        var r = await fetch('/proposals/'+pid+'/'+kind, {method:'POST'});
+        var d = await r.json();
+        if(!r.ok) throw new Error(d.error||'failed');
+        msg.textContent = kind==='approve'
+          ? ' ✓ created: '+((d.created_tables||[]).join(', ')||'(mappings only)')
+          : ' ✓ rejected';
+        var c = panel.querySelector('.card[data-pid="'+pid+'"]'); if(c) c.style.opacity=.55;
+      }catch(e){
+        msg.textContent = ' error: '+e.message;
+        b.parentElement.querySelectorAll('button').forEach(function(x){x.disabled=false;});
+      }
+    }
+    panel.querySelectorAll('button.pa').forEach(function(b){b.onclick=function(){act(b.dataset.pid,'approve',b);};});
+    panel.querySelectorAll('button.pr').forEach(function(b){b.onclick=function(){act(b.dataset.pid,'reject',b);};});
+  }catch(e){ /* best-effort; never break the dashboard */ }
+})();
 </script>
 </body>
 </html>

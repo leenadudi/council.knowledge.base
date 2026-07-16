@@ -56,8 +56,25 @@ CREATE TABLE IF NOT EXISTS vacancies (
     quarter         VARCHAR(5),
     year            INTEGER,
     source_chunk_id UUID,
+    source_file     VARCHAR(255),       -- delete-by-file on re-ingest, like every other structured table
     ingested_at     TIMESTAMP DEFAULT NOW()
 );
+
+-- Special-project / initiative tracking from quarterly reports
+CREATE TABLE IF NOT EXISTS projects (
+    id              SERIAL PRIMARY KEY,
+    department      VARCHAR(100),
+    project_name    VARCHAR(300),
+    description     TEXT,
+    status          VARCHAR(50),
+    funding_source  VARCHAR(200),
+    quarter         VARCHAR(5),
+    year            INTEGER,
+    source_chunk_id UUID,
+    source_file     VARCHAR(255),
+    ingested_at     TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_projects_dept ON projects(department);
 
 -- Document ingestion tracking
 CREATE TABLE IF NOT EXISTS documents (
@@ -141,6 +158,7 @@ CREATE TABLE IF NOT EXISTS document_type_registry (
     type_id             SERIAL PRIMARY KEY,
     type_name           VARCHAR(100),
     display_name        VARCHAR(100),
+    description         TEXT,
     chunking_strategy   JSONB,
     content_type_rules  JSONB,
     extraction_templates JSONB,
@@ -233,6 +251,20 @@ CREATE TABLE IF NOT EXISTS review_flags (
     created_at   TIMESTAMP    DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_review_flags_unresolved ON review_flags(resolved);
+
+-- Agent-proposed structured-data types/mappings for unclassified docs, awaiting human
+-- review (see docs/superpowers/specs/2026-07-14-adaptive-structured-ingestion-design.md).
+CREATE TABLE IF NOT EXISTS type_proposals (
+    id            SERIAL PRIMARY KEY,
+    source_file   VARCHAR(255) NOT NULL,
+    proposed_type VARCHAR(100),
+    status        VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending|approved|rejected
+    payload       JSONB NOT NULL,
+    created_at    TIMESTAMP DEFAULT NOW(),
+    reviewed_at   TIMESTAMP,
+    reviewer_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_type_proposals_status ON type_proposals(status);
 
 -- City Council legislative session minutes: one row per session
 CREATE TABLE IF NOT EXISTS meetings (

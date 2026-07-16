@@ -2,12 +2,17 @@
 plus its Pydantic schema(s) and any new SQL tables / graph nodes. No pipeline edits."""
 from __future__ import annotations
 
+import logging
+
 from src.models import DocumentType, ChunkingHints
 from src.ingestion.schemas.quarterly_report import QuarterlyReportExtraction
 from src.ingestion.schemas.resolution import ResolutionExtraction
 from src.ingestion.schemas.minutes import MinutesExtraction
 from src.ingestion.schemas.legislation import LegislationExtraction
 from src.ingestion.schemas.budget import BudgetExtraction
+from src.ingestion.schema_compiler import compile_type_schema
+
+logger = logging.getLogger(__name__)
 
 _QUARTERLY_REPORT = DocumentType(
     name="quarterly_report",
@@ -16,7 +21,7 @@ _QUARTERLY_REPORT = DocumentType(
                  "vacancies, community engagement."),
     identifying_signals=["quarterly report", "Q1", "Q2", "Q3", "Q4", "year-to-date", "annual goals"],
     content_vocab=["narrative", "table", "metrics", "org_data", "project", "header"],
-    sql_targets=["expenditures", "metrics", "grants", "vacancies"],
+    sql_targets=["expenditures", "metrics", "grants", "vacancies", "goals", "projects"],
     graph_targets=["Department", "Person", "Project", "Grant"],
     chunking=ChunkingHints(),  # use default section-aware chunking
     extraction_schema=QuarterlyReportExtraction,
@@ -102,6 +107,53 @@ def get_document_type(name: str) -> DocumentType | None:
 
 def all_document_types() -> list[DocumentType]:
     return list(_REGISTRY.values())
+
+
+def data_driven_types() -> list[DocumentType]:
+    """Types onboarded via triage/approval (loaded from the DB) — i.e. everything that
+    isn't one of the code-defined built-ins. Used to make the query classifier aware of
+    approved tables without a code change."""
+    return [dt for dt in _REGISTRY.values() if dt.name not in KNOWN_TYPE_NAMES]
+
+
+def document_type_from_row(row: dict) -> DocumentType:
+    """Build a DocumentType from a document_type_registry DB row. The row's
+    extraction_templates JSON holds {"record_types": [...]} (the approved proposal's
+    record types); the schema is compiled at runtime. Data-driven types are SQL-only in
+    v1 (no graph derivation)."""
+    templates = row.get("extraction_templates") or {}
+    record_types = templates.get("record_types") or []
+    schema = compile_type_schema(row["type_name"], record_types) if record_types else None
+    return DocumentType(
+        name=row["type_name"],
+        description=row.get("description") or "",
+        sql_targets=list(row.get("sql_tables") or []),
+        graph_targets=list(row.get("graph_node_types") or []),
+        extraction_schema=schema,
+    )
+
+
+def refresh_from_db(store) -> int:
+    """Register data-driven types from document_type_registry. Code-defined types (the
+    battle-tested built-ins) always win — a DB row with the same name is skipped, never
+    clobbers them. Idempotent; safe to call at startup and after an approval. Returns the
+    number of DB types registered this call."""
+    with store.cursor() as cur:
+        cur.execute(
+            "SELECT type_name, description, extraction_templates, sql_tables, graph_node_types "
+            "FROM document_type_registry WHERE active = TRUE"
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    n = 0
+    for row in rows:
+        if row["type_name"] in _REGISTRY:      # code-defined built-in wins
+            continue
+        try:
+            register(document_type_from_row(row))
+            n += 1
+        except Exception as e:
+            logger.warning("skipping unloadable DB document type %r: %s", row.get("type_name"), e)
+    return n
 
 
 register(_RESOLUTION)

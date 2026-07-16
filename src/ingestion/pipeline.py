@@ -14,6 +14,7 @@ For each document:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -30,13 +31,30 @@ from src.ingestion.names import normalize_person_name
 from src.ingestion.parsers import tesseract_parser, unstructured_parser, vision_parser
 from src.ingestion.parsers.unstructured_parser import ParseQualityError
 from src.ingestion.profiler import profile_document
-from src.ingestion.registry import get_document_type
+from src.ingestion.registry import get_document_type, refresh_from_db
+from src.ingestion.triage import run_triage, schema_summary
+from src.llm.client import TrackedAnthropic
 from src.models import Chunk, ChunkMetadata
 from src.storage.graph_store import GraphStore
 from src.storage.sql_store import SQLStore
 from src.storage.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+# Built-in tables that have dedicated insert methods; everything else on a type's
+# sql_targets is a data-driven table written via the generic insert path.
+_BUILTIN_SQL_TABLES = frozenset({
+    "resolutions", "votes", "meetings", "meeting_actions", "legislation", "appropriations",
+})
+_YEAR_RE = re.compile(r"(20\d{2})")
+
+
+def _year_from_filename(source_file: str) -> Optional[int]:
+    """Extract the snapshot year (e.g. 2026) from a filename like
+    '… - 2026 - Boards … 2026 Booklet 1.pdf'. Returns None if no 20xx year is present."""
+    m = _YEAR_RE.search(source_file or "")
+    return int(m.group(1)) if m else None
 
 
 class IngestionPipeline:
@@ -47,6 +65,7 @@ class IngestionPipeline:
         self.graph_store = GraphStore(self.cfg)
         self.sql_extractor = SQLExtractor(self.cfg)
         self.graph_extractor = GraphExtractor(self.cfg)
+        self.triage_llm = TrackedAnthropic(self.cfg, call_site="ingestion.triage")
         self._voyage = voyageai.Client(api_key=self.cfg.voyage_api_key)
 
     def initialize_stores(self) -> None:
@@ -54,6 +73,19 @@ class IngestionPipeline:
         self.vector_store.ensure_collection()
         self.graph_store.ensure_constraints()
         logger.info("All stores initialized")
+
+    def _ensure_types_loaded(self) -> None:
+        """Register data-driven document types from the DB once per run, before any
+        profiling/extraction, so approved types are seen by standalone/script ingestion
+        (the app loads them at startup). Guarded so it runs once — never concurrently
+        under the ingest_directory worker pool."""
+        if getattr(self, "_types_refreshed", False):
+            return
+        self._types_refreshed = True
+        try:
+            refresh_from_db(self.sql_store)
+        except Exception as e:
+            logger.warning("could not refresh data-driven document types: %s", e)
 
     def ingest_directory(
         self,
@@ -67,6 +99,7 @@ class IngestionPipeline:
         each remaining PDF to a ThreadPoolExecutor. Per-document failures are
         caught and logged so one bad document never aborts the batch.
         """
+        self._ensure_types_loaded()
         path = Path(docs_dir)
         pdfs = sorted(path.glob("*.pdf"))
         todo = [
@@ -120,6 +153,7 @@ class IngestionPipeline:
           - known type -> chunk with the type's hints, classify with its vocab,
             extract against its schema, and route to that type's SQL/graph targets.
         """
+        self._ensure_types_loaded()
         path = Path(file_path)
         start = time.time()
         logger.info("Ingesting: %s", path.name)
@@ -298,46 +332,63 @@ class IngestionPipeline:
         self.vector_store.upsert_chunks(chunks)
 
         if quarantined or doc_type is None:
+            # Unclassified (no known type) → triage for structured data worth proposing.
+            # Only here (not for parse/garble quarantine of a KNOWN type) and only if
+            # enabled. Triage never writes structured rows or mutates schema (M1); it just
+            # queues a proposal for human review. Failures are non-fatal.
+            if doc_type is None and self.cfg.enable_triage and profile is not None:
+                try:
+                    text = "\n\n".join(c.text for c in chunks)
+                    result = run_triage(text, schema_summary(self.sql_store), self.triage_llm)
+                    if result.has_structured_data and result.record_types:
+                        self.sql_store.insert_type_proposal(
+                            source_file,
+                            result.proposed_type_name or (profile.proposed_type or "unknown"),
+                            result.model_dump(),
+                        )
+                        logger.info("  → %s: triage proposed type %r (%d record types)",
+                                    source_file, result.proposed_type_name, len(result.record_types))
+                except Exception as e:
+                    logger.warning("triage failed for %s (non-fatal): %s", source_file, e)
             return
 
-        # quarterly_report keeps its EXISTING extraction/routing path unchanged
-        # (regression-safe): generic batched SQL extraction + the legacy graph path.
+        # quarterly_report: ONE schema-driven pass over all chunks (no routes_to_sql
+        # gate, no keyword filters) → all six structured targets. See
+        # docs/superpowers/specs/2026-07-10-quarterly-report-extraction-unification-design.md
         if doc_type.name == "quarterly_report":
-            sql_chunks = [c for c in chunks if c.routes_to_sql()]
-            if sql_chunks:
-                sql_data = self.sql_extractor.extract_chunks_batched(sql_chunks)
-                self._write_sql_data(sql_data, sql_chunks, source_file)
-
-            # Department goals from the report's "Annual Goals" section (chunks that
-            # mention "goal"); written to the goals table. Idempotent via the
-            # delete_structured_rows cleanup on re-ingest.
-            goal_texts = [c.text for c in chunks if "goal" in c.text.lower()]
-            if goal_texts and profile is not None:
-                q, y = metadata._split_period(profile.period)
-                goal_rows = self.sql_extractor.extract_goals(
-                    goal_texts, department=profile.department or "", quarter=q or "", year=y)
-                if goal_rows:
-                    self.sql_store.insert_goal_rows(goal_rows, chunks[0].chunk_id, source_file)
-
-            # Grants: strict external-award extraction (excludes budget/spending lines).
-            grant_texts = [c.text for c in chunks if "grant" in c.text.lower()]
-            if grant_texts and profile is not None:
-                grant_rows = self.sql_extractor.extract_grants(
-                    grant_texts, department=profile.department or "")
-                if grant_rows:
-                    self.sql_store.insert_grant_rows(grant_rows, chunks[0].chunk_id, source_file)
-
-            # Vacancies: keyword-selected extraction. Must NOT ride the routes_to_sql()
-            # gate — the 'Department Vacancy Updates' block is routinely classified
-            # org_data/narrative/header (sql:False), which silently dropped ~68% of
-            # vacancy sections. Mirror the goals/grants keyword path instead.
-            vacancy_texts = [c.text for c in chunks if "vacan" in c.text.lower()]
-            if vacancy_texts and profile is not None:
-                q, y = metadata._split_period(profile.period)
-                vacancy_rows = self.sql_extractor.extract_vacancies(
-                    vacancy_texts, department=profile.department or "", quarter=q or "", year=y)
-                if vacancy_rows:
-                    self.sql_store.insert_vacancy_rows(vacancy_rows, chunks[0].chunk_id)
+            q, y = metadata._split_period(profile.period) if profile else ("", None)
+            dept = (profile.department if profile else "") or ""
+            data = self.sql_extractor.extract_quarterly(
+                chunks, department=dept, quarter=q or "", year=y)
+            problems = validation.validate_extraction("quarterly_report", data or {}, profile)
+            if problems:
+                logger.warning("  → %s failed validation, withholding structured write: %s",
+                               source_file, "; ".join(problems))
+                self.sql_store.insert_review_flag(source_file, "validate", "; ".join(problems), "")
+            elif data:
+                cid = str(chunks[0].chunk_id)
+                # One atomic transaction: a mid-sequence failure rolls back the whole
+                # document rather than leaving a half-written (and, on re-ingest,
+                # duplicated) report.
+                with self.sql_store.transaction():
+                    if data.get("expenditures"):
+                        self.sql_store.insert_expenditure_rows(data["expenditures"], cid, source_file)
+                    if data.get("metrics"):
+                        self.sql_store.insert_metric_rows(data["metrics"], cid, source_file)
+                    if data.get("grants"):
+                        self.sql_store.insert_grant_rows(data["grants"], cid, source_file)
+                    if data.get("vacancies"):
+                        self.sql_store.insert_vacancy_rows(data["vacancies"], cid, source_file)
+                    if data.get("goals"):
+                        self.sql_store.insert_goal_rows(data["goals"], cid, source_file)
+                    if data.get("projects"):
+                        self.sql_store.insert_project_rows(data["projects"], cid, source_file)
+            else:
+                # No validation problem, but the pass produced zero rows — flag it rather
+                # than silently recording a "successfully ingested" doc with no data.
+                logger.warning("  → %s produced no structured rows", source_file)
+                self.sql_store.insert_review_flag(
+                    source_file, "validate", "quarterly extraction produced no structured rows", "")
 
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:
@@ -415,6 +466,21 @@ class IngestionPipeline:
             if "appropriations" in doc_type.sql_targets and extracted.get("appropriations"):
                 self.sql_store.insert_appropriation_rows(extracted["appropriations"], chunk_id, source_file)
 
+            # Data-driven types: any sql_target without a dedicated insert method above is
+            # a table created at approval time → generic insert (SQL-only in v1). Stamp the
+            # snapshot dimension (roster_year) from the document itself so point-in-time
+            # docs keep history instead of producing indistinguishable rows.
+            snapshot_year = _year_from_filename(source_file)
+            for target in doc_type.sql_targets:
+                if target in _BUILTIN_SQL_TABLES or not extracted.get(target):
+                    continue
+                rows = extracted[target]
+                if snapshot_year is not None:
+                    for r in rows:
+                        if "roster_year" in r:
+                            r["roster_year"] = snapshot_year
+                self.sql_store.insert_dynamic_rows(target, rows, chunk_id, source_file)
+
         # Graph — derived from the SAME extracted dict (resolutions/votes → nodes).
         try:
             resolutions = extracted.get("resolutions", [])
@@ -430,31 +496,6 @@ class IngestionPipeline:
                 self.graph_store.upsert_votes(votes)
         except Exception as e:
             logger.warning("Graph store write failed (vector+SQL still complete): %s", e)
-
-    def _write_sql_data(
-        self,
-        sql_data: dict,
-        sql_chunks: list[Chunk],
-        source_file: str,
-    ) -> None:
-        chunk_id = sql_chunks[0].chunk_id  # representative chunk for source reference
-
-        if sql_data.get("expenditures"):
-            self.sql_store.insert_expenditure_rows(
-                sql_data["expenditures"], chunk_id, source_file
-            )
-        if sql_data.get("metrics"):
-            self.sql_store.insert_metric_rows(
-                sql_data["metrics"], chunk_id, source_file
-            )
-        if sql_data.get("grants"):
-            self.sql_store.insert_grant_rows(
-                sql_data["grants"], chunk_id, source_file
-            )
-        if sql_data.get("vacancies"):
-            self.sql_store.insert_vacancy_rows(
-                sql_data["vacancies"], chunk_id
-            )
 
     def _write_graph_data(self, graph_data: dict, source_file: str, meta: ChunkMetadata) -> None:
         if graph_data.get("departments"):

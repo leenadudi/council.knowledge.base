@@ -75,6 +75,13 @@ def _init():
         _pipeline  = QueryPipeline(vector_store, sql_store, graph_store, cfg)
         _evaluator = Evaluator(cfg)
         _sql_store = sql_store
+        # Load data-driven document types (approved via triage) from the DB so both
+        # ingestion and query see them without a code deploy. Built-ins always win.
+        try:
+            from src.ingestion.registry import refresh_from_db
+            logger.info("Loaded %d data-driven document type(s)", refresh_from_db(sql_store))
+        except Exception as reg_err:
+            logger.warning("could not load data-driven document types: %s", reg_err)
         _ready = True
         logger.info("Pipeline ready")
     except Exception as e:
@@ -155,6 +162,48 @@ def admin_costs():
         "total_cost_usd": total,
         "by_call_site": rows,
     })
+
+
+@app.route("/proposals", methods=["GET"])
+def proposals():
+    """Read-only: pending structured-data type proposals from ingest triage (M1)."""
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    try:
+        return jsonify(_sql_store.get_pending_type_proposals())
+    except Exception:
+        logger.exception("proposals route failed")
+        return jsonify({"error": "could not load proposals"}), 500
+
+
+@app.route("/proposals/<int:proposal_id>/approve", methods=["POST"])
+def approve_proposal_route(proposal_id: int):
+    """Approve a proposal: create tables + register the type (M3). Schema-mutating."""
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    from src.ingestion import approval
+    try:
+        return jsonify(approval.approve_proposal(_sql_store, proposal_id))
+    except approval.ApprovalError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logger.exception("approve proposal %s failed", proposal_id)
+        return jsonify({"error": "approval failed — see server logs"}), 500
+
+
+@app.route("/proposals/<int:proposal_id>/reject", methods=["POST"])
+def reject_proposal_route(proposal_id: int):
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    from src.ingestion import approval
+    note = (request.get_json(silent=True) or {}).get("note", "") if request.data else ""
+    try:
+        return jsonify(approval.reject_proposal(_sql_store, proposal_id, note))
+    except approval.ApprovalError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logger.exception("reject proposal %s failed", proposal_id)
+        return jsonify({"error": "reject failed — see server logs"}), 500
 
 
 @app.route("/feedback", methods=["POST"])

@@ -19,6 +19,36 @@ logger = logging.getLogger(__name__)
 
 psycopg2.extras.register_uuid()
 
+# Bounded VARCHAR limits across the structured tables. The schema-driven extractor can
+# emit an over-long value (e.g. a "status" written as a sentence, or a council_member
+# rendered as a whole clause); without this guard a single row raises
+# StringDataRightTruncation and — now that the inserts are transactional — rolls back
+# the whole document. Keyed by column name (same-named columns share the tightest limit;
+# clipping to the tightest is always safe). TEXT columns (goals.*, titles) are not listed.
+_VARCHAR_LIMITS: dict[str, int] = {
+    # quarterly-report tables
+    "department": 100, "sub_department": 100, "account_number": 50, "line_item": 200,
+    "metric_name": 200, "metric_unit": 50, "grant_name": 255, "grant_number": 100,
+    "status": 50, "position_title": 200, "project_name": 300, "funding_source": 200,
+    "quarter": 5,
+    # council / legislation / meeting / appropriation tables
+    "resolution_number": 50, "vendor": 255, "council_member": 120, "sponsor": 255,
+    "bill_number": 50, "session_type": 60, "president": 120, "call_to_order": 20,
+    "adjourned": 20, "item_type": 30, "item_number": 50, "action": 150, "committee": 120,
+    "fund": 100, "category": 150,
+}
+
+
+def _clip(row: dict) -> dict:
+    """Truncate over-long string fields to their column's VARCHAR limit, in place.
+    Logs each truncation so it can be reviewed. Prevents StringDataRightTruncation."""
+    for key, limit in _VARCHAR_LIMITS.items():
+        v = row.get(key)
+        if isinstance(v, str) and len(v) > limit:
+            logger.warning("truncating %s: %d→%d chars (%r)", key, len(v), limit, v[:60])
+            row[key] = v[:limit]
+    return row
+
 
 def _json_default(o: Any):
     """Serialize types pulled from Postgres (Decimal, date) that json can't handle."""
@@ -138,7 +168,7 @@ class SQLStore:
                 row.setdefault("account_number", None)
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
         logger.debug("Inserted %d expenditure rows from chunk %s", len(rows), source_chunk_id)
 
     def insert_metric_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
@@ -155,7 +185,7 @@ class SQLStore:
                 row.setdefault("metric_unit", None)
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
 
     def insert_grant_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -184,22 +214,24 @@ class SQLStore:
                 row["end_date"] = _norm_date(row.get("end_date"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 row["source_file"] = source_file
-                cur.execute(sql, row)
+                cur.execute(sql, _clip(row))
 
-    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str) -> None:
+    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO vacancies
-                (department, position_title, status, open_count, quarter, year, source_chunk_id)
+                (department, position_title, status, open_count, quarter, year,
+                 source_chunk_id, source_file)
             VALUES
                 (%(department)s, %(position_title)s, %(status)s, %(open_count)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s)
         """
         with self.cursor() as cur:
             for row in rows:
                 # extractor emits "count"; the column is open_count. Tolerate either.
                 row.setdefault("open_count", row.get("count"))
                 row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                cur.execute(sql, row)
+                row["source_file"] = source_file
+                cur.execute(sql, _clip(row))
 
     def record_document(self, source_file: str, department: str, document_type: str,
                         quarter: str, year: int, parser_used: str, total_chunks: int) -> None:
@@ -238,6 +270,92 @@ class SQLStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def insert_type_proposal(self, source_file: str, proposed_type: str, payload: dict) -> None:
+        """Queue an agent-proposed structured-data type/mapping for human review."""
+        with self.cursor() as cur:
+            cur.execute(
+                "INSERT INTO type_proposals (source_file, proposed_type, payload) "
+                "VALUES (%s, %s, %s)",
+                (source_file, proposed_type, psycopg2.extras.Json(payload)),
+            )
+
+    def get_pending_type_proposals(self) -> list[dict[str, Any]]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT id, source_file, proposed_type, payload, created_at "
+                "FROM type_proposals WHERE status = 'pending' ORDER BY created_at DESC"
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_type_proposal(self, proposal_id: int) -> Optional[dict[str, Any]]:
+        with self.cursor() as cur:
+            cur.execute("SELECT id, source_file, proposed_type, payload, status "
+                        "FROM type_proposals WHERE id = %s", (proposal_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def set_type_proposal_status(self, proposal_id: int, status: str, note: str = "") -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE type_proposals SET status = %s, reviewed_at = NOW(), reviewer_note = %s "
+                "WHERE id = %s",
+                (status, note, proposal_id),
+            )
+
+    def execute_ddl(self, ddl: str) -> None:
+        """Run a DDL string (CREATE TABLE / INDEX). Callers MUST pass only DDL built by
+        src.storage.ddl.build_create_table, which validates identifiers/types and never
+        emits destructive statements."""
+        with self.cursor() as cur:
+            cur.execute(ddl)
+
+    def upsert_document_type(self, type_name: str, description: str,
+                             extraction_templates: dict, sql_tables: list[str],
+                             graph_node_types: Optional[list[str]] = None) -> None:
+        """Register (or replace) a data-driven document type. Delete-then-insert keeps it
+        idempotent (type_name has no unique constraint)."""
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM document_type_registry WHERE type_name = %s", (type_name,))
+            cur.execute(
+                "INSERT INTO document_type_registry "
+                "(type_name, display_name, description, extraction_templates, sql_tables, "
+                " graph_node_types, added_by, active) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'triage', TRUE)",
+                (type_name, type_name, description,
+                 psycopg2.extras.Json(extraction_templates),
+                 list(sql_tables), list(graph_node_types or [])),
+            )
+
+    def insert_dynamic_rows(self, table: str, rows: list[dict[str, Any]],
+                            source_chunk_id: str, source_file: str) -> None:
+        """Insert rows into a data-driven (approved) table. Table name is identifier-
+        validated; only columns that actually exist on the table are written (values are
+        parameterized); strings are clipped to each column's VARCHAR limit."""
+        from src.storage.ddl import _valid_ident
+        if not _valid_ident(table):
+            raise ValueError(f"refusing to insert into invalid table name: {table!r}")
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT column_name, character_maximum_length FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s", (table,))
+            meta = {r["column_name"]: r["character_maximum_length"] for r in cur.fetchall()}
+        if not meta:
+            raise ValueError(f"table {table!r} does not exist")
+        writable = set(meta) - {"id", "ingested_at"}
+        with self.cursor() as cur:
+            for row in rows:
+                data = {k: v for k, v in row.items() if k in writable}
+                data["source_chunk_id"] = uuid.UUID(source_chunk_id)
+                data["source_file"] = source_file
+                for k, v in list(data.items()):          # generic length clip
+                    lim = meta.get(k)
+                    if isinstance(v, str) and lim and len(v) > lim:
+                        data[k] = v[:lim]
+                cols = list(data.keys())
+                sql = (f"INSERT INTO {table} (" + ", ".join(cols) + ") VALUES ("
+                       + ", ".join(f"%({c})s" for c in cols) + ")")
+                cur.execute(sql, data)
+
     def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO resolutions
@@ -247,6 +365,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("title"), r.get("amount"),
                     r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
@@ -261,6 +380,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
                     sanitize_vote(r.get("vote")), source_chunk_id, source_file,
@@ -276,6 +396,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
                     r.get("members_present"), r.get("members_present_names"),
@@ -292,6 +413,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
                     r.get("title"), r.get("action"), r.get("committee"),
@@ -307,6 +429,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
                     r.get("adopted_date") or None, r.get("status"),
@@ -321,6 +444,7 @@ class SQLStore:
         """
         with self.cursor() as cur:
             for r in rows:
+                _clip(r)
                 cur.execute(sql, (
                     r.get("department"), r.get("fiscal_year"), r.get("fund"),
                     r.get("category"), r.get("amount"), source_chunk_id, source_file,
@@ -341,14 +465,51 @@ class SQLStore:
                     source_chunk_id, source_file,
                 ))
 
-    def delete_structured_rows(self, source_file: str) -> None:
-        """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
+    def insert_project_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        sql = """
+            INSERT INTO projects
+              (department, project_name, description, status, funding_source,
+               quarter, year, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants", "resolutions", "votes",
-                          "meetings", "meeting_actions", "legislation", "appropriations", "goals"]:
+            for r in rows:
+                _clip(r)
+                cur.execute(sql, (
+                    r.get("department"), r.get("project_name"), r.get("description"),
+                    r.get("status"), r.get("funding_source"), r.get("quarter"),
+                    r.get("year"), source_chunk_id, source_file,
+                ))
+
+    def delete_structured_rows(self, source_file: str) -> None:
+        """Delete only the extracted rows for a file (called before re-ingestion to
+        prevent duplicates). All tables — vacancies included, since it now carries
+        source_file — delete by file. The legacy fallback below also clears any old
+        vacancy rows whose source_file predates the 2026-07-14 backfill (still NULL)."""
+        from src.storage.ddl import _valid_ident
+        builtin = ["expenditures", "metrics", "grants", "vacancies", "resolutions",
+                   "votes", "meetings", "meeting_actions", "legislation",
+                   "appropriations", "goals", "projects"]
+        with self.cursor() as cur:
+            for table in builtin:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
+            # Data-driven type tables (created at approval time) also delete by source_file,
+            # so re-ingesting a doc replaces its rows rather than duplicating them. Names
+            # come from our own registry but are identifier-validated + existence-checked.
+            cur.execute("SELECT DISTINCT unnest(sql_tables) AS t FROM document_type_registry "
+                        "WHERE active = TRUE")
+            for row in cur.fetchall():
+                t = row["t"]
+                if t in builtin or not _valid_ident(t):
+                    continue
+                cur.execute("SELECT to_regclass(%s) AS r", (f"public.{t}",))
+                if cur.fetchone()["r"] is None:
+                    continue
+                cur.execute(f"DELETE FROM {t} WHERE source_file = %s", (source_file,))
+            # Fallback for pre-migration rows that never got a source_file backfilled.
             cur.execute("""
-                DELETE FROM vacancies WHERE source_chunk_id IN (
+                DELETE FROM vacancies
+                WHERE source_file IS NULL AND source_chunk_id IN (
                     SELECT chunk_id FROM document_chunks WHERE source_file = %s
                 )
             """, (source_file,))

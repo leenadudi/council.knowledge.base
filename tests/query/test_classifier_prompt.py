@@ -17,9 +17,10 @@ def test_prompt_states_quarter_is_quoted_string():
 
 
 def test_prompt_warns_grants_has_no_quarter_year():
-    # The prompt lists the tables that lack quarter/year; grants must be among them.
-    assert "have NO `quarter`/`year`" in _CLASSIFY_PROMPT
+    # The per-table warning was consolidated (commit 248776a) to cover grants +
+    # resolutions + legislation + …; grants must still be named as having no quarter/year.
     assert "`grants`" in _CLASSIFY_PROMPT
+    assert "have NO `quarter`/`year`" in _CLASSIFY_PROMPT
 
 
 def test_prompt_requires_source_file_for_citations():
