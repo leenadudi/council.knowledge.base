@@ -109,6 +109,13 @@ def all_document_types() -> list[DocumentType]:
     return list(_REGISTRY.values())
 
 
+def data_driven_types() -> list[DocumentType]:
+    """Types onboarded via triage/approval (loaded from the DB) — i.e. everything that
+    isn't one of the code-defined built-ins. Used to make the query classifier aware of
+    approved tables without a code change."""
+    return [dt for dt in _REGISTRY.values() if dt.name not in KNOWN_TYPE_NAMES]
+
+
 def document_type_from_row(row: dict) -> DocumentType:
     """Build a DocumentType from a document_type_registry DB row. The row's
     extraction_templates JSON holds {"record_types": [...]} (the approved proposal's

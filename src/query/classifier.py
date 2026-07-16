@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import Optional, get_args
 
 from src.llm.client import TrackedAnthropic
 
@@ -16,6 +16,34 @@ from src.config import Settings, get_settings
 from src.models import QueryPlan
 
 logger = logging.getLogger(__name__)
+
+
+def _data_driven_schema_block() -> str:
+    """List approved data-driven tables (+ columns) from the live registry so the router
+    can generate SQL against them. Empty string when there are none (built-ins only)."""
+    try:
+        from src.ingestion.registry import data_driven_types
+        lines = []
+        for dt in data_driven_types():
+            if dt.extraction_schema is None:
+                continue
+            for table, field in dt.extraction_schema.model_fields.items():
+                args = get_args(field.annotation)
+                row_model = args[0] if args else None
+                domain = [c for c in (row_model.model_fields if row_model else {})
+                          if c not in ("source_text", "confidence")]
+                cols = ", ".join(["id"] + domain + ["source_chunk_id", "source_file"])
+                lines.append(f"- {table}({cols}) — data-driven type '{dt.name}'.")
+        return "\n".join(lines)
+    except Exception as e:  # never let registry issues break query routing
+        logger.warning("could not build data-driven schema block: %s", e)
+        return ""
+
+
+def build_classify_prompt(question: str) -> str:
+    """Format the router prompt, injecting any approved data-driven tables."""
+    return _CLASSIFY_PROMPT.format(
+        question=question, data_driven_tables=_data_driven_schema_block())
 
 _CLASSIFY_PROMPT = """You are the query router for a city government knowledge base.
 
@@ -49,7 +77,7 @@ SQL schema reference:
 - meeting_actions(id, meeting_date, item_type, item_number, title, action, committee, source_file) — what happened to each resolution/ordinance at a session (item_type 'resolution'|'ordinance'; action e.g. 'read into record','referred to committee','final passage').
 - goals(id, department, year, quarter, goal_title, description, target, status, source_file) — department goals stated in quarterly reports.
 - appropriations(id, department, fiscal_year, fund, category, amount, source_file) — department budget appropriations from the annual budget.
-
+{data_driven_tables}
 Column notes (MUST follow exactly):
 - `quarter` is a STRING like 'Q1', 'Q2', 'Q3', 'Q4' — always quote it: `quarter = 'Q1'`. Never write `quarter = 1`.
 - `year` is an INTEGER: `year = 2026` (no quotes). `appropriations` uses `fiscal_year` (INTEGER), NOT `year`.
@@ -94,7 +122,7 @@ class QueryClassifier:
                 query_id=query_id,
                 messages=[{
                     "role": "user",
-                    "content": _CLASSIFY_PROMPT.format(question=question),
+                    "content": build_classify_prompt(question),
                 }],
             )
             raw = msg.content[0].text
