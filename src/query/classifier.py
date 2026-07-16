@@ -64,6 +64,7 @@ Graph schema:
 
 Query generation rules (MUST follow exactly):
 - `sql_query` and `graph_query` are executed verbatim with NO parameter binding. Use literal values inline.
+- CITATIONS: every `sql_query` MUST return a `source_file` column so the answer can cite the source PDF (users know documents, not the database). For row-level queries, add `source_file` to the SELECT list. For aggregate queries (GROUP BY / SUM / COUNT / AVG), include `STRING_AGG(DISTINCT source_file, '; ') AS source_file` so the originating documents are still returned. Example: `SELECT resolution_number, title, amount, vendor, source_file FROM resolutions WHERE amount IS NOT NULL ORDER BY amount DESC`.
 - `graph_query` (Cypher): never use `$parameters` (e.g. `$department_name`) — they will not be bound and the query will fail. Inline the literal value: `MATCH (p:Person)-[:DIRECTS]->(d:Department {{name: 'Public Works'}}) RETURN p.name, p.title`.
 
 Rules:

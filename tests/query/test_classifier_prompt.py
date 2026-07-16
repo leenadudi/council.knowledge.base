@@ -22,6 +22,12 @@ def test_prompt_warns_grants_has_no_quarter_year():
     assert "`grants`" in _CLASSIFY_PROMPT
 
 
+def test_prompt_requires_source_file_for_citations():
+    # SQL must always return source_file so answers cite the PDF, not the datastore.
+    assert "source_file" in _CLASSIFY_PROMPT
+    assert "STRING_AGG(DISTINCT source_file" in _CLASSIFY_PROMPT
+
+
 def test_prompt_forbids_unbound_cypher_parameters():
     assert "$parameters" in _CLASSIFY_PROMPT
     assert "literal" in _CLASSIFY_PROMPT.lower()
