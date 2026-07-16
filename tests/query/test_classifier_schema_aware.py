@@ -19,6 +19,10 @@ def test_prompt_lists_approved_data_driven_tables():
         assert "quarter = 'Q1'" in p
         assert "resolutions(" in p
         assert "how many widgets are there" in p
+        # the type's description surfaces as a usage note for the router
+        assert "usage: test" in p
+        # the department `vacancies` table is disambiguated from appointed seats
+        assert "DEPARTMENT STAFFING" in p
     finally:
         registry.unregister("m4_test_type")   # don't leak into other tests
 

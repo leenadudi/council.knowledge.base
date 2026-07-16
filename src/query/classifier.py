@@ -34,6 +34,8 @@ def _data_driven_schema_block() -> str:
                           if c not in ("source_text", "confidence")]
                 cols = ", ".join(["id"] + domain + ["source_chunk_id", "source_file"])
                 lines.append(f"- {table}({cols}) — data-driven type '{dt.name}'.")
+            if dt.description:                       # per-type usage guidance for the router
+                lines.append(f"  usage: {dt.description}")
         return "\n".join(lines)
     except Exception as e:  # never let registry issues break query routing
         logger.warning("could not build data-driven schema block: %s", e)
@@ -69,7 +71,7 @@ SQL schema reference:
 - expenditures(id, department, sub_department, account_number, line_item, revised_budget, ytd_expended, quarter, year, source_file)
 - metrics(id, department, metric_name, metric_value, metric_unit, quarter, year, source_file)
 - grants(id, department, grant_name, grant_number, amount, start_date, end_date, status, source_file)
-- vacancies(id, department, position_title, status, quarter, year)
+- vacancies(id, department, position_title, status, quarter, year) — DEPARTMENT STAFFING vacancies (unfilled jobs, e.g. 'Patrol Officer, 30 open') from quarterly reports. NOT board/commission appointed seats — those are in the data-driven board tables below (see their usage note).
 - resolutions(id, resolution_number, title, amount, vendor, department, adopted_date, status, source_file) — City Council resolutions (authorizations of contracts/spending/policy). `amount` is the authorized dollar figure (may be NULL). `status` e.g. 'Passed'.
 - votes(id, resolution_number, council_member, vote, source_file) — per-member votes on a resolution ('yes'|'no'|'abstain').
 - legislation(id, bill_number, title, sponsor, amount, adopted_date, status, source_file) — ordinances/bills. `status` e.g. 'Introduced','Signed','Vetoed','Approved'.
