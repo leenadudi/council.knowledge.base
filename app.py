@@ -118,8 +118,18 @@ def ask():
     if not question:
         return jsonify({"error": "question is required"}), 400
 
+    # Optional prior conversation for follow-up resolution. Sanitize to a list of
+    # {question, answer} strings; anything malformed is dropped (never trusted raw).
+    raw_history = data.get("history")
+    history = None
+    if isinstance(raw_history, list):
+        history = [
+            {"question": str(t.get("question", "")), "answer": str(t.get("answer", ""))}
+            for t in raw_history if isinstance(t, dict)
+        ] or None
+
     try:
-        response = _pipeline.ask(question)
+        response = _pipeline.ask(question, history=history)
 
         # Background quality monitoring (sampled). Isolated so a failure here can
         # never turn a successful answer into a 500 — sampling is accuracy-neutral.

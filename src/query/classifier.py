@@ -40,10 +40,13 @@ def _data_driven_schema_block() -> str:
         return ""
 
 
-def build_classify_prompt(question: str) -> str:
-    """Format the router prompt, injecting any approved data-driven tables."""
+def build_classify_prompt(question: str, history: Optional[list[dict]] = None) -> str:
+    """Format the router prompt, injecting approved data-driven tables and any prior turns."""
     return _CLASSIFY_PROMPT.format(
-        question=question, data_driven_tables=_data_driven_schema_block())
+        question=question,
+        data_driven_tables=_data_driven_schema_block(),
+        prior_conversation=_build_prior_conversation(history),
+    )
 
 _CLASSIFY_PROMPT = """You are the query router for a city government knowledge base.
 
@@ -62,7 +65,8 @@ Given the user's question, produce a retrieval plan as JSON:
   "vector_query": "search terms ...",   // semantic search string, or null
   "graph_query": "MATCH ...",           // Cypher query, or null
   "metadata_filters": {{}},              // department/quarter/year filters extracted from the question
-  "reasoning": "..."
+  "reasoning": "...",
+  "resolved_question": "the question rewritten as a fully standalone question, or the original question unchanged if it is already self-contained"
 }}
 
 SQL schema reference:
@@ -91,6 +95,7 @@ Graph schema:
 
 Query generation rules (MUST follow exactly):
 - `sql_query` and `graph_query` are executed verbatim with NO parameter binding. Use literal values inline.
+- CITATIONS: every `sql_query` MUST return a `source_file` column so the answer can cite the source PDF (users know documents, not the database). For row-level queries, add `source_file` to the SELECT list. For aggregate queries (GROUP BY / SUM / COUNT / AVG), include `STRING_AGG(DISTINCT source_file, '; ') AS source_file` so the originating documents are still returned. Example: `SELECT resolution_number, title, amount, vendor, source_file FROM resolutions WHERE amount IS NOT NULL ORDER BY amount DESC`.
 - `graph_query` (Cypher): never use `$parameters` (e.g. `$department_name`) — they will not be bound and the query will fail. Inline the literal value: `MATCH (p:Person)-[:DIRECTS]->(d:Department {{name: 'Public Works'}}) RETURN p.name, p.title`.
 
 Rules:
@@ -101,11 +106,24 @@ Rules:
 - Cross-store questions → parallel with both required stores
 - If the question mentions a specific department, add it to metadata_filters
 - If the question mentions a specific quarter/year, add it to metadata_filters
+- FOLLOW-UPS: If a "Prior conversation" section is present AND the user question depends on it (pronouns like "that"/"those"/"it", ellipsis, "what about <X>", "break that down"), rewrite the question into a fully self-contained question in `resolved_question` and build the store queries from that rewrite. If the question is already self-contained or is a fresh unrelated topic, set `resolved_question` to the original question and ignore the prior conversation.
 
-User question: {question}
+{prior_conversation}User question: {question}
 
 Return ONLY the JSON object, no explanation.
 """
+
+
+def _build_prior_conversation(history: Optional[list[dict]]) -> str:
+    """Render prior turns as a delimited prompt block, or '' when none."""
+    if not history:
+        return ""
+    lines = ["Prior conversation (most recent last):"]
+    for turn in history:
+        q = str(turn.get("question", "")).strip()
+        a = str(turn.get("answer", "")).strip()
+        lines.append(f"- Q: {q}\n  A: {a}")
+    return "\n".join(lines) + "\n\n"
 
 
 class QueryClassifier:
@@ -113,7 +131,12 @@ class QueryClassifier:
         self.cfg = settings or get_settings()
         self.client = llm or TrackedAnthropic(self.cfg, call_site="query.classifier")
 
-    def classify(self, question: str, query_id: Optional[str] = None) -> QueryPlan:
+    def classify(
+        self,
+        question: str,
+        history: Optional[list[dict]] = None,
+        query_id: Optional[str] = None,
+    ) -> QueryPlan:
         """Classify the question and return a retrieval plan."""
         try:
             msg = self.client.messages.create(
@@ -122,7 +145,7 @@ class QueryClassifier:
                 query_id=query_id,
                 messages=[{
                     "role": "user",
-                    "content": build_classify_prompt(question),
+                    "content": build_classify_prompt(question, history),
                 }],
             )
             raw = msg.content[0].text
@@ -156,4 +179,5 @@ def _parse_plan(raw: str) -> QueryPlan:
         graph_query=data.get("graph_query"),
         metadata_filters=data.get("metadata_filters", {}),
         reasoning=data.get("reasoning", ""),
+        resolved_question=data.get("resolved_question"),
     )
