@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     min_chunk_size: int = 100
     chunk_overlap: int = 100
     extraction_batch_size: int = 8
+    data_driven_char_budget: int = 24000   # char budget per batch for data-driven type extraction
 
     # Garbled text detection threshold for fallback to vision LLM
     garbled_ratio_threshold: float = 0.10

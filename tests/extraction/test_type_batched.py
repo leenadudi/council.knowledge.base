@@ -38,13 +38,27 @@ def test_extract_type_batched_merges_dedups_and_strips():
     b2 = json.dumps({"board_members": [
         {"board_name": "Audit", "is_vacant": False, "source_text": "x", "confidence": "high"},  # dup across boundary
         {"board_name": "Plumbing", "is_vacant": True, "source_text": "y", "confidence": "high"}]})
-    from src.config import Settings
-    cfg = Settings(); cfg.extraction_batch_size = 1     # force 2 batches
-    ext = SQLExtractor(settings=cfg, llm=_SeqClient([b1, b2]))
-    out = ext.extract_type_batched([_C("a"), _C("b")], dt)
+    ext = SQLExtractor(llm=_SeqClient([b1, b2]))
+    # char_budget=1 forces each 1-char chunk into its own batch → 2 batches
+    out = ext.extract_type_batched([_C("a"), _C("b")], dt, char_budget=1)
     assert sorted(r["board_name"] for r in out["board_members"]) == ["Audit", "Plumbing"]
     row = out["board_members"][0]
     assert "source_text" not in row and "confidence" not in row
+
+
+def test_extract_type_batched_packs_chunks_to_char_budget():
+    dt = _boards_type()
+    payload = json.dumps({"board_members": [{"board_name": "X", "source_text": "s", "confidence": "high"}]})
+    calls = {"n": 0}
+    class _Counting(_SeqClient):
+        @property
+        def messages(self):
+            calls["n"] += 1
+            return _SeqClient._M(self)
+    ext = SQLExtractor(llm=_Counting([payload]))
+    # four 10-char chunks, budget 25 → batches of [10,10],[10,10] = 2 batches
+    ext.extract_type_batched([_C("x" * 10) for _ in range(4)], dt, char_budget=25)
+    assert calls["n"] == 2
 
 
 def test_extract_type_batched_keeps_only_sql_targets_and_is_safe():

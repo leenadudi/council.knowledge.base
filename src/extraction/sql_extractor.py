@@ -196,18 +196,29 @@ class SQLExtractor:
                 out[key] = cleaned
         return out
 
-    def extract_type_batched(self, chunks, doc_type, batch_size: Optional[int] = None
+    def extract_type_batched(self, chunks, doc_type, char_budget: Optional[int] = None
                              ) -> dict[str, list[dict[str, Any]]]:
         """Batched schema-driven extraction for a DATA-DRIVEN type (onboarded via triage).
-        Mirrors extract_quarterly: split chunks into batches so a large document (e.g. a
-        20-board roster booklet) never truncates a single call, then merge/dedup. Returns
-        {table: [rows]} over the type's sql_targets."""
+        Batches by a CHARACTER BUDGET rather than a fixed chunk count: the section-aware
+        chunker over-splits roster-style docs (each board fragments into Overview/Seats/
+        Members sub-chunks, and a seat's chunk may not even contain its board name), so
+        tiny fixed batches fragment a record's context across boundaries — losing the
+        board↔seat association and duplicating per-board rows. Packing chunks up to a
+        char budget keeps each section whole in one batch while still capping output so a
+        huge document can't truncate a single call. Then merge/dedup over sql_targets."""
         if not chunks or doc_type is None or doc_type.extraction_schema is None:
             return {}
-        bs = batch_size or self.cfg.extraction_batch_size
-        parts = [self._schema_extract_batch(chunks[i:i + bs], doc_type.extraction_schema,
-                                            doc_label=doc_type.name)
-                 for i in range(0, len(chunks), bs)]
+        budget = char_budget or getattr(self.cfg, "data_driven_char_budget", 24000)
+        batches, cur, cur_len = [], [], 0
+        for c in chunks:
+            t = len(c.text or "")
+            if cur and cur_len + t > budget:
+                batches.append(cur); cur, cur_len = [], 0
+            cur.append(c); cur_len += t
+        if cur:
+            batches.append(cur)
+        parts = [self._schema_extract_batch(b, doc_type.extraction_schema, doc_label=doc_type.name)
+                 for b in batches]
         return self.merge_type_parts(parts, doc_type.sql_targets)
 
     def extract_for_type(self, chunks, doc_type, profile=None) -> dict[str, list[dict[str, Any]]]:
