@@ -14,6 +14,7 @@ For each document:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -39,6 +40,21 @@ from src.storage.sql_store import SQLStore
 from src.storage.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+# Built-in tables that have dedicated insert methods; everything else on a type's
+# sql_targets is a data-driven table written via the generic insert path.
+_BUILTIN_SQL_TABLES = frozenset({
+    "resolutions", "votes", "meetings", "meeting_actions", "legislation", "appropriations",
+})
+_YEAR_RE = re.compile(r"(20\d{2})")
+
+
+def _year_from_filename(source_file: str) -> Optional[int]:
+    """Extract the snapshot year (e.g. 2026) from a filename like
+    '… - 2026 - Boards … 2026 Booklet 1.pdf'. Returns None if no 20xx year is present."""
+    m = _YEAR_RE.search(source_file or "")
+    return int(m.group(1)) if m else None
 
 
 class IngestionPipeline:
@@ -449,6 +465,21 @@ class IngestionPipeline:
                 self.sql_store.insert_legislation_rows(extracted["legislation"], chunk_id, source_file)
             if "appropriations" in doc_type.sql_targets and extracted.get("appropriations"):
                 self.sql_store.insert_appropriation_rows(extracted["appropriations"], chunk_id, source_file)
+
+            # Data-driven types: any sql_target without a dedicated insert method above is
+            # a table created at approval time → generic insert (SQL-only in v1). Stamp the
+            # snapshot dimension (roster_year) from the document itself so point-in-time
+            # docs keep history instead of producing indistinguishable rows.
+            snapshot_year = _year_from_filename(source_file)
+            for target in doc_type.sql_targets:
+                if target in _BUILTIN_SQL_TABLES or not extracted.get(target):
+                    continue
+                rows = extracted[target]
+                if snapshot_year is not None:
+                    for r in rows:
+                        if "roster_year" in r:
+                            r["roster_year"] = snapshot_year
+                self.sql_store.insert_dynamic_rows(target, rows, chunk_id, source_file)
 
         # Graph — derived from the SAME extracted dict (resolutions/votes → nodes).
         try:

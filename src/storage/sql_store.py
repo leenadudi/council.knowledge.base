@@ -486,11 +486,26 @@ class SQLStore:
         prevent duplicates). All tables — vacancies included, since it now carries
         source_file — delete by file. The legacy fallback below also clears any old
         vacancy rows whose source_file predates the 2026-07-14 backfill (still NULL)."""
+        from src.storage.ddl import _valid_ident
+        builtin = ["expenditures", "metrics", "grants", "vacancies", "resolutions",
+                   "votes", "meetings", "meeting_actions", "legislation",
+                   "appropriations", "goals", "projects"]
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants", "vacancies", "resolutions",
-                          "votes", "meetings", "meeting_actions", "legislation",
-                          "appropriations", "goals", "projects"]:
+            for table in builtin:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
+            # Data-driven type tables (created at approval time) also delete by source_file,
+            # so re-ingesting a doc replaces its rows rather than duplicating them. Names
+            # come from our own registry but are identifier-validated + existence-checked.
+            cur.execute("SELECT DISTINCT unnest(sql_tables) AS t FROM document_type_registry "
+                        "WHERE active = TRUE")
+            for row in cur.fetchall():
+                t = row["t"]
+                if t in builtin or not _valid_ident(t):
+                    continue
+                cur.execute("SELECT to_regclass(%s) AS r", (f"public.{t}",))
+                if cur.fetchone()["r"] is None:
+                    continue
+                cur.execute(f"DELETE FROM {t} WHERE source_file = %s", (source_file,))
             # Fallback for pre-migration rows that never got a source_file backfilled.
             cur.execute("""
                 DELETE FROM vacancies

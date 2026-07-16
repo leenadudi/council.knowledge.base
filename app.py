@@ -166,6 +166,36 @@ def proposals():
         return jsonify({"error": "could not load proposals"}), 500
 
 
+@app.route("/proposals/<int:proposal_id>/approve", methods=["POST"])
+def approve_proposal_route(proposal_id: int):
+    """Approve a proposal: create tables + register the type (M3). Schema-mutating."""
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    from src.ingestion import approval
+    try:
+        return jsonify(approval.approve_proposal(_sql_store, proposal_id))
+    except approval.ApprovalError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logger.exception("approve proposal %s failed", proposal_id)
+        return jsonify({"error": "approval failed — see server logs"}), 500
+
+
+@app.route("/proposals/<int:proposal_id>/reject", methods=["POST"])
+def reject_proposal_route(proposal_id: int):
+    if _sql_store is None:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    from src.ingestion import approval
+    note = (request.get_json(silent=True) or {}).get("note", "") if request.data else ""
+    try:
+        return jsonify(approval.reject_proposal(_sql_store, proposal_id, note))
+    except approval.ApprovalError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        logger.exception("reject proposal %s failed", proposal_id)
+        return jsonify({"error": "reject failed — see server logs"}), 500
+
+
 @app.route("/feedback", methods=["POST"])
 def feedback():
     if not _ready:
