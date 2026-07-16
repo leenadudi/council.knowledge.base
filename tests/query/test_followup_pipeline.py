@@ -49,10 +49,20 @@ def test_ask_uses_resolved_question_for_synthesis():
     assert pipe.synthesizer.synthesize.call_args.args[0] == "fire dept allocation in 2023?"
 
 
-def test_ask_caps_history_to_last_two_turns():
+def test_ask_sends_whole_thread_when_under_cap():
     plan = QueryPlan(sources=["vector"], execution="parallel")
     pipe = _pipeline_with_mocks(plan)
     history = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(5)]
+    pipe.ask("follow up", history=history, log_query=False)
+    passed = pipe.classifier.classify.call_args.kwargs["history"]
+    # Under the safety cap → the entire thread is passed through untrimmed.
+    assert passed == history
+
+
+def test_ask_trims_history_to_safety_cap():
+    plan = QueryPlan(sources=["vector"], execution="parallel")
+    pipe = _pipeline_with_mocks(plan)
+    history = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(_MAX_HISTORY_TURNS + 3)]
     pipe.ask("follow up", history=history, log_query=False)
     passed = pipe.classifier.classify.call_args.kwargs["history"]
     assert len(passed) == _MAX_HISTORY_TURNS

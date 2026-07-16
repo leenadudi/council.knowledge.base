@@ -1273,8 +1273,8 @@ async function runAsk(){
   $('#ask-answer').insertAdjacentHTML('beforeend', _askCardShell(q, n));
   const card=document.getElementById('askcard-'+n);
   if(card) card.scrollIntoView({behavior:'smooth', block:'nearest'});
-  // Only the last 2 completed turns travel as context (backend caps too).
-  const history=askThread.slice(-2).map(t=>({question:t.question, answer:t.answer}));
+  // Send the whole conversation as context (backend applies a safety cap).
+  const history=askThread.map(t=>({question:t.question, answer:t.answer}));
   try{
     const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q, history})});
     const j=await r.json();

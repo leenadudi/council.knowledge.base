@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 # Weak retrieval: fewer than this many useful chunks → trigger fallback
 _MIN_USEFUL_CHUNKS = 1
 
-# Cap on prior turns passed into the classifier (bounds prompt tokens).
-_MAX_HISTORY_TURNS = 2
+# Safety cap on prior turns passed into the classifier. Set high enough that a
+# normal conversation sends its WHOLE thread as context; only a pathologically
+# long session is trimmed (to the most recent turns) to bound prompt tokens.
+_MAX_HISTORY_TURNS = 20
 
 
 class QueryPipeline:
