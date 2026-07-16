@@ -118,13 +118,50 @@ class Synthesizer:
 
             if result.store == "sql" and result.sql_rows:
                 rows_text = _format_sql_rows(result.sql_rows)
-                sections.append(f"[SQL Database Results]\n{rows_text}")
+                # Cite the source PDF(s), not the datastore — that's what users know.
+                sql_sources = _distinct(r.get("source_file") for r in result.sql_rows)
+                src = "; ".join(sql_sources) if sql_sources else "city records"
+                sections.append(
+                    f"[Source documents: {src} — cite each figure using the "
+                    f"source_file shown in its row]\n{rows_text}"
+                )
+                for s in sql_sources:
+                    _add_citation(citations, s)
 
             if result.store == "graph" and result.graph_data:
                 graph_text = _format_graph_data(result.graph_data)
-                sections.append(f"[Graph Database Results]\n{graph_text}")
+                graph_sources = _distinct(
+                    v
+                    for rec in result.graph_data.get("records", [])
+                    if isinstance(rec, dict)
+                    for v in rec.values()
+                    if isinstance(v, str) and v.lower().endswith(".pdf")
+                )
+                label = (
+                    f"[Source documents: {'; '.join(graph_sources)}]"
+                    if graph_sources
+                    else "[Organizational records from City of Harrisburg documents]"
+                )
+                sections.append(f"{label}\n{graph_text}")
+                for s in graph_sources:
+                    _add_citation(citations, s)
 
         return "\n\n---\n\n".join(sections), citations
+
+
+def _distinct(values) -> list[str]:
+    """Order-preserving unique of truthy string values."""
+    seen: list[str] = []
+    for v in values:
+        if v and v not in seen:
+            seen.append(v)
+    return seen
+
+
+def _add_citation(citations: list[Citation], source_file: str) -> None:
+    """Append a source-file citation unless one for that file already exists."""
+    if not any(c.source_file == source_file for c in citations):
+        citations.append(Citation(source_file=source_file))
 
 
 def _format_sql_rows(rows: list[dict]) -> str:
