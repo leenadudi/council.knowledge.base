@@ -280,13 +280,19 @@
 
       <!-- PEOPLE -->
       <div class="view" id="v-people">
-        <div style="margin-bottom:22px"><h1 class="page">People</h1><p class="psub">Open positions across City departments, and the membership of City boards, commissions &amp; authorities.</p></div>
-        <h2 class="sec" style="font-size:15px;margin:0 0 6px">Department staffing</h2>
-        <div id="people-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
-        <div id="people-list"></div>
-        <h2 class="sec" style="font-size:15px;margin:30px 0 6px">Boards, Commissions &amp; Authorities</h2>
-        <div id="boards-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
-        <div id="boards-list"></div>
+        <div style="margin-bottom:16px"><h1 class="page">People</h1><p class="psub">Open positions across City departments, and the membership of City boards, commissions &amp; authorities.</p></div>
+        <div style="display:flex;gap:4px;border-bottom:1px solid rgba(28,27,25,.1);margin-bottom:16px">
+          <button class="subtab" data-sub="staffing" onclick="peopleSub('staffing')" style="background:none;border:none;border-bottom:2px solid #16344f;padding:9px 6px;margin-bottom:-1px;cursor:pointer;font-size:13px;color:#16344f;font-weight:600">Department staffing</button>
+          <button class="subtab" data-sub="boards" onclick="peopleSub('boards')" style="background:none;border:none;border-bottom:2px solid transparent;padding:9px 6px;margin-bottom:-1px;cursor:pointer;font-size:13px;color:#8a867d;font-weight:500">Boards &amp; Commissions</button>
+        </div>
+        <div id="people-sub-staffing">
+          <div id="people-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
+          <div id="people-list"></div>
+        </div>
+        <div id="people-sub-boards" style="display:none">
+          <div id="boards-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
+          <div id="boards-list"></div>
+        </div>
       </div>
 
       <!-- PROJECTS -->
@@ -741,6 +747,19 @@ function renderGoalCard(g){
 }
 
 // Goals tab — every department objective, filterable by department & period
+function peopleSub(which){
+  const staff = which==='staffing';
+  const es=document.getElementById('people-sub-staffing'), eb=document.getElementById('people-sub-boards');
+  if(es) es.style.display = staff?'block':'none';
+  if(eb) eb.style.display = staff?'none':'block';
+  document.querySelectorAll('#v-people .subtab').forEach(b=>{
+    const on = b.dataset.sub===which;
+    b.style.color = on?'#16344f':'#8a867d';
+    b.style.borderBottomColor = on?'#16344f':'transparent';
+    b.style.fontWeight = on?'600':'500';
+  });
+}
+
 function renderPeople(){
   // Section 1 — department staffing (the vacancies table)
   const vac=D.vacancies||[]; const el=$('#people-list');
