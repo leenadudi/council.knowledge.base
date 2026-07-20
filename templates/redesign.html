@@ -280,9 +280,13 @@
 
       <!-- PEOPLE -->
       <div class="view" id="v-people">
-        <div style="margin-bottom:22px"><h1 class="page">People</h1><p class="psub">Open positions across City departments. <span style="color:#a7a298">A staff directory and org chart will follow as that data is added.</span></p></div>
-        <div id="people-count" style="font-size:12.5px;color:#8a867d;margin-bottom:16px"></div>
+        <div style="margin-bottom:22px"><h1 class="page">People</h1><p class="psub">Open positions across City departments, and the membership of City boards, commissions &amp; authorities.</p></div>
+        <h2 class="sec" style="font-size:15px;margin:0 0 6px">Department staffing</h2>
+        <div id="people-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
         <div id="people-list"></div>
+        <h2 class="sec" style="font-size:15px;margin:30px 0 6px">Boards, Commissions &amp; Authorities</h2>
+        <div id="boards-count" style="font-size:12.5px;color:#8a867d;margin-bottom:12px"></div>
+        <div id="boards-list"></div>
       </div>
 
       <!-- PROJECTS -->
@@ -738,15 +742,45 @@ function renderGoalCard(g){
 
 // Goals tab — every department objective, filterable by department & period
 function renderPeople(){
+  // Section 1 — department staffing (the vacancies table)
   const vac=D.vacancies||[]; const el=$('#people-list');
-  if(!vac.length){ el.innerHTML='<div class="empty">No open positions recorded.</div>'; $('#people-count').textContent=''; return; }
-  const groups={};
-  vac.forEach(v=>{ const k=dkey(v.department); const g=(groups[k]=groups[k]||{names:[],items:[]}); g.names.push(v.department); g.items.push(v); });
-  const depts=Object.keys(groups).map(k=>({name:deptDisplay(k,groups[k].names),items:groups[k].items})).sort((a,b)=>a.name.localeCompare(b.name));
-  $('#people-count').textContent=`${vac.length} open position${vac.length===1?'':'s'} · ${depts.length} department${depts.length===1?'':'s'}`;
-  el.innerHTML=depts.map(d=>`
-    <div style="display:flex;align-items:baseline;justify-content:space-between;margin:14px 0 8px"><h2 class="sec" style="font-size:16px">${cell(d.name)}</h2><span style="font-size:12px;color:#a7a298">${d.items.length} open</span></div>
-    <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div>${v.quarter?`<div style="font-size:11px;color:#a7a298;margin-top:2px">as of ${esc(v.quarter)} ${v.year||''}</div>`:''}</div><span class="pill p-amber" style="flex-shrink:0">Open</span></div>`).join('')}</div>`).join('');
+  if(!vac.length){ el.innerHTML='<div class="empty">No open positions recorded.</div>'; $('#people-count').textContent=''; }
+  else {
+    const groups={};
+    vac.forEach(v=>{ const k=dkey(v.department); const g=(groups[k]=groups[k]||{names:[],items:[]}); g.names.push(v.department); g.items.push(v); });
+    const depts=Object.keys(groups).map(k=>({name:deptDisplay(k,groups[k].names),items:groups[k].items})).sort((a,b)=>a.name.localeCompare(b.name));
+    $('#people-count').textContent=`${vac.length} open position${vac.length===1?'':'s'} · ${depts.length} department${depts.length===1?'':'s'}`;
+    el.innerHTML=depts.map(d=>`
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin:14px 0 8px"><h3 style="font-size:14px;font-weight:600">${cell(d.name)}</h3><span style="font-size:12px;color:#a7a298">${d.items.length} open</span></div>
+      <div class="card" style="overflow:hidden">${d.items.map(v=>`<div style="padding:13px 18px;border-top:1px solid rgba(28,27,25,.06);display:flex;align-items:center;justify-content:space-between;gap:14px"><div style="min-width:0"><div style="font-weight:600;font-size:14px">${cell(v.position_title)}</div>${v.quarter?`<div style="font-size:11px;color:#a7a298;margin-top:2px">as of ${esc(v.quarter)} ${v.year||''}</div>`:''}</div><span class="pill p-amber" style="flex-shrink:0">Open</span></div>`).join('')}</div>`).join('');
+  }
+  // Section 2 — boards, commissions & authorities (appointed seats)
+  renderBoards();
+}
+
+function renderBoards(){
+  const boards=D.boards||[]; const el=$('#boards-list'); const cnt=$('#boards-count');
+  if(!el) return;
+  if(!boards.length){ el.innerHTML='<div class="empty">No boards or commissions recorded yet.</div>'; if(cnt) cnt.textContent=''; return; }
+  const totVac=boards.reduce((s,b)=>s+(b.vacant>0?b.vacant:0),0);
+  const fully=boards.filter(b=>b.total_seats&&b.filled===0).length;
+  if(cnt) cnt.textContent=`${boards.length} bodies · ${totVac} vacant seat${totVac===1?'':'s'}${fully?` · ${fully} fully vacant`:''}`;
+  el.innerHTML=boards.map((b,i)=>{
+    const seat=b.total_seats!=null?`${b.filled}/${b.total_seats} filled`:`${b.filled} member${b.filled===1?'':'s'}`;
+    const pill=b.vacant>0?`<span class="pill p-amber" style="flex-shrink:0">${b.vacant} vacant</span>`:(b.vacant===0?`<span class="pill p-green" style="flex-shrink:0">full</span>`:'');
+    const meet=[b.meeting_frequency,b.meeting_day_time,b.meeting_location].filter(Boolean).map(esc).join(' · ');
+    const sub=[seat, meet, b.expiring_terms?`${b.expiring_terms} term${b.expiring_terms===1?'':'s'} expiring`:''].filter(Boolean).join(' · ');
+    const roster=(b.members||[]).length
+      ? b.members.map(m=>`<div style="padding:9px 16px;border-top:1px solid rgba(28,27,25,.05);display:flex;justify-content:space-between;gap:10px"><div style="min-width:0"><div style="font-size:13px;font-weight:500">${cell(m.member_name)}</div><div style="font-size:11px;color:#a7a298">${[m.position_title,m.representing_body,m.appointment_reference].filter(Boolean).map(esc).join(' · ')}</div></div><div style="font-size:11px;color:#8a867d;flex-shrink:0;text-align:right">${m.term_expiration_date?('term ends '+esc(m.term_expiration_date)):''}</div></div>`).join('')
+      : '<div style="padding:11px 16px;color:#a7a298;font-size:12px">All seats vacant — no members appointed.</div>';
+    const gid='brd-'+i;
+    return `<div class="card" style="overflow:hidden;margin-bottom:8px">
+      <div onclick="var e=document.getElementById('${gid}');e.style.display=e.style.display==='none'?'block':'none'" style="padding:13px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer">
+        <div style="min-width:0"><div style="font-weight:600;font-size:14px">${cell(b.board_name)}</div><div style="font-size:11px;color:#a7a298;margin-top:2px">${esc(sub)}</div></div>
+        ${pill}
+      </div>
+      <div id="${gid}" style="display:none">${roster}</div></div>`;
+  }).join('');
 }
 
 // Same objective is re-stated in every quarterly report, so it lands as one goal
