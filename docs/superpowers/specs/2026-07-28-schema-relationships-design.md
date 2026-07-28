@@ -124,7 +124,7 @@ Pipeline insert order is **documents → chunks → facts** (`pipeline.py:204` /
 
 | Constraint | Tables |
 | --- | --- |
-| `source_file → documents(source_file)` ON DELETE SET NULL | expenditures, metrics, grants, resolutions, votes, meetings, meeting_actions, legislation, appropriations, goals, document_chunks |
+| `source_file → documents(source_file)` ON DELETE SET NULL | expenditures, metrics, grants, vacancies*, resolutions, votes, meetings, meeting_actions, legislation, appropriations, goals, document_chunks |
 | `source_chunk_id → document_chunks(chunk_id)` ON DELETE SET NULL | expenditures, metrics, grants, vacancies, resolutions, votes, meetings, meeting_actions, legislation, appropriations, goals |
 | `chunk_id → document_chunks(chunk_id)` ON DELETE CASCADE | chunk_performance |
 
@@ -144,8 +144,10 @@ ALTER TABLE <t> ADD CONSTRAINT fk_<t>_source_chunk
   `VALIDATE CONSTRAINT` pass confirms cleanliness after an orphan sweep.
 - **`ON DELETE SET NULL`**: re-ingesting/deleting a chunk or document nulls the link
   instead of cascading a delete into hard-won fact rows.
-- `vacancies` has no `source_file` column; only the chunk FK applies. Optionally add
-  `source_file` to `vacancies` for parity (flagged, not assumed).
+- `vacancies*` gains a `source_file` column in this migration (§7.4) so both provenance
+  FKs cover it uniformly; the backfill leaves it NULL for pre-existing vacancy rows
+  (no historical source_file to recover), which `ON DELETE SET NULL` + `NOT VALID`
+  tolerate.
 
 ### 3.4 `votes → resolutions` and `meeting_actions → meetings` (best-effort)
 
@@ -190,12 +192,13 @@ the same key in *any* city, with nothing hardcoded.
    DO NOTHING RETURNING id` (re-select on conflict to stay race-safe), then insert the
    raw string as an alias, and return the id.
 
-**Near-duplicate guard (deterministic, optional, city-agnostic).** On auto-create,
+**Near-duplicate guard (deterministic, city-agnostic) — in scope.** On auto-create,
 compare the new `canonical_key` against existing keys with `pg_trgm` similarity; if
-above a threshold (e.g. `similarity > 0.6`), also write a `review_flags` row
-(`reason='possible_duplicate_department'`) so a clerk can confirm whether e.g.
-`buraeu of police` should merge into `bureau of police`. This catches the typo
-fragmentation that pure normalization can't — without any hardcoded name list.
+`similarity(new_key, existing_key) > 0.6`, also write a `review_flags` row
+(`reason='possible_duplicate_department'`, detail naming both candidates) so a clerk
+can confirm whether e.g. `buraeu of police` should merge into `bureau of police`. This
+catches the typo fragmentation that pure normalization can't — without any hardcoded
+name list. Threshold `0.6` is tunable via a single constant.
 
 ### 3.6 Backfill of existing rows = discovery over existing strings
 
@@ -212,13 +215,13 @@ So even Harrisburg's departments are derived from Harrisburg's own data — iden
 how a brand-new city would populate. Remaining unmatched strings are logged to
 `review_flags`.
 
-**Optional, clearly-separated Harrisburg convenience (NOT part of the generic
-migration):** the dashboard already curates known-good Harrisburg merges in
-`_DEPT_ALIASES` (`aggregator.py:265`), e.g. `codes health department → codes`. Since
-tenancy is per-DB, these can be replayed into *Harrisburg's* `department_aliases` as a
-separate, opt-in data file so we don't lose that curation. It lives beside the
-migration, is labeled Harrisburg-only, and ships nothing city-specific in the schema.
-Skippable.
+**Harrisburg alias convenience — in scope, as a separate opt-in file.** The dashboard
+already curates known-good Harrisburg merges in `_DEPT_ALIASES` (`aggregator.py:265`),
+e.g. `codes health department → codes`. Since tenancy is per-DB, these are replayed
+into *Harrisburg's* `department_aliases` via `sql/seed_harrisburg_department_aliases.sql`
+— a separate file run only against Harrisburg's database, so that curation isn't lost.
+The generic migration and `schema.sql` ship nothing city-specific; this file is
+Harrisburg-only and is not run for any other city.
 
 ### 3.7 Ingest code change (one helper)
 
@@ -293,16 +296,16 @@ The SQL/function is in scope; a dashboard UI button for it is a follow-up.
 
 ---
 
-## 7. Open items requiring your input
+## 7. Decisions (resolved)
 
-1. **Near-duplicate threshold:** ship the `pg_trgm` similarity flag on auto-create, and
-   at what similarity (default suggestion 0.6)? Or skip it and rely purely on manual
-   merge?
-2. **Harrisburg alias convenience (§3.6):** replay the dashboard's existing known-good
-   Harrisburg merges into Harrisburg's `department_aliases` as a separate opt-in file,
-   or start Harrisburg clean and let the clerk merge?
-3. **`merge_departments` UI:** SQL function now; is a dashboard button in scope or a
-   follow-up?
-4. Add `source_file` to `vacancies` for provenance parity (optional).
-5. Optional `llm_usage.query_id → query_logs.query_id` link (clean, but `query_id` is
-   null/foreign for ingest-time calls — left out of core).
+1. **Near-duplicate flag — YES**, `pg_trgm similarity > 0.6` on auto-create, threshold
+   as a single tunable constant (§3.5).
+2. **Harrisburg alias convenience — YES**, as a separate opt-in
+   `sql/seed_harrisburg_department_aliases.sql`, Harrisburg-only (§3.6).
+3. **`merge_departments` — SQL function in scope; dashboard UI is a follow-up** (§3.8).
+4. **`vacancies.source_file` — ADD it** for provenance parity, so the chunk/document
+   FKs cover `vacancies` uniformly. `insert_vacancy_rows` gains a `source_file` arg
+   (its one call site, `pipeline.py:340`, already has `source_file` in scope).
+5. **`llm_usage.query_id → query_logs.query_id` — OUT of scope.** `query_id` is
+   null/non-query for ingest-time LLM calls, so the FK would reject legitimate rows.
+   Left as a loose reference.
