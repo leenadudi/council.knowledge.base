@@ -1,11 +1,11 @@
-# Schema Relationships + Departments Dimension — Design
+# Schema Relationships + Entity Dimensions — Design
 
 **Date:** 2026-07-28
 **Status:** Draft, pending user review
-**Scope:** One additive, non-destructive SQL migration + one small ingest change. No
-table rebuilds, no data loss, no LLM spend. **City-agnostic:** nothing about any
-specific city's departments is hardcoded — the dimension populates itself from
-ingested data.
+**Scope:** One additive, non-destructive SQL migration + small ingest changes. No table
+rebuilds, no data loss, no LLM spend. **City-agnostic:** nothing about any specific
+city's departments, people, or vendors is hardcoded — all three dimensions populate
+themselves from ingested data.
 
 ---
 
@@ -13,7 +13,7 @@ ingested data.
 
 The Supabase schema has ~20 tables and **exactly one** declared foreign key
 (`evaluation_results.question_id → evaluation_suite.id`). Every other table renders
-as an isolated box in Supabase's schema diagram. Two distinct problems underlie this:
+as an isolated box in Supabase's schema diagram. Three distinct problems underlie this:
 
 **(a) Relationships exist in the data but are never declared.** Provenance columns
 copied across the fact tables already point at real tables — Postgres just can't see it:
@@ -24,98 +24,127 @@ copied across the fact tables already point at real tables — Postgres just can
 | `source_file` | `documents.source_file` | already UNIQUE |
 | `chunk_performance.chunk_id` | `document_chunks.chunk_id` | PRIMARY KEY |
 | `votes.resolution_number` | `resolutions.resolution_number` | not unique (see §3.4) |
-| `meeting_actions` (by date) | `meetings` | no stable key (see §3.4) |
+| `meeting_actions` (by date/number) | `meetings`, `resolutions`, `legislation` | no stable keys (see §3.4) |
+| `documents.document_type` | `document_type_registry.type_name` | registry never referenced (see §3.6) |
 
-**(b) `department` is a free-text string, duplicated across 9 tables, with no
-dimension table.** Extraction produces drifting variants — observed in the live data:
-`Bureau of Police`/`Buraeu of Police` (typo), `Bureau of Communications`/`Bureau of
-Coummunicaitons` (typo), `Office of Equity & Compliance`/`Office of Equity and
-Compliance`. With no canonical key you cannot reliably join or aggregate one
-department across budget + goals + grants + votes — the **cross-table synthesis** the
+**(b) Three entity types fragment as free text.** The codebase *already* canonicalizes
+all three — but only in application logic, never as SQL identity:
+
+| Entity | Existing canonicalizer | Graph store | SQL |
+| --- | --- | --- | --- |
+| Departments | `_dept_key_base` + `_DEPT_ALIASES` (`aggregator.py:265-291`) | `Department` nodes | free text in 10 tables |
+| People | `normalize_person_name` (`names.py:17`); pipeline calls `upsert_council_members` (`pipeline.py:428`) | `CouncilMember` nodes | free text in 3 tables |
+| Vendors | `_normalize_party` (`projects.py:72`) | — | free text in `resolutions` |
+
+Observed drift in live data: `Bureau of Police`/`Buraeu of Police` (typo),
+`Office of Equity & Compliance`/`... and Compliance`, five Lamar lease resolutions as
+separate vendor strings. Without canonical keys you cannot reliably join or aggregate
+an entity across budget + goals + grants + votes — the **cross-table synthesis** the
 product is meant to win on.
 
 **(c) Multi-city constraint.** This schema is the flagship for Harrisburg but is
-intended to be **redeployed per city** (each city = its own database, same schema —
-see §2). Every city has different departments. Therefore **no department names,
-aliases, or merge rules may be hardcoded** into the schema or migration. The
-departments dimension must discover itself from whatever data a given city ingests.
+intended to be **redeployed per city** (each city = its own database, same schema).
+Every city has different departments, members, and vendors. Therefore **no entity
+names, aliases, or merge rules may be hardcoded** into the schema or migration. All
+dimensions must discover themselves from whatever data a given city ingests.
 
-### Tables carrying a `department` string (9)
+### Tables carrying a `department` string (10)
 `expenditures`, `metrics`, `grants`, `vacancies`, `documents`, `resolutions`,
-`appropriations`, `goals`, `document_chunks`.
-(`votes`, `meetings`, `meeting_actions`, `legislation` do **not** carry `department`.)
+`appropriations`, `goals`, `document_chunks`, `evaluation_suite`.
+(`votes`, `meetings`, `meeting_actions`, `legislation` do **not** carry `department` —
+they carry *people*: `council_member`, `president`, `sponsor`.)
 
 ---
 
 ## 2. Goals & non-goals
 
 **Goals**
-- Declare the foreign keys that already exist in the data, so the schema diagram
-  reflects the true relational model and Postgres enforces provenance integrity.
-- Add a `departments` dimension that **populates itself from ingested data** via
-  generic, city-agnostic normalization — every department-bearing table references it.
+- Declare every foreign key that genuinely exists in the data, so the schema diagram
+  reflects the true relational model and Postgres enforces integrity.
+- Add three **self-populating entity dimensions** — `departments`, `council_members`,
+  `vendors` — via one uniform, city-agnostic pattern (§3.1), instantiated three times.
+- Close the legislative loop: minutes → action → resolution/ordinance → votes → members.
 - Do it **additively**: keep every existing column, break no insert or query path.
-- **Deterministic, zero LLM spend** — canonicalization is string normalization, not an
-  AI resolver.
+- **Deterministic, zero LLM spend** — canonicalization is string normalization
+  (reusing the app's existing logic), not an AI resolver.
 - Idempotent, re-runnable migration consistent with the existing `sql/migrate_*` style.
 
 **Deployment model:** one database per city, identical schema. No `city_id`/tenant
 column — tenancy is the deployment boundary. (Does not preclude a future shared-tenant
-migration; simply out of scope here.)
+migration; out of scope here.)
 
 **Non-goals**
-- **Any hardcoded or seeded department list, alias, or city-specific merge rule.** The
-  migration ships with the `departments`/`department_aliases` tables **empty**; they
-  fill from data.
+- **Any hardcoded or seeded entity list, alias, or city-specific merge rule.** All
+  dimension tables ship **empty** and fill from data.
 - Multi-tenant `city_id` columns (separate DB per city instead).
-- Dropping the raw `department` string columns (kept as audit trail — user decision).
-- A shared time dimension; unifying resolutions/legislation/appropriations; RLS/auth;
-  re-ingesting or re-extracting any document.
+- Dropping raw string columns (kept as audit trail — user decision).
+- A shared time dimension; unifying resolutions/legislation/appropriations into one
+  table; RLS/auth; re-ingesting or re-extracting any document.
+- Deliberate non-links listed in §8 (each has a verified reason).
 
 ---
 
 ## 3. Design
 
-### 3.1 `departments` + `department_aliases` (created empty, self-populating)
+### 3.1 The entity-dimension pattern (defined once, instantiated three times)
+
+Each dimension is a pair of tables plus a deterministic resolver:
 
 ```sql
-CREATE TABLE IF NOT EXISTS departments (
+CREATE TABLE IF NOT EXISTS <entity> (
     id             SERIAL PRIMARY KEY,
-    canonical_name VARCHAR(150) NOT NULL UNIQUE,   -- the string as first seen in data
-    canonical_key  VARCHAR(120) NOT NULL UNIQUE,    -- generic normalized key (see §3.5)
-    dept_type      VARCHAR(30),                     -- inferred from prefix: bureau|department|office|council|other
-    parent_id      INTEGER REFERENCES departments(id),  -- optional rollup, set by clerk later
-    active         BOOLEAN NOT NULL DEFAULT TRUE,   -- set FALSE when merged into another (see §3.8)
+    canonical_name VARCHAR(150) NOT NULL UNIQUE,   -- string as first seen in data
+    canonical_key  VARCHAR(150) NOT NULL UNIQUE,   -- deterministic normalized key
+    active         BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE when merged away (§3.9)
     created_at     TIMESTAMP DEFAULT NOW()
+    -- plus per-entity extras, below
 );
-
-CREATE TABLE IF NOT EXISTS department_aliases (
-    id             SERIAL PRIMARY KEY,
-    department_id  INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
-    alias          VARCHAR(150) NOT NULL UNIQUE     -- every raw variant string seen in data
+CREATE TABLE IF NOT EXISTS <entity>_aliases (
+    id          SERIAL PRIMARY KEY,
+    <entity>_id INTEGER NOT NULL REFERENCES <entity>(id) ON DELETE CASCADE,
+    alias       VARCHAR(150) NOT NULL UNIQUE       -- every raw variant seen in data
 );
-CREATE INDEX IF NOT EXISTS idx_dept_aliases_alias ON department_aliases(LOWER(alias));
 ```
 
-**No seed rows.** Both tables are empty after the migration and fill from ingestion
-(§3.5) and the backfill of pre-existing rows (§3.6). `canonical_key` is UNIQUE per
-database — which, under one-DB-per-city, means unique per city. `canonical_name` is
-just the first-seen spelling; a clerk can rename it without affecting links.
+**Resolver** (`resolve_<entity>_id(raw) -> id | None`), concurrency-safe:
+1. Exact-match raw string against `<entity>_aliases.alias` → return `department_id`.
+2. Else compute `canonical_key`; match `<entity>.canonical_key` → return id, record raw
+   string as new alias.
+3. Else — **auto-create mode** (default): `INSERT ... ON CONFLICT (canonical_key) DO
+   NOTHING` + re-select (race-safe), record alias, return id.
+   **Match-only mode** (per-column, see §3.2): return `NULL` and write a `review_flags`
+   row instead of creating — used where the raw string might not denote that entity
+   type at all.
 
-### 3.2 `department_id` on the 9 department-bearing tables
+**Near-duplicate guard** (all three dims): on auto-create, if `pg_trgm`
+`similarity(new_key, existing_key) > 0.6`, write `review_flags`
+(`reason='possible_duplicate_<entity>'`, detail naming both) so a clerk can confirm a
+merge — catches `buraeu of police` → `bureau of police` and `wanda r d williams` →
+`wanda williams` without hardcoding anything. Threshold is one tunable constant.
 
-For each of `expenditures, metrics, grants, vacancies, documents, resolutions,
-appropriations, goals, document_chunks`:
+**The three instantiations** (keys reuse logic the app already trusts, so SQL and
+dashboard/graph never disagree):
 
-```sql
-ALTER TABLE <t> ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id);
-CREATE INDEX IF NOT EXISTS idx_<t>_department_id ON <t>(department_id);
-```
+| Dimension | `canonical_key` derivation | Extras |
+| --- | --- | --- |
+| `departments` | `_dept_key_base` logic: lowercase, ` and `→` & `, strip leading `bureau of/department of/office of/the `, collapse punctuation | `dept_type` (inferred from prefix), `parent_id → departments(id)` for later rollups |
+| `council_members` | `lower(normalize_person_name(raw))` — strips honorifics/titles (`names.py`) | — |
+| `vendors` | `_normalize_party(raw)` — lowercase, strip corporate suffixes (LLC/Inc/Corp…), collapse punctuation | — |
 
-- The existing `department` VARCHAR is **kept** (raw extracted value = audit trail).
-- `department_id` is **nullable**, populated by discovery (§3.5–3.6).
-- A string that can't resolve stays `NULL` and is logged to `review_flags`; no data is
-  ever dropped.
+### 3.2 Dimension FK columns on fact tables
+
+All nullable, added beside the kept raw string columns:
+
+| New column | On tables | Resolver mode |
+| --- | --- | --- |
+| `department_id → departments(id)` | the 10 department-bearing tables (§1) | auto-create |
+| `member_id → council_members(id)` | `votes` | auto-create |
+| `president_id → council_members(id)` | `meetings` | auto-create |
+| `sponsor_id → council_members(id)` | `legislation` | **match-only** — sponsor strings can be committees ("Public Works Committee"), which must not become members |
+| `vendor_id → vendors(id)` | `resolutions` | auto-create |
+
+Each gets an index. Unresolved values stay `NULL` with the raw string intact — no data
+ever dropped.
 
 ### 3.3 Provenance foreign keys
 
@@ -132,117 +161,117 @@ Pipeline insert order is **documents → chunks → facts** (`pipeline.py:204` /
 ALTER TABLE <t> ADD CONSTRAINT fk_<t>_source_file
     FOREIGN KEY (source_file) REFERENCES documents(source_file)
     ON DELETE SET NULL NOT VALID;
-
-ALTER TABLE <t> ADD CONSTRAINT fk_<t>_source_chunk
-    FOREIGN KEY (source_chunk_id) REFERENCES document_chunks(chunk_id)
-    ON DELETE SET NULL NOT VALID;
 ```
 
-- **`NOT VALID`**: the FK appears in the diagram and is enforced on all new/updated
-  rows immediately, but Postgres skips scanning legacy rows — so a pre-existing orphan
-  (fact whose chunk was replaced by re-ingest) can't fail the migration. A later
-  `VALIDATE CONSTRAINT` pass confirms cleanliness after an orphan sweep.
+- **`NOT VALID`**: FK appears in the diagram and is enforced on new/updated rows
+  immediately, but legacy rows aren't scanned — a pre-existing orphan can't fail the
+  migration. `VALIDATE CONSTRAINT` later (§4) after an orphan sweep.
 - **`ON DELETE SET NULL`**: re-ingesting/deleting a chunk or document nulls the link
-  instead of cascading a delete into hard-won fact rows.
-- `vacancies*` gains a `source_file` column in this migration (§7.4) so both provenance
-  FKs cover it uniformly; the backfill leaves it NULL for pre-existing vacancy rows
-  (no historical source_file to recover), which `ON DELETE SET NULL` + `NOT VALID`
-  tolerate.
+  instead of cascading deletes into hard-won fact rows.
+- `vacancies*` gains a `source_file` column in this migration (§7.4); backfill leaves it
+  NULL for pre-existing vacancy rows.
 
-### 3.4 `votes → resolutions` and `meeting_actions → meetings` (best-effort)
+### 3.4 Legislative cross-links (closes the loop)
 
-Natural keys are dirty: `insert_resolution_rows` has no de-dup (`sql_store.py:244`), so
-`resolution_number` can repeat; `meetings` has only `meeting_date`. Add surrogate FK
-columns and backfill by matching the natural key:
+Natural keys are dirty (`resolution_number` can repeat — no de-dup at insert,
+`sql_store.py:244`; `meetings` has only `meeting_date`), so all links are nullable
+surrogate FKs, backfilled earliest-match (`MIN(id)`), ambiguous/unmatched → logged to
+`review_flags`, never guessed:
 
-```sql
-ALTER TABLE votes           ADD COLUMN IF NOT EXISTS resolution_id INTEGER REFERENCES resolutions(id);
-ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS meeting_id    INTEGER REFERENCES meetings(id);
-```
+| New column | Backfill match |
+| --- | --- |
+| `votes.resolution_id → resolutions(id)` | `resolution_number` |
+| `votes.meeting_id → meetings(id)` | shared `source_file` (votes extracted from a minutes doc link to that session; votes from standalone resolution PDFs stay NULL) |
+| `meeting_actions.meeting_id → meetings(id)` | `meeting_date` |
+| `meeting_actions.resolution_id → resolutions(id)` | `item_number` where `item_type='resolution'` |
+| `meeting_actions.legislation_id → legislation(id)` | `item_number` where `item_type='ordinance'` |
 
-Backfill matches each `votes.resolution_number` to the **earliest** `resolutions.id`
-with that number (`MIN(id)`), and each `meeting_actions.meeting_date` to the earliest
-`meetings.id` on that date. Ambiguous (duplicated key) or unmatched rows are logged to
-`review_flags` and left `NULL` — imperfections made visible, not silently guessed.
+Result: minutes → action → the actual resolution/ordinance record → its votes → the
+members who cast them, all traversable in SQL.
 
-### 3.5 Discovery-based population (replaces any seed)
+### 3.5 `meeting_attendance` junction
 
-This is the core of the city-agnostic design. A single deterministic resolver turns a
-raw department string into a `department_id`, creating the department the first time
-it's seen.
-
-**Generic normalization → `canonical_key`** (city-agnostic; reuse the existing
-`_dept_key_base`, `aggregator.py:276`, so SQL and dashboard agree):
-1. lowercase, trim, `" and " → " & "`;
-2. strip a leading generic municipal prefix — `bureau of `, `department of `,
-   `office of `, `the `;
-3. collapse remaining punctuation to single spaces.
-
-These rules encode US municipal-naming *shape*, not any city's specific departments —
-so `Office of Equity & Compliance` and `Office of Equity and Compliance` collapse to
-the same key in *any* city, with nothing hardcoded.
-
-**Resolver (`resolve_department_id`)**, concurrency-safe:
-1. Exact-match the raw string against `department_aliases.alias` → return its
-   `department_id`.
-2. Else compute `canonical_key`; match against `departments.canonical_key` → return id
-   and record the raw string as a new alias.
-3. Else **auto-create**: `INSERT INTO departments (canonical_name, canonical_key,
-   dept_type) VALUES (<raw>, <key>, <inferred from prefix>) ON CONFLICT (canonical_key)
-   DO NOTHING RETURNING id` (re-select on conflict to stay race-safe), then insert the
-   raw string as an alias, and return the id.
-
-**Near-duplicate guard (deterministic, city-agnostic) — in scope.** On auto-create,
-compare the new `canonical_key` against existing keys with `pg_trgm` similarity; if
-`similarity(new_key, existing_key) > 0.6`, also write a `review_flags` row
-(`reason='possible_duplicate_department'`, detail naming both candidates) so a clerk
-can confirm whether e.g. `buraeu of police` should merge into `bureau of police`. This
-catches the typo fragmentation that pure normalization can't — without any hardcoded
-name list. Threshold `0.6` is tunable via a single constant.
-
-### 3.6 Backfill of existing rows = discovery over existing strings
-
-Inside the migration (or a one-shot script it calls), run the §3.5 resolver over the
-**distinct `department` strings already present** in the 9 tables, then:
+`meetings.members_present_names` / `members_absent_names` are comma-joined TEXT — real
+per-member facts trapped in strings. Normalize into:
 
 ```sql
-UPDATE <t> SET department_id = da.department_id
-FROM department_aliases da
-WHERE LOWER(TRIM(<t>.department)) = LOWER(da.alias) AND <t>.department_id IS NULL;
+CREATE TABLE IF NOT EXISTS meeting_attendance (
+    id          SERIAL PRIMARY KEY,
+    meeting_id  INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    member_id   INTEGER NOT NULL REFERENCES council_members(id),
+    status      VARCHAR(10) NOT NULL CHECK (status IN ('present','absent')),
+    UNIQUE (meeting_id, member_id)
+);
 ```
 
-So even Harrisburg's departments are derived from Harrisburg's own data — identical to
-how a brand-new city would populate. Remaining unmatched strings are logged to
-`review_flags`.
+Backfill parses the comma lists through `normalize_person_name` and the member
+resolver (auto-create — roll-call names are members by definition). **Built-in
+validator:** for each meeting, `COUNT(*) WHERE status='present'` must equal the
+existing `members_present` INTEGER; mismatch → `review_flags` row, raw TEXT kept
+untouched either way. Ingest populates the junction directly going forward; the TEXT
+columns remain as audit trail.
 
-**Harrisburg alias convenience — in scope, as a separate opt-in file.** The dashboard
-already curates known-good Harrisburg merges in `_DEPT_ALIASES` (`aggregator.py:265`),
-e.g. `codes health department → codes`. Since tenancy is per-DB, these are replayed
-into *Harrisburg's* `department_aliases` via `sql/seed_harrisburg_department_aliases.sql`
-— a separate file run only against Harrisburg's database, so that curation isn't lost.
-The generic migration and `schema.sql` ship nothing city-specific; this file is
-Harrisburg-only and is not run for any other city.
+### 3.6 `document_type_registry` finally referenced
 
-### 3.7 Ingest code change (one helper)
+The registry was built "extensible for future document types" and then never linked.
 
-Add `resolve_department_id(name) -> int | None` to `sql_store.py` implementing §3.5
-(shared normalization with the dashboard). Each `insert_*_rows` that carries
-`department` sets `department_id = resolve_department_id(department)` beside the
-existing string write. The raw string is still written exactly as today, so nothing
-downstream breaks; departments simply accrue as documents are ingested.
+- Add `UNIQUE (type_name)`.
+- FKs: `documents.document_type → document_type_registry(type_name)` and
+  `document_chunks.document_type → document_type_registry(type_name)`, both
+  ON UPDATE CASCADE ON DELETE SET NULL, `NOT VALID`.
+- **Auto-register discovery** (same philosophy as dimensions): `record_document` and the
+  chunk writer ensure the type exists first (`INSERT ... ON CONFLICT DO NOTHING`,
+  `added_by='auto'`) — a novel type registers itself instead of violating the FK.
+- Backfill: insert all distinct observed `document_type` values before adding the FKs.
 
-### 3.8 Clerk merge operation (how typo-variants get reconciled)
+### 3.7 Discovery-based population & backfill (no seeds, city-agnostic)
 
-Because population is automatic and city-agnostic, reconciling variants that
-normalization can't catch is a **data action, not code**. A `merge_departments(dup_id,
-keep_id)` operation:
-1. repoint `department_aliases.department_id` from `dup_id` → `keep_id`;
-2. `UPDATE <t> SET department_id = keep_id WHERE department_id = dup_id` across the 9
-   tables;
-3. set `departments.active = FALSE` on `dup_id` (kept for audit, hidden from pickers).
+The migration ships all dimension/junction tables **empty**. Population:
 
-This is the mechanism that folds `Buraeu of Police` into `Bureau of Police` per city.
-The SQL/function is in scope; a dashboard UI button for it is a follow-up.
+1. **Backfill = discovery over existing strings.** Run the resolvers over the distinct
+   raw values already in the tables (departments from 10 tables; members from
+   `votes.council_member`, `meetings.president`, attendance lists; vendors from
+   `resolutions.vendor`; sponsor match-only pass afterwards), then set the FK columns
+   by alias join. Even Harrisburg's dimensions are derived from Harrisburg's own data —
+   identical to how a brand-new city populates.
+2. **Ongoing ingest** calls the same resolvers at insert time (§3.8).
+3. Remaining unmatched strings → `review_flags`; add one alias row and re-run — the
+   backfill is idempotent and converges.
+
+**Harrisburg alias convenience — in scope, as a separate opt-in file.** The dashboard's
+known-good Harrisburg merges (`_DEPT_ALIASES`, `aggregator.py:265`) are replayed into
+*Harrisburg's* `department_aliases` via `sql/seed_harrisburg_department_aliases.sql` —
+run only against Harrisburg's database, never shipped in the generic schema.
+
+### 3.8 Ingest code changes (contained)
+
+In `sql_store.py`: the three resolvers + `ensure_document_type`. Insert paths set the
+new FK columns beside the raw strings they already write:
+
+- `insert_expenditure/metric/grant/vacancy/resolution/goal/..._rows` → `department_id`
+- `insert_vote_rows` → `member_id`, `resolution_id`, `meeting_id` (when resolvable)
+- `insert_meeting_rows` → `president_id`; attendance junction rows
+- `insert_meeting_action_rows` → `meeting_id`, `resolution_id`/`legislation_id`
+- `insert_legislation_rows` → `sponsor_id` (match-only)
+- `insert_resolution_rows` → `vendor_id`
+- `record_document` → `department_id`, ensured `document_type`
+- `insert_vacancy_rows` gains `source_file` (call site `pipeline.py:340` already has it)
+
+Resolvers cache in-process per ingest run (dict), so the added lookups are negligible.
+Raw strings continue to be written exactly as today — nothing downstream breaks.
+
+### 3.9 Clerk merge operations (how variants get reconciled)
+
+Reconciling what normalization can't catch is a **data action, not code** — one
+function per dimension (`merge_department`, `merge_member`, `merge_vendor`):
+
+1. Repoint `<entity>_aliases.department_id` (etc.) from `dup_id` → `keep_id`.
+2. `UPDATE` every FK column referencing the dimension (`department_id` ×10 tables;
+   `member_id`/`president_id`/`sponsor_id` + `meeting_attendance.member_id`;
+   `vendor_id`) from `dup_id` → `keep_id`.
+3. Set `active = FALSE` on `dup_id` (kept for audit, hidden from pickers).
+
+SQL functions in scope now; dashboard UI buttons are a follow-up (§7.3).
 
 ---
 
@@ -250,17 +279,18 @@ The SQL/function is in scope; a dashboard UI button for it is a follow-up.
 
 - **One file:** `sql/migrate_2026_07_28_schema_relationships.sql`, idempotent
   (`IF NOT EXISTS`, guarded `ADD CONSTRAINT`, `ON CONFLICT DO NOTHING`).
-- **Order:** create `departments`/`department_aliases` (empty) + `pg_trgm` → add
-  `department_id` columns + indexes → add surrogate `resolution_id`/`meeting_id`
-  columns → run discovery backfill over existing strings → backfill provenance +
-  surrogate links → add FKs `NOT VALID` → flag unmatched/near-dup.
+- **Order:** enable `pg_trgm` → create 3 dimension pairs + `meeting_attendance`
+  (empty) → registry `UNIQUE` → add all FK columns + indexes (§3.2, §3.4,
+  `vacancies.source_file`) → discovery backfill (dimensions, then FK columns, then
+  attendance parse, then registry types) → add provenance + registry FKs `NOT VALID`
+  → flag unmatched/near-dup/count-mismatch.
+- **Fresh-bootstrap parity:** `sql/schema.sql` updated to the same end state (still
+  zero seeded entities); `vector_store.py` DDL gains `department_id` on
+  `document_chunks` so new deployments match.
 - **Validation (optional follow-up):** after an orphan sweep,
   `ALTER TABLE <t> VALIDATE CONSTRAINT <fk>;` promotes each FK to fully verified.
-- **Rollback:** every step reversible — `DROP CONSTRAINT`, `DROP COLUMN department_id /
-  resolution_id / meeting_id`, `DROP TABLE department_aliases, departments`. Raw
-  `department` strings untouched → lossless rollback.
-- `sql/schema.sql` updated so a fresh (any-city) bootstrap creates the same end state,
-  still with **no seeded departments**.
+- **Rollback:** every step reversible — drop constraints, drop added columns, drop the
+  new tables. Raw strings untouched → lossless.
 
 ---
 
@@ -268,44 +298,59 @@ The SQL/function is in scope; a dashboard UI button for it is a follow-up.
 
 | Risk | Mitigation |
 | --- | --- |
-| Typo/variant fragments into two departments | `pg_trgm` near-duplicate flag on create + clerk `merge_departments` (§3.8); city-agnostic |
-| Concurrent ingest auto-creates same department twice | `ON CONFLICT (canonical_key) DO NOTHING` + re-select; `canonical_key` UNIQUE |
-| Legacy orphan rows would fail a normal FK | `NOT VALID` constraints skip existing rows; enforced on new writes |
-| Duplicate `resolution_number` makes votes→resolutions ambiguous | Surrogate `resolution_id`, earliest-match, ambiguities logged not guessed |
-| Insert writes a fact before its document row | Verified order documents→chunks→facts; not possible in current pipeline |
-| Dashboard vs SQL disagree on "one department" | `canonical_key` uses the dashboard's own `_dept_key_base`; shared logic |
-| Unmapped `department` silently lost | Never dropped — string kept, `department_id` NULL, flagged for review |
+| Typo/variant fragments a dimension | trgm near-dup flag on create + clerk merge ops (§3.9); city-agnostic |
+| Concurrent ingest double-creates an entity | `ON CONFLICT (canonical_key)` + re-select; UNIQUE keys |
+| Committee string becomes a "member" via sponsor | `sponsor_id` is match-only — never auto-creates (§3.2) |
+| Attendance comma-parse breaks on odd names | count validator vs `members_present` + flags; raw TEXT kept |
+| Legacy orphan rows would fail a normal FK | `NOT VALID`; enforced on new writes only |
+| Duplicate `resolution_number` / reused dates make links ambiguous | surrogate FKs, earliest-match, ambiguities logged not guessed |
+| Novel document type violates registry FK | auto-register before write (§3.6) |
+| Fact written before its parent document | verified order documents→chunks→facts |
+| Dashboard vs SQL disagree on identity | canonical keys reuse the app's own normalizers |
+| Resolver latency on bulk insert | in-process cache per run; lookups are indexed exact matches |
+| Unmapped strings silently lost | never dropped — raw kept, FK NULL, flagged |
 
 ---
 
 ## 6. Verification
 
-- **Diagram:** Supabase schema view shows `documents`/`document_chunks` as hubs,
-  `departments` as a spine across the 9 tables, `votes`/`meeting_actions` linked.
-- **Discovery correctness:** after backfill, `departments` contains exactly the
-  distinct real departments in the data; spot-check that no city-specific value was
-  invented and that obvious `&`/`and` variants collapsed.
-- **Backfill coverage:** report `count(department_id NOT NULL) / count(*)` per table;
-  investigate NULL-heavy tables against `review_flags`.
-- **Ingest smoke test:** dry-run ingest on one already-ingested document (re-use cached
-  extraction — no new LLM calls) and confirm rows write with `department_id` populated,
-  new departments auto-create, and no FK violations.
-- **City-agnostic check:** confirm the migration + `schema.sql` contain zero literal
-  department names.
-- **Dashboard unchanged:** `_build_departments` groupings stay stable (shared key).
+- **Diagram:** Supabase schema view shows six hubs — `documents`, `document_chunks`,
+  `departments`, `council_members`, `meetings`, `resolutions` — with every fact table
+  connected; ~45 declared relationships vs 1 today.
+- **Discovery correctness:** dimensions contain exactly the distinct real entities in
+  the data; `&`/`and` variants collapsed; zero literal entity names anywhere in the
+  migration or `schema.sql` (grep check).
+- **Backfill coverage:** `count(fk NOT NULL)/count(*)` per FK column; NULL-heavy
+  columns reconciled against `review_flags`.
+- **Loop check:** for a known session, traverse minutes → `meeting_actions` →
+  `resolutions` → `votes` → `council_members` in one SQL query.
+- **Vendor check:** the five Lamar lease resolutions share one `vendor_id`.
+- **Attendance check:** per-meeting present-count equals `members_present` (or flagged).
+- **Ingest smoke test:** dry-run one already-ingested document (cached extraction — no
+  new LLM calls): FK columns populate, novel entities auto-create, no violations.
+- **Dashboard unchanged:** `_build_departments` groupings stable (shared key logic).
 
 ---
 
 ## 7. Decisions (resolved)
 
-1. **Near-duplicate flag — YES**, `pg_trgm similarity > 0.6` on auto-create, threshold
-   as a single tunable constant (§3.5).
-2. **Harrisburg alias convenience — YES**, as a separate opt-in
-   `sql/seed_harrisburg_department_aliases.sql`, Harrisburg-only (§3.6).
-3. **`merge_departments` — SQL function in scope; dashboard UI is a follow-up** (§3.8).
-4. **`vacancies.source_file` — ADD it** for provenance parity, so the chunk/document
-   FKs cover `vacancies` uniformly. `insert_vacancy_rows` gains a `source_file` arg
-   (its one call site, `pipeline.py:340`, already has `source_file` in scope).
-5. **`llm_usage.query_id → query_logs.query_id` — OUT of scope.** `query_id` is
-   null/non-query for ingest-time LLM calls, so the FK would reject legitimate rows.
-   Left as a loose reference.
+1. **Near-duplicate flag — YES**, `pg_trgm similarity > 0.6` on auto-create, one
+   tunable constant, applied to all three dimensions.
+2. **Harrisburg alias convenience — YES**, separate opt-in
+   `sql/seed_harrisburg_department_aliases.sql`, Harrisburg-only.
+3. **Merge ops — SQL functions in scope; dashboard UI is a follow-up.**
+4. **`vacancies.source_file` — ADD** for provenance parity.
+5. **Full link map — YES** (user 2026-07-28: "best connected"): council_members +
+   vendors dimensions, meeting_attendance junction, legislative cross-links, registry
+   FKs, `evaluation_suite.department_id`.
+6. **`sponsor_id` is match-only** — committee strings must not become members.
+
+## 8. Deliberate non-links (verified, documented so the diagram stays honest)
+
+| Candidate | Why not |
+| --- | --- |
+| `llm_usage.query_id → query_logs` | **Write-order hazard (verified):** usage rows are inserted *during* a query; the `query_logs` row is written at the *end* — the FK would reject every legitimate mid-query row. |
+| `review_flags.source_file → documents` | **By design (verified):** parse-stage flags fire at `pipeline.py:155`, before `record_document` at `:204` — flagging documents too broken to record is the table's purpose. Soft reference, indexed. |
+| `account_number` / `metric_name` / `fund` dimensions | Over-modeling — no metadata to store about them; natural grouping keys suffice within a city DB. |
+| `grants ↔ resolutions` | Semantic ("Resolution 21 authorizes the DCNR grant"), not a data key — graph store territory. |
+| `query_logs` JSONB internals (`chunks_retrieved` etc.) | Logs are logs — normalizing them adds write cost to every query for marginal query value. |
