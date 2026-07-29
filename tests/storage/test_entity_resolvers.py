@@ -63,6 +63,19 @@ def test_resolver_auto_creates_and_flags_near_dup():
     assert flagged, "near-duplicate should have been flagged"
 
 
+def test_resolver_auto_create_loses_race_then_reselects():
+    # INSERT returns no row (another tx won the ON CONFLICT); resolver re-SELECTs the winner.
+    store = _store_with([
+        ("FROM department_aliases", None),                     # no alias
+        ("FROM departments WHERE canonical_key", None),        # key miss -> create path
+        ("similarity", None),                                  # no near-dup
+        ("INSERT INTO departments", None),                     # our INSERT loses the race
+        ("FROM departments WHERE canonical_key", {"id": 55}),  # re-select finds the winner
+        ("INSERT INTO department_aliases", None),              # alias recorded
+    ])
+    assert store.resolve_department_id("Bureau of Fire") == 55
+
+
 def test_resolver_match_only_returns_none_and_flags():
     store = _store_with([
         ("FROM council_member_aliases", None),
@@ -70,6 +83,7 @@ def test_resolver_match_only_returns_none_and_flags():
         ("INSERT INTO review_flags", None),
     ])
     assert store.resolve_member_id("Public Works Committee", create=False) is None
+    assert any("review_flags" in s for s, _ in store._fake_cursor.executed)
 
 
 def test_empty_name_returns_none_without_touching_db():
