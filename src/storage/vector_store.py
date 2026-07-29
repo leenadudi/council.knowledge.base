@@ -41,6 +41,7 @@ class VectorStore:
                         department    VARCHAR(100),
                         quarter       VARCHAR(5),
                         year          INTEGER,
+                        department_id INTEGER,
                         content_type  VARCHAR(50),
                         document_type VARCHAR(50),
                         source_file   VARCHAR(255),
