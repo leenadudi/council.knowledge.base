@@ -47,6 +47,10 @@ _ALIAS_FK = {
     "vendors": ("vendor_aliases", "vendor_id"),
 }
 _NEAR_DUP_THRESHOLD = 0.6  # pg_trgm similarity; one tunable constant
+_DEPT_FK_TABLES = [
+    "expenditures", "metrics", "grants", "vacancies", "documents", "resolutions",
+    "appropriations", "goals", "document_chunks", "evaluation_suite",
+]
 
 
 def sanitize_vote(value) -> str | None:
@@ -312,6 +316,47 @@ class SQLStore:
     def resolve_vendor_id(self, name, *, create=True):
         return self._resolve_entity(
             "vendors", name, vendor_key(name), (name or "").strip(), create=create)
+
+    def _merge_simple(self, cur, dim_table, alias_table, alias_fk, fk_targets, dup_id, keep_id):
+        """Repoint aliases + all FK columns to keep_id, then deactivate dup_id.
+
+        Args:
+            cur: Database cursor.
+            dim_table: Main dimension table (e.g., 'departments').
+            alias_table: Alias table for this dimension (e.g., 'department_aliases').
+            alias_fk: FK column name in alias_table (e.g., 'department_id').
+            fk_targets: List of (table, column) tuples referencing this dimension.
+            dup_id: ID of the duplicate row to merge away.
+            keep_id: ID of the canonical row to keep.
+        """
+        cur.execute(
+            f"UPDATE {alias_table} SET {alias_fk} = %s WHERE {alias_fk} = %s", (keep_id, dup_id))
+        for tbl, col in fk_targets:
+            cur.execute(f"UPDATE {tbl} SET {col} = %s WHERE {col} = %s", (keep_id, dup_id))
+        cur.execute(f"UPDATE {dim_table} SET active = FALSE WHERE id = %s", (dup_id,))
+
+    def merge_department(self, dup_id, keep_id):
+        """Merge a duplicate department into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "departments", "department_aliases", "department_id",
+                [(t, "department_id") for t in _DEPT_FK_TABLES], dup_id, keep_id)
+
+    def merge_member(self, dup_id, keep_id):
+        """Merge a duplicate council member into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "council_members", "council_member_aliases", "member_id",
+                [("votes", "member_id"), ("meetings", "president_id"),
+                 ("legislation", "sponsor_id"), ("meeting_attendance", "member_id")],
+                dup_id, keep_id)
+
+    def merge_vendor(self, dup_id, keep_id):
+        """Merge a duplicate vendor into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "vendors", "vendor_aliases", "vendor_id",
+                [("resolutions", "vendor_id")], dup_id, keep_id)
 
     def ensure_document_type(self, type_name):
         if not type_name:
