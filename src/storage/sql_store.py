@@ -141,18 +141,27 @@ class SQLStore:
         sql = """
             INSERT INTO expenditures
                 (department, sub_department, account_number, line_item,
-                 revised_budget, ytd_expended, quarter, year, source_chunk_id, source_file)
+                 revised_budget, ytd_expended, quarter, year, source_chunk_id, source_file,
+                 department_id)
             VALUES
                 (%(department)s, %(sub_department)s, %(account_number)s, %(line_item)s,
                  %(revised_budget)s, %(ytd_expended)s, %(quarter)s, %(year)s,
-                 %(source_chunk_id)s, %(source_file)s)
+                 %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # Resolve FKs BEFORE opening the insert cursor (not per-row inside it): this
+        # method is called outside any sql_store.transaction() wrapper (quarterly_report
+        # path), and resolve_department_id opens its own nested self.cursor(). Nesting
+        # it inside this method's own open cursor would hit _get_live_conn()'s
+        # ping-then-rollback (the "reconnect if idle" defensive rollback), which would
+        # silently discard prior rows already cur.execute()'d earlier in this same loop.
+        for row in rows:
+            row.setdefault("sub_department", None)
+            row.setdefault("account_number", None)
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("sub_department", None)
-                row.setdefault("account_number", None)
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, row)
         logger.debug("Inserted %d expenditure rows from chunk %s", len(rows), source_chunk_id)
 
@@ -160,26 +169,31 @@ class SQLStore:
         sql = """
             INSERT INTO metrics
                 (department, metric_name, metric_value, metric_unit, quarter, year,
-                 source_chunk_id, source_file)
+                 source_chunk_id, source_file, department_id)
             VALUES
                 (%(department)s, %(metric_name)s, %(metric_value)s, %(metric_unit)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            row.setdefault("metric_unit", None)
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("metric_unit", None)
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, row)
 
     def insert_grant_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO grants
                 (department, grant_name, grant_number, amount, start_date, end_date,
-                 status, source_chunk_id, source_file)
+                 status, source_chunk_id, source_file, department_id)
             VALUES
                 (%(department)s, %(grant_name)s, %(grant_number)s, %(amount)s,
-                 %(start_date)s, %(end_date)s, %(status)s, %(source_chunk_id)s, %(source_file)s)
+                 %(start_date)s, %(end_date)s, %(status)s, %(source_chunk_id)s, %(source_file)s,
+                 %(department_id)s)
         """
         def _norm_date(v):
             # accept only full YYYY-MM-DD; coerce year-only / garbage to NULL
@@ -191,50 +205,67 @@ class SQLStore:
             except (ValueError, TypeError):
                 return None
 
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            row.setdefault("grant_number", None)
+            row.setdefault("status", None)
+            row["start_date"] = _norm_date(row.get("start_date"))
+            row["end_date"] = _norm_date(row.get("end_date"))
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("grant_number", None)
-                row.setdefault("status", None)
-                row["start_date"] = _norm_date(row.get("start_date"))
-                row["end_date"] = _norm_date(row.get("end_date"))
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, row)
 
-    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str) -> None:
+    def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO vacancies
-                (department, position_title, status, open_count, quarter, year, source_chunk_id)
+                (department, position_title, status, open_count, quarter, year, source_chunk_id,
+                 source_file, department_id)
             VALUES
                 (%(department)s, %(position_title)s, %(status)s, %(open_count)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            # extractor emits "count"; the column is open_count. Tolerate either.
+            row.setdefault("open_count", row.get("count"))
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                # extractor emits "count"; the column is open_count. Tolerate either.
-                row.setdefault("open_count", row.get("count"))
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
                 cur.execute(sql, row)
 
     def record_document(self, source_file: str, department: str, document_type: str,
                         quarter: str, year: int, parser_used: str, total_chunks: int) -> None:
+        # Not called inside a rows loop (one document per call) and not nested inside
+        # any other open cursor, so resolving before the upsert is always safe here.
+        self.ensure_document_type(document_type)
+        department_id = self.resolve_department_id(department)
         sql = """
-            INSERT INTO documents (source_file, department, document_type, quarter, year, parser_used, total_chunks)
+            INSERT INTO documents (source_file, department, document_type, quarter, year, parser_used,
+                                    total_chunks, department_id)
             VALUES (%(source_file)s, %(department)s, %(document_type)s, %(quarter)s, %(year)s,
-                    %(parser_used)s, %(total_chunks)s)
+                    %(parser_used)s, %(total_chunks)s, %(department_id)s)
             ON CONFLICT (source_file) DO UPDATE
             SET reingested_at = NOW(), total_chunks = EXCLUDED.total_chunks,
                 parser_used = EXCLUDED.parser_used,
                 document_type = EXCLUDED.document_type,
                 department = EXCLUDED.department,
                 quarter = EXCLUDED.quarter,
-                year = EXCLUDED.year
+                year = EXCLUDED.year,
+                department_id = EXCLUDED.department_id
         """
         with self.cursor() as cur:
             cur.execute(sql, {
                 "source_file": source_file, "department": department,
                 "document_type": document_type, "quarter": quarter, "year": year,
                 "parser_used": parser_used, "total_chunks": total_chunks,
+                "department_id": department_id,
             })
 
     def insert_review_flag(self, source_file: str, stage: str, reason: str, detail: str = "") -> None:
@@ -379,28 +410,36 @@ class SQLStore:
         sql = """
             INSERT INTO resolutions
               (resolution_number, title, amount, vendor, department, adopted_date,
-               status, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               status, source_chunk_id, source_file, department_id, vendor_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # insert_resolution_rows is only ever called from pipeline._write_typed_data,
+        # inside a with sql_store.transaction() block, so resolving per-row here (nested
+        # self.cursor() calls sharing the outer transaction) is safe: see the
+        # insert_expenditure_rows comment for why that ordering matters when unwrapped.
         with self.cursor() as cur:
             for r in rows:
+                department_id = self.resolve_department_id(r.get("department"))
+                vendor_id = self.resolve_vendor_id(r.get("vendor"))
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("title"), r.get("amount"),
                     r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
-                    r.get("status"), source_chunk_id, source_file,
+                    r.get("status"), source_chunk_id, source_file, department_id, vendor_id,
                 ))
 
     def insert_vote_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO votes
-              (resolution_number, council_member, vote, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s)
+              (resolution_number, council_member, vote, source_chunk_id, source_file, member_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
         """
+        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
         with self.cursor() as cur:
             for r in rows:
+                member_id = self.resolve_member_id(r.get("council_member"))
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
-                    sanitize_vote(r.get("vote")), source_chunk_id, source_file,
+                    sanitize_vote(r.get("vote")), source_chunk_id, source_file, member_id,
                 ))
 
     def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -408,17 +447,44 @@ class SQLStore:
             INSERT INTO meetings
               (meeting_date, session_type, president, members_present,
                members_present_names, members_absent_names, call_to_order, adjourned,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, president_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
         """
+        # Always called inside sql_store.transaction() (see insert_resolution_rows note),
+        # so the per-row resolve_member_id calls here and in _write_attendance are safe.
         with self.cursor() as cur:
             for r in rows:
+                president_id = self.resolve_member_id(r.get("president"))
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
                     r.get("members_present"), r.get("members_present_names"),
                     r.get("members_absent_names"), r.get("call_to_order"), r.get("adjourned"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, president_id,
                 ))
+                meeting_id = cur.fetchone()["id"]
+                self._write_attendance(
+                    cur, meeting_id, r.get("members_present_names"),
+                    r.get("members_absent_names"), r.get("members_present"))
+
+    def _write_attendance(self, cur, meeting_id, present_names, absent_names, expected_present):
+        from src.ingestion.names import normalize_person_name
+        seen = 0
+        for names, status in ((present_names, "present"), (absent_names, "absent")):
+            for raw in (names or "").split(","):
+                clean = normalize_person_name(raw)
+                if not clean:
+                    continue
+                mid = self.resolve_member_id(clean)
+                cur.execute(
+                    "INSERT INTO meeting_attendance (meeting_id, member_id, status) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (meeting_id, member_id) DO NOTHING",
+                    (meeting_id, mid, status))
+                if status == "present":
+                    seen += 1
+        if expected_present is not None and seen != expected_present:
+            self._flag(cur, "validate", "attendance_count_mismatch",
+                       f"meeting {meeting_id}: parsed {seen} present vs stated {expected_present}")
 
     def insert_meeting_action_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -439,43 +505,56 @@ class SQLStore:
         sql = """
             INSERT INTO legislation
               (bill_number, title, sponsor, amount, adopted_date, status,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, sponsor_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
+        # match-only (create=False): a "sponsor" may be a committee name, which must
+        # NOT be auto-created as a council member.
         with self.cursor() as cur:
             for r in rows:
+                sponsor_id = self.resolve_member_id(r.get("sponsor"), create=False)
                 cur.execute(sql, (
                     r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
                     r.get("adopted_date") or None, r.get("status"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, sponsor_id,
                 ))
 
     def insert_appropriation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO appropriations
-              (department, fiscal_year, fund, category, amount, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+              (department, fiscal_year, fund, category, amount, source_chunk_id, source_file,
+               department_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
         with self.cursor() as cur:
             for r in rows:
+                department_id = self.resolve_department_id(r.get("department"))
                 cur.execute(sql, (
                     r.get("department"), r.get("fiscal_year"), r.get("fund"),
-                    r.get("category"), r.get("amount"), source_chunk_id, source_file,
+                    r.get("category"), r.get("amount"), source_chunk_id, source_file, department_id,
                 ))
 
     def insert_goal_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO goals
               (department, year, quarter, goal_title, description, target, status,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, department_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Unlike resolutions/votes/meetings/legislation/appropriations, insert_goal_rows
+        # is called from the quarterly_report keyword path (_store_chunks), NOT inside
+        # sql_store.transaction() — so resolve before opening the cursor. See the
+        # insert_expenditure_rows comment for why interleaving would be unsafe here.
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
         with self.cursor() as cur:
             for r in rows:
                 cur.execute(sql, (
                     r.get("department"), r.get("year"), r.get("quarter"),
                     r.get("goal_title"), r.get("description"), r.get("target"), r.get("status"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, r.get("department_id"),
                 ))
 
     def delete_structured_rows(self, source_file: str) -> None:

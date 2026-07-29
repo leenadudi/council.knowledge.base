@@ -337,7 +337,7 @@ class IngestionPipeline:
                 vacancy_rows = self.sql_extractor.extract_vacancies(
                     vacancy_texts, department=profile.department or "", quarter=q or "", year=y)
                 if vacancy_rows:
-                    self.sql_store.insert_vacancy_rows(vacancy_rows, chunks[0].chunk_id)
+                    self.sql_store.insert_vacancy_rows(vacancy_rows, chunks[0].chunk_id, source_file)
 
             graph_chunks = [c for c in chunks if c.routes_to_graph()]
             if graph_chunks:
@@ -453,7 +453,7 @@ class IngestionPipeline:
             )
         if sql_data.get("vacancies"):
             self.sql_store.insert_vacancy_rows(
-                sql_data["vacancies"], chunk_id
+                sql_data["vacancies"], chunk_id, source_file
             )
 
     def _write_graph_data(self, graph_data: dict, source_file: str, meta: ChunkMetadata) -> None:
