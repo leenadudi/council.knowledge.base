@@ -14,6 +14,9 @@ import psycopg2
 import psycopg2.extras
 
 from src.config import Settings, get_settings
+from src.ingestion.entity_keys import (
+    department_key, member_key, vendor_key, infer_dept_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,14 @@ def _dumps(obj: Any) -> str:
 
 
 _VOTE_MAXLEN = 50
+
+# alias-table FK column per dimension table
+_ALIAS_FK = {
+    "departments": ("department_aliases", "department_id"),
+    "council_members": ("council_member_aliases", "member_id"),
+    "vendors": ("vendor_aliases", "vendor_id"),
+}
+_NEAR_DUP_THRESHOLD = 0.6  # pg_trgm similarity; one tunable constant
 
 
 def sanitize_vote(value) -> str | None:
@@ -229,6 +240,87 @@ class SQLStore:
                 "VALUES (%s, %s, %s, %s)",
                 (source_file, stage, reason, detail),
             )
+
+    # ------------------------------------------------------------------
+    # Entity resolvers
+    # ------------------------------------------------------------------
+
+    def _flag(self, cur, stage, reason, detail):
+        cur.execute(
+            "INSERT INTO review_flags (source_file, stage, reason, detail) "
+            "VALUES ('entity-resolver', %s, %s, %s)", (stage, reason, detail))
+
+    def _flag_near_dup(self, cur, table, key, raw):
+        cur.execute(
+            f"SELECT canonical_name FROM {table} "
+            f"WHERE similarity(canonical_key, %s) > %s AND canonical_key <> %s "
+            f"ORDER BY similarity(canonical_key, %s) DESC LIMIT 1",
+            (key, _NEAR_DUP_THRESHOLD, key, key))
+        row = cur.fetchone()
+        if row:
+            self._flag(cur, "validate", f"possible_duplicate_{table[:-1]}",
+                       f"'{raw}' resembles existing '{row['canonical_name']}'")
+
+    def _resolve_entity(self, table, raw, key, display, *, create, extra_cols=None):
+        if not key:
+            return None
+        alias_table, fk = _ALIAS_FK[table]
+        with self.cursor() as cur:
+            cur.execute(
+                f"SELECT {fk} AS id FROM {alias_table} WHERE LOWER(alias) = LOWER(%s)", (raw,))
+            row = cur.fetchone()
+            if row:
+                return row["id"]
+            cur.execute(f"SELECT id FROM {table} WHERE canonical_key = %s", (key,))
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    f"INSERT INTO {alias_table} ({fk}, alias) VALUES (%s, %s) "
+                    f"ON CONFLICT (alias) DO NOTHING", (row["id"], raw))
+                return row["id"]
+            if not create:
+                self._flag(cur, "validate", f"unmapped_{table[:-1]}", raw)
+                return None
+            self._flag_near_dup(cur, table, key, raw)
+            cols = ["canonical_name", "canonical_key"] + list((extra_cols or {}).keys())
+            vals = [display, key] + list((extra_cols or {}).values())
+            ph = ", ".join(["%s"] * len(vals))
+            cur.execute(
+                f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({ph}) "
+                f"ON CONFLICT (canonical_key) DO NOTHING RETURNING id", vals)
+            row = cur.fetchone()
+            if row is None:  # concurrent create won the race
+                cur.execute(f"SELECT id FROM {table} WHERE canonical_key = %s", (key,))
+                row = cur.fetchone()
+            entity_id = row["id"]
+            cur.execute(
+                f"INSERT INTO {alias_table} ({fk}, alias) VALUES (%s, %s) "
+                f"ON CONFLICT (alias) DO NOTHING", (entity_id, raw))
+            return entity_id
+
+    def resolve_department_id(self, name, *, create=True):
+        return self._resolve_entity(
+            "departments", name, department_key(name), (name or "").strip(),
+            create=create, extra_cols={"dept_type": infer_dept_type(name)})
+
+    def resolve_member_id(self, name, *, create=True):
+        from src.ingestion.names import normalize_person_name
+        display = normalize_person_name(name)
+        return self._resolve_entity(
+            "council_members", name, member_key(name), display, create=create)
+
+    def resolve_vendor_id(self, name, *, create=True):
+        return self._resolve_entity(
+            "vendors", name, vendor_key(name), (name or "").strip(), create=create)
+
+    def ensure_document_type(self, type_name):
+        if not type_name:
+            return
+        with self.cursor() as cur:
+            cur.execute(
+                "INSERT INTO document_type_registry (type_name, display_name, added_by) "
+                "VALUES (%s, %s, 'auto') ON CONFLICT (type_name) DO NOTHING",
+                (type_name, type_name))
 
     def get_unresolved_review_flags(self) -> list[dict[str, Any]]:
         with self.cursor() as cur:
