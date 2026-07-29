@@ -2,6 +2,12 @@
 -- Additive, idempotent. Declares real FKs + three self-populating entity
 -- dimensions. Ships all dimension tables EMPTY (populated by scripts/backfill_
 -- entities_2026_07_28.py). Safe to re-run.
+--
+-- document_chunks is created by the application (VectorStore.ensure_collection),
+-- not by SQL. All statements referencing document_chunks below are guarded with
+-- to_regclass('document_chunks') IS NOT NULL, so this file is safe to apply before
+-- app init; those constraints are added once the table exists — re-apply after first
+-- app start if you bootstrapped SQL-first.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -50,19 +56,28 @@ CREATE TABLE IF NOT EXISTS vendor_aliases (
 );
 CREATE INDEX IF NOT EXISTS idx_vendor_aliases_alias ON vendor_aliases(LOWER(alias));
 
--- ---- department_id on the 10 department-bearing tables ---------------------
+-- ---- department_id on the department-bearing tables ------------------------
+-- (document_chunks handled separately below — it's app-created, not SQL-created.)
 DO $$
 DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'expenditures','metrics','grants','vacancies','documents','resolutions',
-    'appropriations','goals','document_chunks','evaluation_suite'
+    'appropriations','goals','evaluation_suite'
   ] LOOP
     EXECUTE format(
       'ALTER TABLE %I ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id)', t);
     EXECUTE format(
       'CREATE INDEX IF NOT EXISTS idx_%s_department_id ON %I(department_id)', t, t);
   END LOOP;
+END $$;
+
+-- document_chunks.department_id (+ index), guarded on the app-created table.
+DO $$ BEGIN
+  IF to_regclass('document_chunks') IS NOT NULL THEN
+    ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id);
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_department_id ON document_chunks(department_id);
+  END IF;
 END $$;
 
 -- ---- people + vendor FK columns on the tables that carry those strings -----
@@ -134,15 +149,27 @@ FROM (SELECT bill_number, MIN(id) AS id FROM legislation
 WHERE a.item_type ILIKE 'ordinance' AND a.item_number = l.bill_number
   AND a.legislation_id IS NULL;
 
--- Log resolution_numbers that appear on >1 resolution row (ambiguous links).
+-- Log earliest-match ambiguities. Idempotent: clear prior migration flags first
+-- so re-running yields a stable set instead of accumulating duplicates.
+DELETE FROM review_flags WHERE source_file='schema-migration' AND reason LIKE 'ambiguous_%';
+-- resolution_numbers that appear on >1 resolution row (ambiguous links).
 INSERT INTO review_flags (source_file, stage, reason, detail)
 SELECT 'schema-migration', 'validate', 'ambiguous_resolution_number',
        'resolution_number ' || resolution_number || ' maps to ' || COUNT(*) || ' rows'
 FROM resolutions WHERE resolution_number IS NOT NULL
 GROUP BY resolution_number HAVING COUNT(*) > 1;
--- Same pattern applies to duplicate meeting_date and bill_number; add analogous
--- INSERT...SELECT...HAVING COUNT(*)>1 blocks for meetings(meeting_date) and
--- legislation(bill_number) so every earliest-match ambiguity is visible.
+-- meeting_dates that appear on >1 meeting row (ambiguous links).
+INSERT INTO review_flags (source_file, stage, reason, detail)
+SELECT 'schema-migration', 'validate', 'ambiguous_meeting_date',
+       'meeting_date ' || meeting_date || ' maps to ' || COUNT(*) || ' rows'
+FROM meetings WHERE meeting_date IS NOT NULL
+GROUP BY meeting_date HAVING COUNT(*) > 1;
+-- bill_numbers that appear on >1 legislation row (ambiguous links).
+INSERT INTO review_flags (source_file, stage, reason, detail)
+SELECT 'schema-migration', 'validate', 'ambiguous_bill_number',
+       'bill_number ' || bill_number || ' maps to ' || COUNT(*) || ' rows'
+FROM legislation WHERE bill_number IS NOT NULL
+GROUP BY bill_number HAVING COUNT(*) > 1;
 
 -- ---- Provenance foreign keys, NOT VALID (won't fail on legacy orphans) ------
 -- source_file -> documents(source_file); ON DELETE SET NULL.
@@ -151,7 +178,7 @@ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'expenditures','metrics','grants','vacancies','resolutions','votes','meetings',
-    'meeting_actions','legislation','appropriations','goals','document_chunks'
+    'meeting_actions','legislation','appropriations','goals'
   ] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_'||t||'_source_file') THEN
       EXECUTE format(
@@ -162,39 +189,45 @@ BEGIN
 END $$;
 
 -- source_chunk_id -> document_chunks(chunk_id); ON DELETE SET NULL.
+-- Guarded: document_chunks is app-created and may not exist at SQL-bootstrap time.
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'expenditures','metrics','grants','vacancies','resolutions','votes','meetings',
-    'meeting_actions','legislation','appropriations','goals'
-  ] LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_'||t||'_source_chunk') THEN
-      EXECUTE format(
-        'ALTER TABLE %I ADD CONSTRAINT fk_%s_source_chunk FOREIGN KEY (source_chunk_id) '
-        'REFERENCES document_chunks(chunk_id) ON DELETE SET NULL NOT VALID', t, t);
-    END IF;
-  END LOOP;
+  IF to_regclass('document_chunks') IS NOT NULL THEN
+    FOREACH t IN ARRAY ARRAY[
+      'expenditures','metrics','grants','vacancies','resolutions','votes','meetings',
+      'meeting_actions','legislation','appropriations','goals'
+    ] LOOP
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_'||t||'_source_chunk') THEN
+        EXECUTE format(
+          'ALTER TABLE %I ADD CONSTRAINT fk_%s_source_chunk FOREIGN KEY (source_chunk_id) '
+          'REFERENCES document_chunks(chunk_id) ON DELETE SET NULL NOT VALID', t, t);
+      END IF;
+    END LOOP;
+  END IF;
 END $$;
 
 -- chunk_performance -> document_chunks (CASCADE); document_chunks -> documents;
--- document_type FKs -> registry (both NOT VALID / SET NULL).
+-- document_type FKs -> registry (both NOT VALID / SET NULL). All document_chunks
+-- refs are guarded on the app-created table; documents -> registry is not.
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_chunk_perf_chunk') THEN
-    ALTER TABLE chunk_performance ADD CONSTRAINT fk_chunk_perf_chunk
-      FOREIGN KEY (chunk_id) REFERENCES document_chunks(chunk_id) ON DELETE CASCADE NOT VALID;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_document_chunks_doc') THEN
-    ALTER TABLE document_chunks ADD CONSTRAINT fk_document_chunks_doc
-      FOREIGN KEY (source_file) REFERENCES documents(source_file) ON DELETE SET NULL NOT VALID;
+  IF to_regclass('document_chunks') IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_chunk_perf_chunk') THEN
+      ALTER TABLE chunk_performance ADD CONSTRAINT fk_chunk_perf_chunk
+        FOREIGN KEY (chunk_id) REFERENCES document_chunks(chunk_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_document_chunks_doc') THEN
+      ALTER TABLE document_chunks ADD CONSTRAINT fk_document_chunks_doc
+        FOREIGN KEY (source_file) REFERENCES documents(source_file) ON DELETE SET NULL NOT VALID;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_document_chunks_doctype') THEN
+      ALTER TABLE document_chunks ADD CONSTRAINT fk_document_chunks_doctype
+        FOREIGN KEY (document_type) REFERENCES document_type_registry(type_name)
+        ON UPDATE CASCADE ON DELETE SET NULL NOT VALID;
+    END IF;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_documents_doctype') THEN
     ALTER TABLE documents ADD CONSTRAINT fk_documents_doctype
-      FOREIGN KEY (document_type) REFERENCES document_type_registry(type_name)
-      ON UPDATE CASCADE ON DELETE SET NULL NOT VALID;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_document_chunks_doctype') THEN
-    ALTER TABLE document_chunks ADD CONSTRAINT fk_document_chunks_doctype
       FOREIGN KEY (document_type) REFERENCES document_type_registry(type_name)
       ON UPDATE CASCADE ON DELETE SET NULL NOT VALID;
   END IF;
