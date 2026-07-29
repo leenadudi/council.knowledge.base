@@ -6,6 +6,8 @@ import logging
 import re
 from datetime import timezone
 
+from src.ingestion.entity_keys import dedupe_grant_rows
+
 logger = logging.getLogger(__name__)
 
 _Q_MONTH = {"Q1": 1, "Q2": 4, "Q3": 7, "Q4": 10}
@@ -47,34 +49,13 @@ class DashboardAggregator:
 
     # -- Grant de-duplication (same grant is re-extracted from every report) ---
     @staticmethod
-    def _grant_key(r) -> tuple:
-        name = re.sub(r"\s+", " ", (r.get("grant_name") or "").strip().lower())
-        return (name, DashboardAggregator._dept_key(r.get("department") or ""))
-
-    @staticmethod
     def _dedupe_grants(rows: list) -> list:
         """Collapse repeated grant rows (the same grant re-extracted from each
-        quarterly report) into one per (normalized name, canonical department),
-        keeping the most complete row. Blank-name rows are left as-is (cannot be
-        keyed safely). Used everywhere grants are read so counts, funding totals,
-        lists, and projects never double-count."""
-        def score(r) -> int:
-            s = sum(1 for f in ("amount", "start_date", "end_date") if r.get(f) is not None)
-            if (r.get("grant_number") or "").strip():
-                s += 1
-            if (r.get("status") or "").strip().lower() in _ACTIVE_STATUSES:
-                s += 1
-            return s
-        best: dict = {}
-        blanks: list = []
-        for r in rows:
-            if not re.sub(r"\s+", " ", (r.get("grant_name") or "").strip().lower()):
-                blanks.append(r)
-                continue
-            key = DashboardAggregator._grant_key(r)
-            if key not in best or score(r) > score(best[key]):
-                best[key] = r
-        return list(best.values()) + blanks
+        quarterly report, often under name variants like 'CDBG (…)' vs
+        '… (CDBG) Program') into one per (canonical grant key, canonical
+        department), keeping the most complete row. Used everywhere grants are
+        read so counts, funding totals, lists, and projects never double-count."""
+        return dedupe_grant_rows(rows, dept_key=DashboardAggregator._dept_key)
 
     def _build_kpis(self) -> dict:
         today = self.now.date()

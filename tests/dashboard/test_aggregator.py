@@ -65,6 +65,30 @@ def test_dedupe_grants_collapses_repeats_keeping_most_complete():
     assert len(out) == 3  # TASA(1) + CDBG(1) + blank(1)
 
 
+def test_dedupe_grants_collapses_name_variants_across_dept_aliases():
+    # The real duplicate pattern: same grant named differently across quarterly
+    # reports, under aliased department names. All must collapse to one row.
+    d = DashboardAggregator._dedupe_grants
+    rows = [
+        {"grant_name": "CDBG (Community Development Block Grant)",
+         "department": "Department of Building & Housing Development",
+         "amount": None, "start_date": None, "end_date": None, "status": ""},
+        {"grant_name": "Community Development Block Grant (CDBG)",
+         "department": "Department of Economic Development & Building and Housing",
+         "amount": 350000.0, "start_date": None, "end_date": None, "status": "active"},
+        {"grant_name": "Community Development Block Grant (CDBG) Program",
+         "department": "Department of Building & Housing Development",
+         "amount": None, "start_date": None, "end_date": None, "status": ""},
+        # sub-award named distinctly must survive alongside the base grant
+        {"grant_name": "Community Development Block Grant (CDBG) - Broad Street Market",
+         "department": "Department of Building & Housing Development",
+         "amount": 1000000.0, "start_date": None, "end_date": None, "status": "awarded"},
+    ]
+    out = d(rows)
+    assert len(out) == 2
+    assert {r["amount"] for r in out} == {350000.0, 1000000.0}
+
+
 def test_quarter_start_mapping():
     assert quarter_start(2026, "Q1") == datetime.date(2026, 1, 1)
     assert quarter_start(2026, "Q3") == datetime.date(2026, 7, 1)
