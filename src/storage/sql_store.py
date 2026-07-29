@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -86,6 +87,26 @@ _DEPT_FK_TABLES = [
     "expenditures", "metrics", "grants", "vacancies", "documents", "resolutions",
     "appropriations", "goals", "document_chunks", "evaluation_suite",
 ]
+
+
+_ITEM_NUMBER_PREFIX = re.compile(r"^(?:resolution|ordinance|bill|no\.?|#)\s+", re.IGNORECASE)
+
+
+def normalize_item_number(value) -> str | None:
+    """Canonicalize a meeting-action item number to its bare "N-YYYY" form.
+    Minutes extractions are inconsistent per document ("Resolution 24-2026" vs
+    "24-2026" vs "Ordinance Bill 2-2026"), which splits one legislative item into
+    several on any item_number grouping (dashboard pipeline stage counts)."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    stripped = s
+    while True:
+        next_s = _ITEM_NUMBER_PREFIX.sub("", stripped)
+        if next_s == stripped:
+            break
+        stripped = next_s
+    return stripped if stripped else s
 
 
 def sanitize_vote(value) -> str | None:
@@ -655,7 +676,8 @@ class SQLStore:
             for r in rows:
                 _clip(r)
                 cur.execute(sql, (
-                    r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
+                    r.get("meeting_date") or None, r.get("item_type"),
+                    normalize_item_number(r.get("item_number")),
                     r.get("title"), r.get("action"), r.get("committee"),
                     source_chunk_id, source_file,
                 ))
