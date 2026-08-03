@@ -15,7 +15,7 @@ JOIN (VALUES
     ('budget & finance',        'Departnment of Finance'),
     ('parks & recreation',      'Park Maintenance'),
     ('parks & recreation',      'Parks Maintenance'),
-    ('building & housing development',
+    ('economic development & building & housing',
                                 'Department of Economic Development & Building and Housing'),
     ('codes',                   'Codes Health Department'),
     ('police',                  'Buraeu of Police'),

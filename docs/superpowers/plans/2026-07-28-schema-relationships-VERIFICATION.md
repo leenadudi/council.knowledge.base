@@ -60,7 +60,28 @@ python -m scripts.backfill_entities_2026_07_28
 psql "$SCRATCH_DATABASE_URL" < sql/seed_harrisburg_department_aliases.sql
 ```
 
-**Expected:** 11 rows inserted into `department_aliases`, one per Harrisburg-specific variant (Planning Bureau, Harrisburg City Council, etc.). Remaining inserts are idempotent (ON CONFLICT DO NOTHING).
+**Expected:** Up to 11 rows inserted into `department_aliases`, one per Harrisburg-specific variant (Planning Bureau, Harrisburg City Council, etc.). Remaining inserts are idempotent (ON CONFLICT DO NOTHING).
+
+### 3.1 Per-Row Verification (do NOT rely on the lump total)
+
+A lump "~11 rows" count can hide a silent no-op: if any `target_key` doesn't match an existing `departments.canonical_key`, that row's JOIN yields 0 rows and the seed still "succeeds." Confirm each alias actually landed:
+
+```sql
+-- Confirm every Harrisburg alias actually landed (each maps to an existing canonical department).
+-- Any alias missing here means its target department did not exist in this city's data —
+-- investigate (it may be a variant that never appears, e.g. council not treated as a department),
+-- or reconcile via merge_department().
+SELECT alias FROM department_aliases
+WHERE alias IN (
+  'Planning Bureau','Harrisburg City Council','City of Harrisburg City Council',
+  'Department of Finance','Departnment of Finance','Park Maintenance','Parks Maintenance',
+  'Department of Economic Development & Building and Housing','Codes Health Department',
+  'Buraeu of Police','Bureau of Coummunicaitons'
+);
+-- Expect all 11. If fewer, the missing ones did not seed (their target department is absent).
+```
+
+**Note:** The `Harrisburg City Council` / `City of Harrisburg City Council` rows only land if "City Council" appears as a department in the fact tables — if they don't seed, that's expected (council actions aren't departments) and not an error.
 
 ---
 
