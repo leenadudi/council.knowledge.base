@@ -22,3 +22,19 @@ def test_backfill_discovers_and_links(scratch_store):
         cur.execute("SELECT COUNT(*) c FROM vendors")
         assert cur.fetchone()["c"] == 1
     assert counts["departments"] >= 1
+
+
+def test_backfill_links_whitespace_only_variant(scratch_store):
+    """A department value whose ONLY occurrence carries trailing whitespace must
+    still get linked. The resolver stores the alias verbatim (with the trailing
+    space), so the FK-join must TRIM both sides — otherwise 'bureau of codes' never
+    equals the stored alias 'bureau of codes ' and department_id stays NULL forever.
+    Unlike test_backfill_discovers_and_links (which also inserts a CLEAN variant
+    that masks the bug), here there is no clean variant anywhere."""
+    with scratch_store.cursor() as cur:
+        cur.execute("INSERT INTO expenditures (department, line_item) VALUES "
+                    "('Bureau of Codes ', 'x')")          # trailing space, no clean twin
+    backfill(scratch_store)
+    with scratch_store.cursor() as cur:
+        cur.execute("SELECT department_id FROM expenditures WHERE line_item = 'x'")
+        assert cur.fetchone()["department_id"] is not None  # whitespace-only value linked

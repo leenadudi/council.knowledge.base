@@ -6,12 +6,12 @@ Usage:  DATABASE_URL=<scratch-or-prod> python -m scripts.backfill_entities_2026_
 """
 from __future__ import annotations
 
-from src.storage.sql_store import SQLStore
+from src.storage.sql_store import SQLStore, _DEPT_FK_TABLES
 
-_DEPT_TABLES = [
-    "expenditures", "metrics", "grants", "vacancies", "documents", "resolutions",
-    "appropriations", "goals", "document_chunks", "evaluation_suite",
-]
+# Reuse the merge-scope list from sql_store (the same 10 department-bearing tables
+# merge_department repoints) so backfill discovery scope can never desync from merge
+# scope. Local alias kept purely for readability at the two call sites below.
+_DEPT_TABLES = _DEPT_FK_TABLES
 
 
 def _distinct(cur, table, col):
@@ -54,24 +54,30 @@ def backfill(store: SQLStore) -> dict:
             for name in _distinct(cur, "legislation", "sponsor"):
                 store.resolve_member_id(name, create=False)
 
-            # 2. set FK columns by alias join (idempotent)
+            # 2. set FK columns by alias join (idempotent). TRIM BOTH sides: the
+            # resolver stores each alias verbatim (un-stripped raw string), so a
+            # whitespace-variant value like 'Bureau of Fire ' is saved as an alias
+            # WITH its trailing space. Trimming only the fact-table column would
+            # leave 'bureau of fire' != 'bureau of fire ' unmatched, so the FK would
+            # stay NULL forever and re-runs would never converge — the exact
+            # whitespace-drift this backfill exists to repair.
             for table in _DEPT_TABLES:
                 cur.execute(
                     f"UPDATE {table} t SET department_id = da.department_id "
                     f"FROM department_aliases da "
-                    f"WHERE LOWER(TRIM(t.department)) = LOWER(da.alias) AND t.department_id IS NULL")
+                    f"WHERE LOWER(TRIM(t.department)) = LOWER(TRIM(da.alias)) AND t.department_id IS NULL")
             cur.execute(
                 "UPDATE votes v SET member_id = a.member_id FROM council_member_aliases a "
-                "WHERE LOWER(TRIM(v.council_member)) = LOWER(a.alias) AND v.member_id IS NULL")
+                "WHERE LOWER(TRIM(v.council_member)) = LOWER(TRIM(a.alias)) AND v.member_id IS NULL")
             cur.execute(
                 "UPDATE meetings m SET president_id = a.member_id FROM council_member_aliases a "
-                "WHERE LOWER(TRIM(m.president)) = LOWER(a.alias) AND m.president_id IS NULL")
+                "WHERE LOWER(TRIM(m.president)) = LOWER(TRIM(a.alias)) AND m.president_id IS NULL")
             cur.execute(
                 "UPDATE legislation l SET sponsor_id = a.member_id FROM council_member_aliases a "
-                "WHERE LOWER(TRIM(l.sponsor)) = LOWER(a.alias) AND l.sponsor_id IS NULL")
+                "WHERE LOWER(TRIM(l.sponsor)) = LOWER(TRIM(a.alias)) AND l.sponsor_id IS NULL")
             cur.execute(
                 "UPDATE resolutions r SET vendor_id = va.vendor_id FROM vendor_aliases va "
-                "WHERE LOWER(TRIM(r.vendor)) = LOWER(va.alias) AND r.vendor_id IS NULL")
+                "WHERE LOWER(TRIM(r.vendor)) = LOWER(TRIM(va.alias)) AND r.vendor_id IS NULL")
 
             # 3. attendance for existing meetings (raw TEXT stays as audit trail)
             cur.execute("SELECT id, members_present, members_present_names, "

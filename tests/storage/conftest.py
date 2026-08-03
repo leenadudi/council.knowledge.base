@@ -81,11 +81,8 @@ def _scratch_schema():
     return SCRATCH
 
 
-@pytest.fixture()
-def scratch_store(_scratch_schema):
-    """Truncate the fact + dimension tables, then yield a connected SQLStore
-    against the scratch DB so each test starts from an empty, known state."""
-    conn = psycopg2.connect(_scratch_schema)
+def _truncate(url: str) -> None:
+    conn = psycopg2.connect(url)
     try:
         with conn.cursor() as cur:
             cur.execute(f"TRUNCATE {', '.join(_TABLES_TO_RESET)} RESTART IDENTITY CASCADE")
@@ -93,7 +90,23 @@ def scratch_store(_scratch_schema):
     finally:
         conn.close()
 
+
+@pytest.fixture()
+def scratch_store(_scratch_schema):
+    """Truncate the fact + dimension tables, then yield a connected SQLStore
+    against the scratch DB so each test starts from an empty, known state.
+
+    Truncates on BOTH sides of the yield. The teardown truncate is not optional:
+    backfill() writes real dimension rows (e.g. departments.canonical_key='fire'),
+    and the pre-existing tests/storage/test_migration_relationships.py asserts
+    'dimensions ship empty' (SELECT COUNT(*) FROM departments == 0) and runs AFTER
+    this module alphabetically — so leaving rows behind would deterministically
+    break it once SCRATCH_DATABASE_URL is set. Leave the scratch DB clean."""
+    _truncate(_scratch_schema)
     store = SQLStore(_settings_for(_scratch_schema))
     store.connect()
-    yield store
-    store.close()
+    try:
+        yield store
+    finally:
+        store.close()
+        _truncate(_scratch_schema)
