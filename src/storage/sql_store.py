@@ -14,6 +14,9 @@ import psycopg2
 import psycopg2.extras
 
 from src.config import Settings, get_settings
+from src.ingestion.legislative_events import (
+    LegislativeEvent, doc_status_events, item_key, item_kind, parse_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,7 @@ class SQLStore:
         self.settings = settings or get_settings()
         self._conn: Optional[psycopg2.extensions.connection] = None
         self._in_txn = False
+        self._legis_enabled: Optional[bool] = None
 
     def connect(self) -> None:
         self._conn = psycopg2.connect(
@@ -238,33 +242,128 @@ class SQLStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
-    def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+    # ---- Legislative status tracking (lifecycle events; spec 2026-07-29) ----
+
+    def _legislative_tracking_enabled(self) -> bool:
+        """True once the legislative-status migration has been applied. Cached per
+        process; False on any probe error so ingest keeps working on an
+        un-migrated database."""
+        if self._legis_enabled is None:
+            try:
+                with self.cursor() as cur:
+                    cur.execute("SELECT to_regclass('legislative_items') AS t")
+                    row = cur.fetchone()
+                    self._legis_enabled = bool(row and row["t"])
+            except Exception:
+                logger.warning("legislative_items probe failed; tracking disabled", exc_info=True)
+                self._legis_enabled = False
+        return self._legis_enabled
+
+    def resolve_legislative_item(self, kind: str, raw_number: str, title: str = "",
+                                 event_date: str | None = None) -> int | None:
+        """Get-or-create the legislative_items row for (kind, canonical number).
+        Keeps the longest title and earliest first_seen across sightings."""
+        key = item_key(raw_number)
+        if not kind or not key:
+            return None
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO legislative_items (item_kind, item_key, display_number, title, first_seen)
+                VALUES (%s, %s, %s, NULLIF(%s, ''), %s)
+                ON CONFLICT (item_kind, item_key) DO UPDATE SET
+                    title = CASE WHEN length(coalesce(EXCLUDED.title, '')) > length(coalesce(legislative_items.title, ''))
+                                 THEN EXCLUDED.title ELSE legislative_items.title END,
+                    first_seen = LEAST(coalesce(legislative_items.first_seen, EXCLUDED.first_seen),
+                                       coalesce(EXCLUDED.first_seen, legislative_items.first_seen))
+                RETURNING id
+                """,
+                (kind, key, (raw_number or "").strip(), title or "", event_date or None),
+            )
+            return cur.fetchone()["id"]
+
+    def _insert_legislative_events(self, item_id: int, events: list[LegislativeEvent], *,
+                                   event_date: str | None, origin: str,
+                                   meeting_action_id: int | None,
+                                   source_chunk_id: str | None, source_file: str | None) -> None:
         sql = """
+            INSERT INTO legislative_events
+              (legislative_item_id, event, event_date, seq, origin, meeting_action_id,
+               committee, ayes, nays, note, source_chunk_id, source_file)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (meeting_action_id, seq) DO NOTHING
+        """
+        with self.cursor() as cur:
+            for seq, ev in enumerate(events):
+                cur.execute(sql, (
+                    item_id, ev.event, event_date or None, seq, origin, meeting_action_id,
+                    ev.committee or None, ev.ayes, ev.nays, ev.note or None,
+                    source_chunk_id, source_file,
+                ))
+
+    def insert_resolution_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
+        tracking = self._legislative_tracking_enabled()
+        legacy_sql = """
             INSERT INTO resolutions
               (resolution_number, title, amount, vendor, department, adopted_date,
                status, source_chunk_id, source_file)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        with self.cursor() as cur:
-            for r in rows:
-                cur.execute(sql, (
-                    r.get("resolution_number"), r.get("title"), r.get("amount"),
-                    r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
-                    r.get("status"), source_chunk_id, source_file,
-                ))
+        tracked_sql = """
+            INSERT INTO resolutions
+              (resolution_number, title, amount, vendor, department, adopted_date,
+               status, source_chunk_id, source_file, legislative_item_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        for r in rows:
+            base = (
+                r.get("resolution_number"), r.get("title"), r.get("amount"),
+                r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
+                r.get("status"), source_chunk_id, source_file,
+            )
+            if not tracking:
+                with self.cursor() as cur:
+                    cur.execute(legacy_sql, base)
+                continue
+            item_id = self.resolve_legislative_item(
+                "resolution", r.get("resolution_number") or "",
+                r.get("title") or "", r.get("adopted_date") or None)
+            with self.cursor() as cur:
+                cur.execute(tracked_sql, base + (item_id,))
+            if item_id:
+                events = [LegislativeEvent(e) for e in doc_status_events(r.get("status"))]
+                if events:
+                    self._insert_legislative_events(
+                        item_id, events, event_date=r.get("adopted_date") or None,
+                        origin="document", meeting_action_id=None,
+                        source_chunk_id=source_chunk_id, source_file=source_file)
 
     def insert_vote_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
-        sql = """
+        tracking = self._legislative_tracking_enabled()
+        legacy_sql = """
             INSERT INTO votes
               (resolution_number, council_member, vote, source_chunk_id, source_file)
             VALUES (%s,%s,%s,%s,%s)
         """
-        with self.cursor() as cur:
-            for r in rows:
-                cur.execute(sql, (
-                    r.get("resolution_number"), r.get("council_member"),
-                    sanitize_vote(r.get("vote")), source_chunk_id, source_file,
-                ))
+        tracked_sql = """
+            INSERT INTO votes
+              (resolution_number, council_member, vote, source_chunk_id, source_file,
+               legislative_item_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """
+        for r in rows:
+            base = (
+                r.get("resolution_number"), r.get("council_member"),
+                sanitize_vote(r.get("vote")), source_chunk_id, source_file,
+            )
+            if not tracking:
+                with self.cursor() as cur:
+                    cur.execute(legacy_sql, base)
+                continue
+            item_id = self.resolve_legislative_item(
+                "resolution", r.get("resolution_number") or "")
+            with self.cursor() as cur:
+                cur.execute(tracked_sql, base + (item_id,))
 
     def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -284,34 +383,86 @@ class SQLStore:
                 ))
 
     def insert_meeting_action_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
-        sql = """
+        tracking = self._legislative_tracking_enabled()
+        legacy_sql = """
             INSERT INTO meeting_actions
               (meeting_date, item_type, item_number, title, action, committee,
                source_chunk_id, source_file)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        with self.cursor() as cur:
-            for r in rows:
-                cur.execute(sql, (
-                    r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
-                    r.get("title"), r.get("action"), r.get("committee"),
-                    source_chunk_id, source_file,
-                ))
+        tracked_sql = """
+            INSERT INTO meeting_actions
+              (meeting_date, item_type, item_number, title, action, committee,
+               source_chunk_id, source_file, legislative_item_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+        """
+        for r in rows:
+            base = (
+                r.get("meeting_date") or None, r.get("item_type"), r.get("item_number"),
+                r.get("title"), r.get("action"), r.get("committee"),
+                source_chunk_id, source_file,
+            )
+            if not tracking:
+                with self.cursor() as cur:
+                    cur.execute(legacy_sql, base)
+                continue
+            kind = item_kind(r.get("item_type"), r.get("item_number"))
+            item_id = self.resolve_legislative_item(
+                kind, r.get("item_number") or "", r.get("title") or "",
+                r.get("meeting_date") or None) if kind else None
+            with self.cursor() as cur:
+                cur.execute(tracked_sql, base + (item_id,))
+                action_id = cur.fetchone()["id"]
+            if not item_id:
+                continue
+            events = parse_events(r.get("item_type"), r.get("action"))
+            if events:
+                self._insert_legislative_events(
+                    item_id, events, event_date=r.get("meeting_date") or None,
+                    origin="minutes", meeting_action_id=action_id,
+                    source_chunk_id=source_chunk_id, source_file=source_file)
+            elif (r.get("action") or "").strip():
+                self.insert_review_flag(
+                    source_file, "normalize", "unmapped meeting action",
+                    f"{r.get('item_type')} {r.get('item_number')}: {r.get('action')}")
 
     def insert_legislation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
-        sql = """
+        tracking = self._legislative_tracking_enabled()
+        legacy_sql = """
             INSERT INTO legislation
               (bill_number, title, sponsor, amount, adopted_date, status,
                source_chunk_id, source_file)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        with self.cursor() as cur:
-            for r in rows:
-                cur.execute(sql, (
-                    r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
-                    r.get("adopted_date") or None, r.get("status"),
-                    source_chunk_id, source_file,
-                ))
+        tracked_sql = """
+            INSERT INTO legislation
+              (bill_number, title, sponsor, amount, adopted_date, status,
+               source_chunk_id, source_file, legislative_item_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """
+        for r in rows:
+            base = (
+                r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
+                r.get("adopted_date") or None, r.get("status"),
+                source_chunk_id, source_file,
+            )
+            if not tracking:
+                with self.cursor() as cur:
+                    cur.execute(legacy_sql, base)
+                continue
+            item_id = self.resolve_legislative_item(
+                "ordinance", r.get("bill_number") or "",
+                r.get("title") or "", r.get("adopted_date") or None)
+            with self.cursor() as cur:
+                cur.execute(tracked_sql, base + (item_id,))
+            if item_id:
+                events = [LegislativeEvent(e) for e in doc_status_events(r.get("status"))]
+                if events:
+                    self._insert_legislative_events(
+                        item_id, events, event_date=r.get("adopted_date") or None,
+                        origin="document", meeting_action_id=None,
+                        source_chunk_id=source_chunk_id, source_file=source_file)
 
     def insert_appropriation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -343,9 +494,14 @@ class SQLStore:
 
     def delete_structured_rows(self, source_file: str) -> None:
         """Delete only the extracted rows for a file (called before re-ingestion to prevent duplicates)."""
+        tables = ["expenditures", "metrics", "grants", "resolutions", "votes",
+                  "meetings", "meeting_actions", "legislation", "appropriations", "goals"]
+        if self._legislative_tracking_enabled():
+            # Before meeting_actions: document-origin events match by source_file;
+            # minutes-origin events also cascade via meeting_action_id.
+            tables.insert(0, "legislative_events")
         with self.cursor() as cur:
-            for table in ["expenditures", "metrics", "grants", "resolutions", "votes",
-                          "meetings", "meeting_actions", "legislation", "appropriations", "goals"]:
+            for table in tables:
                 cur.execute(f"DELETE FROM {table} WHERE source_file = %s", (source_file,))
             cur.execute("""
                 DELETE FROM vacancies WHERE source_chunk_id IN (
