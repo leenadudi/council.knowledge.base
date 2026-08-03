@@ -148,12 +148,12 @@ class SQLStore:
                  %(revised_budget)s, %(ytd_expended)s, %(quarter)s, %(year)s,
                  %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
-        # Resolve FKs BEFORE opening the insert cursor (not per-row inside it): this
-        # method is called outside any sql_store.transaction() wrapper (quarterly_report
-        # path), and resolve_department_id opens its own nested self.cursor(). Nesting
-        # it inside this method's own open cursor would hit _get_live_conn()'s
-        # ping-then-rollback (the "reconnect if idle" defensive rollback), which would
-        # silently discard prior rows already cur.execute()'d earlier in this same loop.
+        # Resolve FKs BEFORE opening the insert cursor (not per-row inside it).
+        # resolve_department_id opens its own self.cursor(); OUTSIDE a transaction that
+        # path calls _get_live_conn(), whose "reconnect if idle" defensive rollback would
+        # discard rows already cur.execute()'d earlier in this same batch. Resolving up
+        # front (here and in EVERY resolver-using insert method) makes each method
+        # self-safe whether or not the caller wrapped a sql_store.transaction().
         for row in rows:
             row.setdefault("sub_department", None)
             row.setdefault("account_number", None)
@@ -413,18 +413,21 @@ class SQLStore:
                status, source_chunk_id, source_file, department_id, vendor_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        # insert_resolution_rows is only ever called from pipeline._write_typed_data,
-        # inside a with sql_store.transaction() block, so resolving per-row here (nested
-        # self.cursor() calls sharing the outer transaction) is safe: see the
-        # insert_expenditure_rows comment for why that ordering matters when unwrapped.
+        # Resolve ALL FKs BEFORE opening the insert cursor: a resolver opens its own
+        # self.cursor(), and outside a transaction that path pings+rolls back the shared
+        # connection (see insert_expenditure_rows), which would discard rows already
+        # inserted earlier in this batch. Resolving up front makes this self-safe whether
+        # or not the caller wrapped a transaction.
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
+            r["vendor_id"] = self.resolve_vendor_id(r.get("vendor"))
         with self.cursor() as cur:
             for r in rows:
-                department_id = self.resolve_department_id(r.get("department"))
-                vendor_id = self.resolve_vendor_id(r.get("vendor"))
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("title"), r.get("amount"),
                     r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
-                    r.get("status"), source_chunk_id, source_file, department_id, vendor_id,
+                    r.get("status"), source_chunk_id, source_file,
+                    r.get("department_id"), r.get("vendor_id"),
                 ))
 
     def insert_vote_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -433,13 +436,14 @@ class SQLStore:
               (resolution_number, council_member, vote, source_chunk_id, source_file, member_id)
             VALUES (%s,%s,%s,%s,%s,%s)
         """
-        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        for r in rows:
+            r["member_id"] = self.resolve_member_id(r.get("council_member"))
         with self.cursor() as cur:
             for r in rows:
-                member_id = self.resolve_member_id(r.get("council_member"))
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
-                    sanitize_vote(r.get("vote")), source_chunk_id, source_file, member_id,
+                    sanitize_vote(r.get("vote")), source_chunk_id, source_file, r.get("member_id"),
                 ))
 
     def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -451,11 +455,21 @@ class SQLStore:
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             RETURNING id
         """
-        # Always called inside sql_store.transaction() (see insert_resolution_rows note),
-        # so the per-row resolve_member_id calls here and in _write_attendance are safe.
+        # Resolve ALL member FKs (president + attendance) BEFORE opening the insert
+        # cursor — self-safe (see insert_resolution_rows). meeting_id comes from
+        # RETURNING id inside the cursor, so we can't pre-insert attendance, but we CAN
+        # pre-resolve every (member_id, status) pair; the in-cursor step is then pure
+        # junction INSERTs with no resolver calls. prepped[i] =
+        # (row, president_id, attendance_pairs, expected_present).
+        prepped = [
+            (r,
+             self.resolve_member_id(r.get("president")),
+             self._resolve_attendance(r.get("members_present_names"), r.get("members_absent_names")),
+             r.get("members_present"))
+            for r in rows
+        ]
         with self.cursor() as cur:
-            for r in rows:
-                president_id = self.resolve_member_id(r.get("president"))
+            for r, president_id, pairs, expected_present in prepped:
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
                     r.get("members_present"), r.get("members_present_names"),
@@ -463,25 +477,33 @@ class SQLStore:
                     source_chunk_id, source_file, president_id,
                 ))
                 meeting_id = cur.fetchone()["id"]
-                self._write_attendance(
-                    cur, meeting_id, r.get("members_present_names"),
-                    r.get("members_absent_names"), r.get("members_present"))
+                self._write_attendance(cur, meeting_id, pairs, expected_present)
 
-    def _write_attendance(self, cur, meeting_id, present_names, absent_names, expected_present):
+    def _resolve_attendance(self, present_names, absent_names):
+        """Parse the comma-separated present/absent name lists into resolved
+        (member_id, status) pairs. Calls resolve_member_id (which opens its own
+        cursor), so this MUST run OUTSIDE the meetings insert cursor."""
         from src.ingestion.names import normalize_person_name
-        seen = 0
+        pairs = []
         for names, status in ((present_names, "present"), (absent_names, "absent")):
             for raw in (names or "").split(","):
                 clean = normalize_person_name(raw)
                 if not clean:
                     continue
-                mid = self.resolve_member_id(clean)
-                cur.execute(
-                    "INSERT INTO meeting_attendance (meeting_id, member_id, status) "
-                    "VALUES (%s, %s, %s) ON CONFLICT (meeting_id, member_id) DO NOTHING",
-                    (meeting_id, mid, status))
-                if status == "present":
-                    seen += 1
+                pairs.append((self.resolve_member_id(clean), status))
+        return pairs
+
+    def _write_attendance(self, cur, meeting_id, pairs, expected_present):
+        """Insert PRE-RESOLVED (member_id, status) attendance pairs for one meeting.
+        No resolver calls here, so it is safe to run inside the meetings insert cursor."""
+        seen = 0
+        for member_id, status in pairs:
+            cur.execute(
+                "INSERT INTO meeting_attendance (meeting_id, member_id, status) "
+                "VALUES (%s, %s, %s) ON CONFLICT (meeting_id, member_id) DO NOTHING",
+                (meeting_id, member_id, status))
+            if status == "present":
+                seen += 1
         if expected_present is not None and seen != expected_present:
             self._flag(cur, "validate", "attendance_count_mismatch",
                        f"meeting {meeting_id}: parsed {seen} present vs stated {expected_present}")
@@ -508,16 +530,17 @@ class SQLStore:
                source_chunk_id, source_file, sponsor_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
         # match-only (create=False): a "sponsor" may be a committee name, which must
         # NOT be auto-created as a council member.
+        for r in rows:
+            r["sponsor_id"] = self.resolve_member_id(r.get("sponsor"), create=False)
         with self.cursor() as cur:
             for r in rows:
-                sponsor_id = self.resolve_member_id(r.get("sponsor"), create=False)
                 cur.execute(sql, (
                     r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
                     r.get("adopted_date") or None, r.get("status"),
-                    source_chunk_id, source_file, sponsor_id,
+                    source_chunk_id, source_file, r.get("sponsor_id"),
                 ))
 
     def insert_appropriation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -527,13 +550,15 @@ class SQLStore:
                department_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        # Always called inside sql_store.transaction() (see insert_resolution_rows note).
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
         with self.cursor() as cur:
             for r in rows:
-                department_id = self.resolve_department_id(r.get("department"))
                 cur.execute(sql, (
                     r.get("department"), r.get("fiscal_year"), r.get("fund"),
-                    r.get("category"), r.get("amount"), source_chunk_id, source_file, department_id,
+                    r.get("category"), r.get("amount"), source_chunk_id, source_file,
+                    r.get("department_id"),
                 ))
 
     def insert_goal_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -543,10 +568,7 @@ class SQLStore:
                source_chunk_id, source_file, department_id)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
-        # Unlike resolutions/votes/meetings/legislation/appropriations, insert_goal_rows
-        # is called from the quarterly_report keyword path (_store_chunks), NOT inside
-        # sql_store.transaction() — so resolve before opening the cursor. See the
-        # insert_expenditure_rows comment for why interleaving would be unsafe here.
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
         for r in rows:
             r["department_id"] = self.resolve_department_id(r.get("department"))
         with self.cursor() as cur:
