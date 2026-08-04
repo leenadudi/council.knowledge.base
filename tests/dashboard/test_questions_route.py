@@ -63,6 +63,30 @@ def test_polishes_once_then_serves_from_cache(monkeypatch):
     assert calls["n"] == 1
 
 
+def test_refresh_bypasses_cache_and_replaces_it(monkeypatch):
+    calls = {"n": 0}
+    def fake_phrase(findings, settings, client=None):
+        calls["n"] += 1
+        return {"polished": [f["question"] + f" [v{calls['n']}]" for f in findings],
+                "synthesis": []}
+    monkeypatch.setattr(rqmod, "phrase_questions", fake_phrase)
+
+    client = _setup(monkeypatch, _store_with_one_finding())
+
+    client.get("/questions/Bureau of Fire")
+    assert calls["n"] == 1
+
+    # explicit regenerate -> new LLM call despite identical findings
+    r2 = client.get("/questions/Bureau of Fire?refresh=1")
+    assert calls["n"] == 2
+    assert r2.get_json()["questions"][0]["question"].endswith("[v2]")
+
+    # refreshed wording replaces the cached entry; plain request stays cached
+    r3 = client.get("/questions/Bureau of Fire")
+    assert calls["n"] == 2
+    assert r3.get_json()["questions"][0]["question"].endswith("[v2]")
+
+
 def test_falls_back_to_templated_on_phrasing_error(monkeypatch):
     def boom(questions, settings, client=None):
         raise RuntimeError("model unavailable")

@@ -1155,7 +1155,7 @@ let _qData={};   // dept display name -> {polished:[...], synthesis:[...]} (clie
 function card(f){ const sg=Q_SIG[f.signal]||{lbl:f.signal,col:'#8a867d'};
   return `<div class="card" style="padding:15px 18px"><div style="display:flex;align-items:flex-start;gap:12px">
     <span style="width:7px;height:7px;border-radius:2px;background:${sg.col};margin-top:6px;flex-shrink:0"></span>
-    <div style="flex:1;min-width:0"><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${sg.col};margin-bottom:5px">${sg.lbl}</div>
+    <div style="flex:1;min-width:0"><div class="qlab" style="font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${sg.col};margin-bottom:5px">${sg.lbl}</div>
     <div class="qtext" style="font-size:14px;line-height:1.5;color:#1c1b19">${esc(f.question)}</div></div>
     <button class="qcopy" data-q="${esc(f.question)}" title="Copy question" style="flex-shrink:0;background:none;border:1px solid rgba(28,27,25,.12);border-radius:7px;padding:5px 9px;cursor:pointer;color:#8a867d;font-size:13px">⧉</button></div></div>`;
 }
@@ -1165,19 +1165,35 @@ function applyPolish(dept,data){
   const texts=$('#q-list').querySelectorAll('.qtext'), btns=$('#q-list').querySelectorAll('.qcopy');
   const worded=data.polished||[];
   if(worded.length===texts.length){
-    worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w; });
+    worded.forEach((w,i)=>{ texts[i].textContent=w; if(btns[i]) btns[i].dataset.q=w;
+      // AI-polished wording gets a purple accent so it reads differently from templated text
+      const c=texts[i].closest('.card');
+      if(c){ c.style.borderLeft='3px solid #6b4a8a'; c.style.background='rgba(107,74,138,.04)';
+        const lab=c.querySelector('.qlab');
+        if(lab&&!lab.querySelector('.qai')) lab.insertAdjacentHTML('beforeend','<span class="qai" style="color:#6b4a8a"> · ✨ AI-polished</span>');
+      }
+    });
   }
   // (re)render synthesis cards once, at the TOP under their own header
   $('#q-list').querySelectorAll('.qsynth,.qgen').forEach(n=>n.remove());
   const synth=data.synthesis||[];
+  const regenBtn='<button class="qregen" style="margin-left:auto;flex-shrink:0;background:none;border:1px solid rgba(107,74,138,.35);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:600;color:#6b4a8a;cursor:pointer">↻ Regenerate</button>';
   if(synth.length){
     const wrap=document.createElement('div');
     wrap.className='qsynth';
     wrap.style.cssText='display:flex;flex-direction:column;gap:10px;margin-bottom:20px;padding:15px 17px;background:rgba(107,74,138,.05);border:1px solid rgba(107,74,138,.2);border-radius:12px';
-    wrap.innerHTML=`<div style="display:flex;align-items:center;gap:7px"><span style="font-size:14px">✨</span><span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b4a8a">AI-generated smart questions</span></div><div style="font-size:12px;line-height:1.4;color:#8a867d;margin-bottom:4px">Synthesized across this department's goals, budget, staffing and grants — review before sending.</div>`+synth.map(q=>card({signal:'synthesis',question:q})).join('');
+    wrap.innerHTML=`<div style="display:flex;align-items:center;gap:7px"><span style="font-size:14px">✨</span><span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b4a8a">AI-generated smart questions</span>${regenBtn}</div><div style="font-size:12px;line-height:1.4;color:#8a867d;margin-bottom:4px">Synthesized across this department's goals, budget, staffing and grants — review before sending.</div>`+synth.map(q=>card({signal:'synthesis',question:q})).join('');
     $('#q-list').prepend(wrap);
     wrap.querySelectorAll('.qcopy').forEach(bindCopy);
+  } else {
+    const row=document.createElement('div');
+    row.className='qgen';
+    row.style.cssText='display:flex;margin-bottom:14px';
+    row.innerHTML=regenBtn;
+    $('#q-list').prepend(row);
   }
+  const rb=$('#q-list').querySelector('.qregen');
+  if(rb) rb.onclick=()=>generateSmart(dept,rb,true);
 }
 // Explicit, click-to-run AI generation (no spend until the clerk asks).
 function renderGenPrompt(dept){
@@ -1187,15 +1203,21 @@ function renderGenPrompt(dept){
   box.style.cssText='display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;margin-bottom:20px;padding:15px 17px;background:rgba(107,74,138,.05);border:1px solid rgba(107,74,138,.2);border-radius:12px';
   box.innerHTML=`<div style="flex:1;min-width:190px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><span style="font-size:14px">✨</span><span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b4a8a">AI-generated smart questions</span></div><div style="font-size:12px;line-height:1.4;color:#8a867d">Synthesize cross-cutting questions across this department's goals, budget, staffing and grants, and refine the wording below. Uses AI.</div></div><button class="qgenbtn" style="flex-shrink:0;background:#6b4a8a;border:none;border-radius:8px;padding:9px 16px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer">Generate</button>`;
   $('#q-list').prepend(box);
-  box.querySelector('.qgenbtn').onclick=()=>generateSmart(dept,box);
+  const b=box.querySelector('.qgenbtn');
+  b.onclick=()=>generateSmart(dept,b);
 }
-function generateSmart(dept,box){
-  const btn=box.querySelector('.qgenbtn'); btn.textContent='Generating…'; btn.disabled=true; btn.style.opacity='.6';
-  fetch('/questions/'+encodeURIComponent(dept)).then(r=>r.json()).then(j=>{
+function generateSmart(dept,btn,refresh){
+  btn.textContent='Generating…'; btn.disabled=true; btn.style.opacity='.6';
+  const fail=()=>{ btn.textContent='Couldn’t generate — try again'; btn.disabled=false; btn.style.opacity='1'; };
+  fetch('/questions/'+encodeURIComponent(dept)+(refresh?'?refresh=1':'')).then(r=>r.json()).then(j=>{
     if(state.qDept!==dept) return;                   // user switched away
-    if(j&&Array.isArray(j.questions)){ _qData[dept]={polished:(j.polished?j.questions.map(x=>x.question):null)||[],synthesis:j.synthesis||[]}; applyPolish(dept,_qData[dept]); }
-    else { btn.textContent='Generate'; btn.disabled=false; btn.style.opacity='1'; }
-  }).catch(()=>{ btn.textContent='Try again'; btn.disabled=false; btn.style.opacity='1'; });
+    // Only cache a real polish; caching a failed/empty result would hide the
+    // button for the rest of the session with nothing to show for it.
+    if(j&&j.polished&&Array.isArray(j.questions)&&j.questions.length){
+      _qData[dept]={polished:j.questions.map(x=>x.question),synthesis:j.synthesis||[]};
+      applyPolish(dept,_qData[dept]);
+    } else fail();
+  }).catch(fail);
 }
 const Q_CAP=8;
 function renderQuestions(){
