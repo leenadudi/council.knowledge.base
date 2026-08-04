@@ -546,8 +546,14 @@ class DashboardAggregator:
     def _build_goals(self) -> list[dict]:
         with self.sql.cursor() as cur:
             cur.execute("SELECT id, department, year, quarter, goal_title, description, target, "
-                        "status, user_status FROM goals ORDER BY department, id")
-            return [dict(r) for r in cur.fetchall()]
+                        "status, user_status, trackability, trackability_confidence, "
+                        "trackability_metric, trackability_deadline, trackability_source "
+                        "FROM goals ORDER BY department, id")
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("trackability_confidence") is not None:
+                r["trackability_confidence"] = float(r["trackability_confidence"])
+        return rows
 
     # -- Metrics (latest performance metric per department) -------------------
     def _build_metrics(self) -> list[dict]:

@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # Parallel ingestion (bounded worker pool over independent documents)
     ingest_workers: int = 5                     # cap to stay under API/DB rate limits
 
+    # Goal trackability classifier (AI-suggest + human confirm; see
+    # docs/superpowers/specs/2026-07-29-goal-trackability-design.md)
+    trackability_model: str = "claude-haiku-4-5"    # cheap rubric-driven classification
+    trackability_confidence_threshold: float = 0.8  # below this → needs_review triage
+
     # Ingestion
     docs_dir: str = "/tmp/docs"
     max_chunk_size: int = 1500

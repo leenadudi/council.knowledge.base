@@ -358,6 +358,51 @@ def set_goal_status(goal_id: int):
         return jsonify({"error": str(e)}), 500
 
 
+_TRACKABILITY_LABELS = {"", "measurable", "milestone", "aspiration"}
+
+
+@app.route("/goals/<int:goal_id>/trackability", methods=["POST"])
+def set_goal_trackability(goal_id: int):
+    """Clerk confirm/override of the trackability label. Applies to the whole
+    logical goal (all quarterly restatements), not just the clicked row, so the
+    label can never diverge across quarters. Empty label clears the human mark
+    (the AI classifier may relabel the group on its next run)."""
+    if not _ready:
+        return jsonify({"error": _startup_error or "not ready"}), 503
+    data = request.get_json(silent=True) or {}
+    label = (data.get("label") or "").strip().lower()
+    if label not in _TRACKABILITY_LABELS:
+        return jsonify({"error": f"invalid label '{label}'"}), 400
+    try:
+        from src.extraction.trackability import goal_group_key
+        with _sql_store.cursor() as cur:
+            cur.execute("SELECT department, goal_title FROM goals WHERE id = %s", (goal_id,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"error": "goal not found"}), 404
+            key = goal_group_key(row["department"] or "", row["goal_title"] or "")
+            cur.execute("SELECT id, department, goal_title FROM goals")
+            ids = [r["id"] for r in cur.fetchall()
+                   if goal_group_key(r["department"] or "", r["goal_title"] or "") == key]
+            if label:
+                cur.execute(
+                    "UPDATE goals SET trackability=%s, trackability_source='human', "
+                    "trackability_confidence=NULL, trackability_at=NOW() WHERE id = ANY(%s)",
+                    (label, ids))
+            else:
+                cur.execute(
+                    "UPDATE goals SET trackability=NULL, trackability_source=NULL, "
+                    "trackability_confidence=NULL, trackability_rationale=NULL, "
+                    "trackability_metric=NULL, trackability_deadline=NULL, "
+                    "trackability_at=NOW() WHERE id = ANY(%s)", (ids,))
+        _dashboard_cache["payload"] = None
+        return jsonify({"status": "ok", "id": goal_id, "trackability": label or None,
+                        "rows_updated": len(ids)})
+    except Exception as e:
+        logger.exception("Set goal trackability failed")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if not _ready:

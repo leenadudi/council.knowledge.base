@@ -285,6 +285,15 @@
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
           <div class="seg" id="goals-status"></div>
+          <select class="filter" id="goals-track" onchange="state.goalsTrack=this.value;renderGoals()">
+            <option value="All">All goal types</option>
+            <option value="trackable">Trackable</option>
+            <option value="measurable">Measurable</option>
+            <option value="milestone">Milestone</option>
+            <option value="aspiration">Aspiration</option>
+            <option value="needs_review">Needs review</option>
+            <option value="unclassified">Unclassified</option>
+          </select>
         </div>
         <div id="goals-list" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
@@ -418,7 +427,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let D = {};                 // /dashboard/data payload
-let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', goalsStatus:'All', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null, ytdYear:null, projType:'All', projDept:'All', projStatus:'All', projSearch:'' };
+let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', goalsStatus:'All', goalsTrack:'All', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null, ytdYear:null, projType:'All', projDept:'All', projStatus:'All', projSearch:'' };
 
 // ---- helpers ----
 const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance','park maintenance':'parks & recreation','economic development & building & housing':'building & housing development','codes health department':'codes'};
@@ -784,6 +793,20 @@ function updateCoverageNote(){
 // shared goal card (used by the Goals tab and department detail)
 const US_LABEL={not_started:'Not started',in_progress:'In progress',completed:'Completed'};
 const US_PILL={not_started:'p-grey',in_progress:'p-teal',completed:'p-green'};
+// trackability: measurable/milestone = trackable; aspiration = no checkable endpoint;
+// needs_review = low-confidence AI result awaiting clerk triage
+const TR_LABEL={measurable:'Measurable',milestone:'Milestone',aspiration:'Aspiration',needs_review:'Needs review'};
+const TR_PILL={measurable:'p-green',milestone:'p-teal',aspiration:'p-grey',needs_review:'p-amber'};
+async function setGoalTrackability(el){
+  const id=el.dataset.id, label=el.value; el.disabled=true;
+  try{
+    const r=await fetch('/goals/'+id+'/trackability',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label})});
+    // label applies to the whole logical goal server-side — refetch rather than
+    // trying to mirror the group update locally
+    if(r.ok){ try{ const d=await fetch('/dashboard/data?fresh=1'); D=await d.json(); }catch(_){} }
+  }catch(_){}
+  el.disabled=false; render();
+}
 function editGoalStatus(sid){ const v=document.getElementById(sid+'-view'), s=document.getElementById(sid+'-sel'); if(v)v.style.display='none'; if(s){ s.style.display=''; s.focus(); } }
 function cancelGoalStatus(sid){ const v=document.getElementById(sid+'-view'), s=document.getElementById(sid+'-sel'); if(s)s.style.display='none'; if(v)v.style.display=''; }
 async function setGoalStatus(el){
@@ -835,6 +858,17 @@ function renderGoalCard(g){
   const sel=`<select id="${sid}-sel" class="filter gstatus" data-id="${g.id}" onchange="setGoalStatus(this)" onblur="cancelGoalStatus('${sid}')" style="display:none;padding:5px 10px;font-size:12.5px">`
     + `${opt('','Use default ('+US_LABEL[def]+')')}${opt('not_started','Not started')}${opt('in_progress','In progress')}${opt('completed','Completed')}</select>`;
   const statusRow=`<div style="display:flex;align-items:center;gap:9px;margin-top:14px"><span style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298">Status</span>${view}${sel}</div>`;
+  // trackability row — AI-suggested until a clerk confirms/overrides (group-wide)
+  const tr=g.trackability||'';
+  const tid='gt'+g.id;
+  const trView=`<span id="${tid}-view" style="display:inline-flex;align-items:center;gap:9px">`
+    + (tr?`<span class="pill ${TR_PILL[tr]||'p-grey'}"${g.trackability_confidence!=null?` title="confidence ${Math.round(g.trackability_confidence*100)}%"`:''}>${TR_LABEL[tr]||esc(tr)}</span>`:`<span style="font-size:12px;color:#b3aea3">Not classified</span>`)
+    + (tr&&g.trackability_source==='ai'?`<span style="font-size:11px;color:#b3aea3;font-style:italic">AI-suggested</span>`:'')
+    + `<button type="button" onclick="editGoalStatus('${tid}')" style="background:none;border:none;color:#0f6e63;font-size:11.5px;font-weight:600;cursor:pointer;padding:0">${tr&&g.trackability_source==='ai'?'Confirm / edit':'Edit'}</button></span>`;
+  const topt=(v,l)=>`<option value="${v}"${tr===v?' selected':''}>${l}</option>`;
+  const trSel=`<select id="${tid}-sel" class="filter" data-id="${g.id}" onchange="setGoalTrackability(this)" onblur="cancelGoalStatus('${tid}')" style="display:none;padding:5px 10px;font-size:12.5px">`
+    + `${topt('','Clear (reclassify later)')}${topt('measurable','Measurable')}${topt('milestone','Milestone')}${topt('aspiration','Aspiration')}</select>`;
+  const trackRow=`<div style="display:flex;align-items:center;gap:9px;margin-top:8px"><span style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298">Type</span>${trView}${trSel}</div>`;
   const periodTxt=(g._count&&g._count>1)?`Latest ${latestLbl} · reported in ${g._count} quarters`:latestLbl;
   const period=periodTxt?`<div style="font-size:10.5px;font-weight:600;letter-spacing:.04em;color:#a7a298;margin-bottom:6px">${esc(periodTxt)}</div>`:'';
   return `<div class="card" style="padding:16px 20px">
@@ -843,8 +877,10 @@ function renderGoalCard(g){
     ${g.description?`<div style="font-size:13px;color:#6f6b64;margin-top:8px;line-height:1.5">${esc(g.description)}</div>`:''}
     ${numeric}
     ${update}
-    ${g.target?`<div style="display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#2d6a4f;background:#e9f4ee;padding:2px 9px;border-radius:99px">🎯 ${esc(g.target)}</div>`:''}
+    ${g.target?`<div style="display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#2d6a4f;background:#e9f4ee;padding:2px 9px;border-radius:99px">🎯 ${esc(g.target)}</div>`
+      :(g.trackability_metric?`<div style="display:inline-block;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#2d6a4f;background:#e9f4ee;padding:2px 9px;border-radius:99px">🎯 ${esc(g.trackability_metric)}</div>`:'')}
     ${statusRow}
+    ${trackRow}
   </div>`;
 }
 
@@ -936,6 +972,12 @@ function renderGoals(){
   if(per!=='All') g=g.filter(x=>((x.quarter||'')+' '+(x.year||'')).trim()===per);
   else g=collapseGoals(g);
   if(q) g=g.filter(x=>((x.goal_title||'')+' '+(x.description||'')+' '+(x.target||'')+' '+(x.status||'')).toLowerCase().includes(q));
+  // trackability filter (applied before the status seg so its counts reflect it)
+  const tf=state.goalsTrack||'All';
+  $('#goals-track').value=tf;
+  if(tf==='trackable') g=g.filter(x=>x.trackability==='measurable'||x.trackability==='milestone');
+  else if(tf==='unclassified') g=g.filter(x=>!x.trackability);
+  else if(tf!=='All') g=g.filter(x=>x.trackability===tf);
   // status tabs count the pre-status-filter set so the numbers stay stable while switching
   const st=state.goalsStatus||'All';
   const counts={not_started:0,in_progress:0,completed:0};
@@ -944,8 +986,13 @@ function renderGoals(){
     .map(([v,l,c])=>`<button class="${st===v?'on':''}" onclick="state.goalsStatus='${v}';renderGoals()">${l}<span style="font-weight:500;opacity:.65"> ${c}</span></button>`).join('');
   if(st!=='All') g=g.filter(x=>goalEffStatus(x)===st);
   const nDepts=new Set(g.map(x=>dkey(x.department)).filter(Boolean)).size;
-  const measurable=g.filter(x=>goalProgress(x).known||(x.target||'').trim()).length;
-  $('#goals-count').textContent=`${g.length} goal${g.length===1?'':'s'} · ${nDepts} department${nDepts===1?'':'s'} · ${measurable} measurable`;
+  // once classification has run, count real trackable labels; before that,
+  // fall back to the numeric-target heuristic
+  const anyLabeled=(D.goals||[]).some(x=>x.trackability);
+  const nTrack=anyLabeled
+    ? g.filter(x=>x.trackability==='measurable'||x.trackability==='milestone').length
+    : g.filter(x=>goalProgress(x).known||(x.target||'').trim()).length;
+  $('#goals-count').textContent=`${g.length} goal${g.length===1?'':'s'} · ${nDepts} department${nDepts===1?'':'s'} · ${nTrack} ${anyLabeled?'trackable':'measurable'}`;
   const el=$('#goals-list');
   if(!g.length){ el.innerHTML='<div class="empty">No goals match these filters.</div>'; return; }
   // within a department, goals needing attention come first; completed sink to the bottom

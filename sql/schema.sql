@@ -342,6 +342,15 @@ CREATE TABLE IF NOT EXISTS goals (
     status             TEXT,
     user_status        TEXT,          -- clerk-set status override: not_started|in_progress|completed
     user_status_at     TIMESTAMP,     -- when the clerk last set user_status
+    -- Trackability classification (AI-suggested + human-confirmed; written
+    -- group-wide per logical goal). See migrate_2026_08_03_goal_trackability.sql.
+    trackability            TEXT,     -- measurable|milestone|aspiration|needs_review
+    trackability_confidence NUMERIC,
+    trackability_rationale  TEXT,
+    trackability_metric     TEXT,
+    trackability_deadline   TEXT,
+    trackability_source     TEXT,     -- 'ai' | 'human'
+    trackability_at         TIMESTAMP,
     source_chunk_id    UUID,
     source_file        VARCHAR(255),
     ingested_at        TIMESTAMP DEFAULT NOW()
