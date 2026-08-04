@@ -40,14 +40,16 @@ def _dumps(obj: Any) -> str:
 
 _VOTE_MAXLEN = 50
 
-# alias-table FK column + max column width (canonical_name/alias VARCHAR limit,
-# see sql/schema.sql) per dimension table. Enforced in _resolve_entity so a
-# pathologically long extracted value can't blow past the column width and
-# raise "value too long" mid-resolve.
+# alias-table FK column + (canonical_name/alias width, canonical_key width) per
+# dimension table, mirroring the VARCHAR limits in sql/schema.sql. Enforced in
+# _resolve_entity so a pathologically long extracted value can't blow past ANY of
+# those column widths and raise "value too long" mid-resolve. canonical_key is
+# often NARROWER than canonical_name (departments: 120 vs 150), so it needs its
+# own bound — a long, punctuation-sparse name yields an equally long key.
 _ALIAS_FK = {
-    "departments": ("department_aliases", "department_id", 150),
-    "council_members": ("council_member_aliases", "member_id", 150),
-    "vendors": ("vendor_aliases", "vendor_id", 200),
+    "departments": ("department_aliases", "department_id", 150, 120),
+    "council_members": ("council_member_aliases", "member_id", 150, 150),
+    "vendors": ("vendor_aliases", "vendor_id", 200, 200),
 }
 _NEAR_DUP_THRESHOLD = 0.6  # pg_trgm similarity; one tunable constant
 _DEPT_FK_TABLES = [
@@ -302,12 +304,17 @@ class SQLStore:
     def _resolve_entity(self, table, raw, key, display, *, create, extra_cols=None):
         if not key:
             return None
-        alias_table, fk, maxlen = _ALIAS_FK[table]
-        # Truncate BEFORE any INSERT: an over-long raw/display value would otherwise
-        # exceed the canonical_name/alias VARCHAR width and raise "value too long",
-        # aborting whatever batch/transaction called this resolver.
+        alias_table, fk, maxlen, key_maxlen = _ALIAS_FK[table]
+        # Truncate BEFORE any lookup or INSERT: an over-long value would otherwise
+        # exceed the canonical_name/alias/canonical_key VARCHAR width and raise
+        # "value too long", aborting whatever batch/transaction called this resolver.
+        # `key` is bounded ONCE here so the canonical_key SELECTs and the INSERT all
+        # use the same value — a name that would overflow can't crash, and two names
+        # sharing the truncated prefix resolve to one entity (fine for pathological
+        # inputs).
         raw = raw[:maxlen]
         display = display[:maxlen]
+        key = key[:key_maxlen]
         with self.cursor() as cur:
             cur.execute(
                 f"SELECT {fk} AS id FROM {alias_table} WHERE LOWER(alias) = LOWER(%s)", (raw,))

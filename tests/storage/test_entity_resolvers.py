@@ -107,5 +107,29 @@ def test_resolver_truncates_overlong_name_before_insert():
 
     vendor_params = next(p for s, p in store._fake_cursor.executed if s.startswith("INSERT INTO vendors"))
     alias_params = next(p for s, p in store._fake_cursor.executed if s.startswith("INSERT INTO vendor_aliases"))
+    # INSERT INTO vendors (canonical_name, canonical_key) VALUES (%s, %s)
     assert len(vendor_params[0]) == 200, "canonical_name must be truncated to the column width"
+    assert len(vendor_params[1]) == 200, "canonical_key must be truncated to the column width"
     assert len(alias_params[1]) == 200, "alias must be truncated to the column width"
+
+
+def test_resolver_truncates_canonical_key_to_its_own_narrower_width():
+    """canonical_key is narrower than canonical_name for departments (120 vs 150).
+    A long, punctuation-sparse name yields an equally long key, so the key needs
+    its OWN bound: department_key('A'*130) -> 130 chars would overflow VARCHAR(120).
+    The name (130) fits canonical_name (150) untouched, proving the key is bounded
+    by its own width, not the name's."""
+    long_name = "A" * 130
+    store = _store_with([
+        ("FROM department_aliases", None),
+        ("FROM departments WHERE canonical_key", None),
+        ("similarity", None),
+        ("INSERT INTO departments", {"id": 1}),
+        ("INSERT INTO department_aliases", None),
+    ])
+    assert store.resolve_department_id(long_name) == 1
+
+    # INSERT INTO departments (canonical_name, canonical_key, dept_type) VALUES (...)
+    dept_params = next(p for s, p in store._fake_cursor.executed if s.startswith("INSERT INTO departments"))
+    assert len(dept_params[0]) == 130, "canonical_name (150 width) is untouched when the name fits"
+    assert len(dept_params[1]) == 120, "canonical_key must be truncated to departments' 120-char width"
