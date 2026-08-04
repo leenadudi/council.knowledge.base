@@ -309,8 +309,12 @@ def questions(department: str):
         templated = [f["question"] for f in findings]
         key = hashlib.sha256(json.dumps(templated, ensure_ascii=False).encode()).hexdigest()
 
+        # ?refresh=1 (explicit "Regenerate" click) skips the cache read but still
+        # writes the new wording back, so subsequent plain requests stay free.
+        refresh = request.args.get("refresh") == "1"
+
         polished = True
-        if key in _questions_cache:
+        if not refresh and key in _questions_cache:
             worded, synthesis = _questions_cache[key]
         else:
             try:

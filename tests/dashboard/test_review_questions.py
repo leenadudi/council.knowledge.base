@@ -289,6 +289,113 @@ def test_no_quiet_department_when_all_current():
     assert ReviewQuestions(store).build()["departments"] == []
 
 
+RES = "FROM resolutions"
+_TODAY = __import__("datetime").date(2026, 7, 29)
+
+
+def _res(num, title, dept, amount=None, vendor=None, adopted=None, status="Passed"):
+    import datetime as _dt
+    return {"resolution_number": num, "title": title, "department": dept,
+            "amount": amount, "vendor": vendor,
+            "adopted_date": _dt.date.fromisoformat(adopted) if adopted else None,
+            "status": status}
+
+
+def _res_findings(rows):
+    store = _FakeStore({GOALS: [], PERIOD: [], BUDGET: [], RES: rows})
+    return ReviewQuestions(store)._resolution_findings(today=_TODAY)
+
+
+def test_resolution_findings_are_wired_into_build():
+    # Guard: _resolution_findings must be merged into build()'s output — not only
+    # unit-tested in isolation. Regression: the generator was written and unit-
+    # tested but never called from build(), so passed-resolution questions never
+    # reached the dashboard. build() uses the real date.today(), so the row is
+    # adopted well over _RES_MIN_AGE_DAYS in the past to always clear the age gate.
+    store = _FakeStore({GOALS: [], PERIOD: [], BUDGET: [], RES: [_res(
+        "9-2026", "A Resolution authorizing a professional services agreement",
+        "Bureau of Fire", amount=50000.0, vendor="Acme Corp", adopted="2025-01-15")]})
+    depts = ReviewQuestions(store).build()["departments"]
+    signals = [f["signal"] for d in depts for f in d["findings"]]
+    assert "resolution" in signals
+
+
+def test_passed_contract_resolution_with_amount_is_flagged():
+    out = _res_findings([_res(
+        "2-2026", "A Resolution authorizing a professional services agreement for design",
+        "Parks and Recreation", amount=19500.0, vendor="Floura Teeter Landscape Architects, Inc.",
+        adopted="2026-02-03")])
+    assert len(out) == 1
+    f = next(iter(out.values()))[0]
+    assert f["signal"] == "resolution" and f["priority"] == "medium"
+    assert "2-2026" in f["question"] and "$19,500" in f["question"]
+    assert "Floura Teeter" in f["question"] and "spent to date" in f["question"]
+    assert f["evidence"]["kind"] == "contract"
+
+
+def test_contract_without_amount_asks_for_value_at_low_priority():
+    f = next(iter(_res_findings([_res(
+        "22-2026", "A Resolution authorizing a professional services agreement",
+        "Office of City Solicitor", vendor="McCormick Law Firm", adopted="2026-03-23")]).values()))[0]
+    assert f["priority"] == "low" and "final contract value" in f["question"]
+
+
+def test_grant_application_resolution_asks_about_award():
+    f = next(iter(_res_findings([_res(
+        "9-2026", "A Resolution authorizing the submission of a grant application to USDOT",
+        "Engineering / Grants", amount=3000000.0, vendor="United States Department of Transportation",
+        adopted="2026-01-27")]).values()))[0]
+    assert f["evidence"]["kind"] == "grant_application"
+    assert "award decision" in f["question"] and "$3,000,000" in f["question"]
+
+
+def test_ratified_grant_resolution_asks_about_drawdown():
+    f = next(iter(_res_findings([_res(
+        "6-2026", "A Resolution ratifying a PennDOT Green Light-Go Grant agreement",
+        "Engineering / Grants", amount=387380.0, vendor="PennDOT", adopted="2026-01-27")]).values()))[0]
+    assert f["evidence"]["kind"] == "grant_award"
+    assert "drawn down" in f["question"] or "spent" in f["question"]
+
+
+def test_budget_reallocation_resolution_asks_about_posting():
+    f = next(iter(_res_findings([_res(
+        "3-2026", "A Resolution approving the First Proposed 2026 Budget Reallocation",
+        "Finance", adopted="2026-01-10")]).values()))[0]
+    assert f["evidence"]["kind"] == "budget" and "reallocat" in f["question"]
+
+
+def test_appointment_resolution_is_skipped():
+    assert _res_findings([_res(
+        "17-2026", "A Resolution confirming the appointment of Jane Doe as Director",
+        "Building and Housing", adopted="2026-03-10")]) == {}
+
+
+def test_unpassed_or_statusless_resolution_is_skipped():
+    rows = [
+        _res("16-2026", "A Resolution authorizing a lease agreement", "Public Works",
+             adopted="2026-03-01", status=None),
+        _res("30-2026", "A Resolution authorizing a lease agreement", "Public Works",
+             adopted="2026-03-01", status="Tabled"),
+    ]
+    assert _res_findings(rows) == {}
+
+
+def test_recent_resolution_is_not_asked_about_yet():
+    # adopted 10 days before "today" — too fresh for an implementation question
+    assert _res_findings([_res(
+        "40-2026", "A Resolution authorizing a professional services agreement",
+        "Public Works", adopted="2026-07-19")]) == {}
+
+
+def test_resolution_findings_capped_and_ranked_by_amount():
+    rows = [_res(f"{i}-2026", "A Resolution authorizing a professional services agreement",
+                 "Public Works", amount=float(i * 1000), vendor=f"Vendor {i}",
+                 adopted="2026-02-01") for i in range(1, 6)]   # 5 resolutions
+    fs = next(iter(_res_findings(rows).values()))
+    assert len(fs) == 3
+    assert "$5,000" in fs[0]["question"]      # highest amount first
+
+
 # ── phrasing pass (mocked LLM — no real spend) ───────────────────────────────
 
 class _FakeMsg:

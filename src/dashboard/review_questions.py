@@ -27,6 +27,11 @@ _PRIORITY = {"highest": 0, "high": 1, "medium": 2, "low": 3}
 _STATUS_COMPLETE = ("complete", "done", "achieved", "finished", "closed", "met")
 _GRANTS_PER_DEPT = 5
 _GRANT_CLOSED = ("closed", "complete", "expired", "terminated", "ended")
+# Legislation-driven questions: only enacted resolutions, old enough that an
+# implementation question is fair, capped per department like grants.
+_RES_ENACTED = ("passed", "adopted", "approved", "enacted")
+_RES_MIN_AGE_DAYS = 30
+_RESOLUTIONS_PER_DEPT = 3
 
 _dept_key = DashboardAggregator._dept_key
 _dept_display = DashboardAggregator._dept_display
@@ -285,6 +290,123 @@ class ReviewQuestions:
                 })
         return findings
 
+    # -- signal: passed-resolution implementation follow-up -------------------
+    @staticmethod
+    def _resolution_kind(title: str) -> str:
+        """Deterministic resolution category from the title. Drives which
+        follow-up template applies; 'appointment' means no follow-up."""
+        t = _norm_title(title)
+        if "appoint" in t:
+            return "appointment"
+        if "grant" in t:
+            # ratification happens after the fact — even of an application — so
+            # the forward-looking question is drawdown, not submission
+            if "ratif" in t:
+                return "grant_award"
+            return "grant_application" if ("application" in t or "submission" in t) \
+                else "grant_award"
+        if "budget" in t and ("realloc" in t or "amend" in t or "transfer" in t):
+            return "budget"
+        if "development plan" in t:
+            return "development"
+        if "labor agreement" in t or "collective bargaining" in t:
+            return "generic"
+        if "lease" in t:
+            return "lease"
+        if "professional services" in t or "agreement" in t or "contract" in t:
+            return "contract"
+        return "generic"
+
+    def _resolution_findings(self, today=None):
+        """One question per enacted resolution: was it implemented? Contracts and
+        leases ask about execution and spend, grant applications about the award,
+        ratified grants about drawdown, reallocations about posting. Skips
+        appointments and anything adopted < _RES_MIN_AGE_DAYS ago."""
+        import datetime as _dt
+        today = today or _dt.date.today()
+        cutoff = today - _dt.timedelta(days=_RES_MIN_AGE_DAYS)
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT resolution_number, title, amount, vendor, department, "
+                        "adopted_date, status FROM resolutions "
+                        "WHERE department IS NOT NULL AND department <> '' "
+                        "AND title IS NOT NULL AND title <> ''")
+            rows = [dict(r) for r in cur.fetchall()]
+
+        by_key: dict = {}
+        for r in rows:
+            status = (r.get("status") or "").strip().lower()
+            if not any(w in status for w in _RES_ENACTED):
+                continue
+            if r.get("adopted_date") and r["adopted_date"] > cutoff:
+                continue
+            if self._resolution_kind(r.get("title") or "") == "appointment":
+                continue
+            k = _dept_key(r["department"])
+            if not k:
+                continue
+            by_key.setdefault(k, {"names": set(), "rows": []})
+            by_key[k]["names"].add(r["department"])
+            by_key[k]["rows"].append(r)
+
+        findings: dict = {}
+        for k, acc in by_key.items():
+            display = _dept_display(k, acc["names"])
+            ranked = sorted(acc["rows"],
+                            key=lambda r: (float(r.get("amount") or 0),
+                                           r.get("adopted_date") or _dt.date.min),
+                            reverse=True)
+            for r in ranked[:_RESOLUTIONS_PER_DEPT]:
+                findings.setdefault(k, []).append(self._resolution_question(r, display))
+        return findings
+
+    @staticmethod
+    def _resolution_question(r: dict, display: str) -> dict:
+        num = (r.get("resolution_number") or "").strip()
+        kind = ReviewQuestions._resolution_kind(r.get("title") or "")
+        vendor = (r.get("vendor") or "").strip()
+        amount = float(r["amount"]) if r.get("amount") is not None else None
+        adopted = r.get("adopted_date")
+        when = f"adopted {adopted:%b} {adopted.day}, {adopted.year}" if adopted else "adopted"
+        amt_clause = f" (${amount:,.0f})" if amount else ""
+        with_vendor = f" with {vendor}" if vendor else ""
+        head = f"Resolution {num} ({when})"
+
+        if kind == "grant_application":
+            to_vendor = f" to {vendor}" if vendor else ""
+            q = (f"{head} authorized a grant application{amt_clause}{to_vendor}. Was the "
+                 f"application submitted, and has an award decision been received?")
+        elif kind == "grant_award":
+            src = f"{vendor} grant funding" if vendor else "grant funding"
+            q = (f"{head} ratified {src}{amt_clause}. How much has been drawn down or "
+                 f"spent to date, and is spending on schedule?")
+        elif kind == "budget":
+            q = (f"{head} approved a budget reallocation. Have the reallocated funds "
+                 f"been posted, and how much has been spent against them?")
+        elif kind == "development":
+            for_vendor = f" for {vendor}" if vendor else ""
+            q = (f"{head} approved a land development plan{for_vendor}. What is the "
+                 f"project's current status (permits, construction start)?")
+        elif kind in ("contract", "lease"):
+            noun = "lease agreement" if kind == "lease" else "professional services agreement"
+            ask = ("how much has been spent to date?" if amount
+                   else "what is the final contract value?")
+            q = (f"{head} authorized a {noun}{with_vendor}{amt_clause}. Has the "
+                 f"agreement been executed, and {ask}")
+        else:
+            title = re.sub(r"^a resolution\s+", "", _norm_title(r.get("title") or ""))
+            title = (title[:100].rsplit(" ", 1)[0] + "…") if len(title) > 100 else title
+            q = f"{head}, “{title}”, was passed. What is its implementation status?"
+
+        return {
+            "signal": "resolution", "department": display,
+            "priority": "medium" if amount else "low",
+            "question": q,
+            "evidence": {"resolution_number": num or None, "title": r.get("title"),
+                         "kind": kind, "amount": amount, "vendor": vendor or None,
+                         "adopted_date": adopted.isoformat() if adopted else None,
+                         "status": r.get("status")},
+        }
+
     # -- signal: department behind on filing ----------------------------------
     def _quiet_department_findings(self):
         with self.sql.cursor() as cur:
@@ -332,10 +454,11 @@ class ReviewQuestions:
         budget = self._budget_findings()
         vac = self._vacancy_findings()
         grant = self._grant_findings()
+        res = self._resolution_findings()
         quiet = self._quiet_department_findings()
 
         by_key: dict = {}
-        for src in (goals, budget, vac, grant, quiet):
+        for src in (goals, budget, vac, grant, res, quiet):
             for k, v in src.items():
                 by_key.setdefault(k, []).extend(v)
 
