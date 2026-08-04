@@ -305,6 +305,7 @@ def test_build_never_raises_records_errors():
         "kpis", "timeline", "tables", "departments", "resolutions",
         "goals", "legislation", "meetings", "budget", "vacancies", "boards",
         "votes", "metrics", "vendor_spend", "commitments", "review_questions", "projects",
+        "ytd",
     }
 
 
