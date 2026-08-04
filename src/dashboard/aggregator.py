@@ -503,6 +503,64 @@ class DashboardAggregator:
         out.sort(key=lambda r: (r["department"], r["position_title"]))
         return out
 
+    # -- Boards, commissions & authorities (data-driven type) -----------------
+    def _build_boards(self) -> list[dict]:
+        """Per-body roster + composition for the boards/commissions/authorities type.
+        Vacancies are DERIVED (total_seats − filled), not counted from is_vacant rows
+        (identical empty-seat rows collapse). Returns [] if the type was never approved
+        (tables absent). Uses the latest roster_year snapshot."""
+        import datetime
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.board_commission_authority_structure') s, "
+                        "to_regclass('public.board_commission_authority_members') m")
+            reg = cur.fetchone()
+            if not reg["s"] or not reg["m"]:
+                return []
+            cur.execute("SELECT max(roster_year) y FROM board_commission_authority_structure")
+            year = (cur.fetchone() or {}).get("y")
+            cur.execute(
+                "SELECT board_name, entity_type, total_seats, term_length_years, "
+                "meeting_frequency, meeting_day_time, meeting_location, quorum_requirement "
+                "FROM board_commission_authority_structure "
+                "WHERE roster_year = %s OR %s IS NULL", (year, year))
+            structs = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT board_name, member_name, position_title, representing_body, "
+                "appointment_reference, term_expiration_date "
+                "FROM board_commission_authority_members "
+                "WHERE (roster_year = %s OR %s IS NULL) AND member_name IS NOT NULL "
+                "ORDER BY board_name, member_name", (year, year))
+            members = [dict(r) for r in cur.fetchall()]
+
+        cutoff = self.now.date() + datetime.timedelta(days=365)
+        by_board: dict = {}
+        for m in members:
+            m["term_expiration_date"] = (m["term_expiration_date"].isoformat()
+                                         if m.get("term_expiration_date") else None)
+            by_board.setdefault(m["board_name"], []).append(m)
+
+        out = []
+        for st in structs:
+            roster = by_board.get(st["board_name"], [])
+            total = st.get("total_seats")
+            filled = len(roster)
+            expiring = sum(1 for m in roster if m["term_expiration_date"]
+                           and m["term_expiration_date"] <= cutoff.isoformat())
+            out.append({
+                "board_name": st["board_name"], "entity_type": st.get("entity_type"),
+                "total_seats": total, "filled": filled,
+                "vacant": (total - filled) if total is not None else None,
+                "term_length_years": st.get("term_length_years"),
+                "meeting_frequency": st.get("meeting_frequency"),
+                "meeting_day_time": st.get("meeting_day_time"),
+                "meeting_location": st.get("meeting_location"),
+                "quorum": st.get("quorum_requirement"),
+                "expiring_terms": expiring, "members": roster, "roster_year": year,
+            })
+        # most-vacant first (the actionable signal); unknown seat-count last
+        out.sort(key=lambda b: (b["vacant"] is None, -(b["vacant"] or 0), b["board_name"]))
+        return out
+
     # -- Goals ----------------------------------------------------------------
     def _build_goals(self) -> list[dict]:
         with self.sql.cursor() as cur:
@@ -643,6 +701,7 @@ class DashboardAggregator:
             "meetings": self._safe("meetings", self._build_meetings, errors),
             "budget": self._safe("budget", self._build_budget, errors),
             "vacancies": self._safe("vacancies", self._build_vacancies, errors),
+            "boards": self._safe("boards", self._build_boards, errors),
             "votes": self._safe("votes", self._build_votes, errors),
             "metrics": self._safe("metrics", self._build_metrics, errors),
             "vendor_spend": self._safe("vendor_spend", self._build_vendor_spend, errors),
