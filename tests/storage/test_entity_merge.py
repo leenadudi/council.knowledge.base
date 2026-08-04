@@ -65,3 +65,10 @@ def test_merge_vendor_repoints_resolutions():
     # Check deactivation
     assert any("UPDATE vendors SET active = FALSE" in sql and params == (4,)
                for sql, params in executed), "dup not deactivated"
+
+
+def test_merge_department_is_noop_when_dup_equals_keep():
+    """merge_department(id, id) must not deactivate the row the caller meant to keep."""
+    store = _store_with([])
+    store.merge_department(dup_id=5, keep_id=5)
+    assert not any("active = FALSE" in sql for sql in _executed(store))

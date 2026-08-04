@@ -90,3 +90,22 @@ def test_empty_name_returns_none_without_touching_db():
     store = _store_with([])
     assert store.resolve_department_id("") is None
     assert store._fake_cursor.executed == []
+
+
+def test_resolver_truncates_overlong_name_before_insert():
+    """A pathologically long extracted name must not overflow the VARCHAR(200)
+    vendors.canonical_name/alias width and abort the resolve with 'value too long'."""
+    long_name = "A" * 250  # > vendors' 200-char canonical_name/alias width
+    store = _store_with([
+        ("FROM vendor_aliases", None),
+        ("FROM vendors WHERE canonical_key", None),
+        ("similarity", None),
+        ("INSERT INTO vendors", {"id": 1}),
+        ("INSERT INTO vendor_aliases", None),
+    ])
+    assert store.resolve_vendor_id(long_name) == 1
+
+    vendor_params = next(p for s, p in store._fake_cursor.executed if s.startswith("INSERT INTO vendors"))
+    alias_params = next(p for s, p in store._fake_cursor.executed if s.startswith("INSERT INTO vendor_aliases"))
+    assert len(vendor_params[0]) == 200, "canonical_name must be truncated to the column width"
+    assert len(alias_params[1]) == 200, "alias must be truncated to the column width"

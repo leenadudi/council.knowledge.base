@@ -54,7 +54,9 @@ def test_migration_is_idempotent_and_creates_links(conn):
 
 
 def _settings_for(url):
-    from src.config import get_settings
-    s = get_settings()
-    s.database_url = url
-    return s
+    # A fresh Settings instance, NOT get_settings(): mutating that shared
+    # lru_cache singleton would leak the scratch URL into every other consumer
+    # of get_settings() for the rest of the test process (see the matching
+    # comment on tests/storage/conftest.py's _settings_for).
+    from src.config import Settings
+    return Settings(database_url=url)

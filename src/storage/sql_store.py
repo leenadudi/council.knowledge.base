@@ -40,11 +40,14 @@ def _dumps(obj: Any) -> str:
 
 _VOTE_MAXLEN = 50
 
-# alias-table FK column per dimension table
+# alias-table FK column + max column width (canonical_name/alias VARCHAR limit,
+# see sql/schema.sql) per dimension table. Enforced in _resolve_entity so a
+# pathologically long extracted value can't blow past the column width and
+# raise "value too long" mid-resolve.
 _ALIAS_FK = {
-    "departments": ("department_aliases", "department_id"),
-    "council_members": ("council_member_aliases", "member_id"),
-    "vendors": ("vendor_aliases", "vendor_id"),
+    "departments": ("department_aliases", "department_id", 150),
+    "council_members": ("council_member_aliases", "member_id", 150),
+    "vendors": ("vendor_aliases", "vendor_id", 200),
 }
 _NEAR_DUP_THRESHOLD = 0.6  # pg_trgm similarity; one tunable constant
 _DEPT_FK_TABLES = [
@@ -299,7 +302,12 @@ class SQLStore:
     def _resolve_entity(self, table, raw, key, display, *, create, extra_cols=None):
         if not key:
             return None
-        alias_table, fk = _ALIAS_FK[table]
+        alias_table, fk, maxlen = _ALIAS_FK[table]
+        # Truncate BEFORE any INSERT: an over-long raw/display value would otherwise
+        # exceed the canonical_name/alias VARCHAR width and raise "value too long",
+        # aborting whatever batch/transaction called this resolver.
+        raw = raw[:maxlen]
+        display = display[:maxlen]
         with self.cursor() as cur:
             cur.execute(
                 f"SELECT {fk} AS id FROM {alias_table} WHERE LOWER(alias) = LOWER(%s)", (raw,))
@@ -360,6 +368,8 @@ class SQLStore:
             dup_id: ID of the duplicate row to merge away.
             keep_id: ID of the canonical row to keep.
         """
+        if dup_id == keep_id:
+            return
         cur.execute(
             f"UPDATE {alias_table} SET {alias_fk} = %s WHERE {alias_fk} = %s", (keep_id, dup_id))
         for tbl, col in fk_targets:

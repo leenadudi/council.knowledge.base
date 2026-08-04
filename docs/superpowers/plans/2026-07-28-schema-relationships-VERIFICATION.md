@@ -6,6 +6,14 @@
 
 ---
 
+## Known Limitation — Legislative Links
+
+`votes.resolution_id` / `votes.meeting_id` and `meeting_actions.meeting_id` / `meeting_actions.resolution_id` / `meeting_actions.legislation_id` are populated by the migration's one-time SQL backfill (see "Pure-SQL legislative backfill" in `sql/migrate_2026_07_28_schema_relationships.sql`), **not** by ongoing ingest. Documents ingested after the migration has already run do not get these links automatically.
+
+After ingesting new resolution/minutes/ordinance documents, re-run the migration's backfill — re-applying the idempotent migration (`psql "$SCRATCH_DATABASE_URL" < sql/migrate_2026_07_28_schema_relationships.sql`) refreshes the links against the table's current contents. For a brand-new city, these columns populate only once data exists **and** the migration/backfill has been run at least once against that city's database.
+
+---
+
 ## Prerequisites
 
 - [ ] Production DB backup initiated (Supabase dashboard → Backups).

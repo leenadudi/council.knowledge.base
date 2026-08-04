@@ -388,10 +388,17 @@ BEGIN
 END $$;
 
 -- document_chunks.department_id (+ index), guarded on the app-created table.
+-- FK added as a named constraint (not inline): vector_store.py may already have
+-- created this column without a FK on a fresh deploy, in which case inline
+-- REFERENCES inside ADD COLUMN IF NOT EXISTS would silently no-op.
 DO $$ BEGIN
   IF to_regclass('document_chunks') IS NOT NULL THEN
-    ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id);
+    ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS department_id INTEGER;
     CREATE INDEX IF NOT EXISTS idx_document_chunks_department_id ON document_chunks(department_id);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_document_chunks_department') THEN
+      ALTER TABLE document_chunks ADD CONSTRAINT fk_document_chunks_department
+        FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL NOT VALID;
+    END IF;
   END IF;
 END $$;
 
@@ -406,11 +413,17 @@ CREATE INDEX IF NOT EXISTS idx_legislation_sponsor  ON legislation(sponsor_id);
 CREATE INDEX IF NOT EXISTS idx_resolutions_vendor_id ON resolutions(vendor_id);
 
 -- ---- legislative surrogate-FK columns --------------------------------------
-ALTER TABLE votes           ADD COLUMN IF NOT EXISTS resolution_id  INTEGER REFERENCES resolutions(id);
-ALTER TABLE votes           ADD COLUMN IF NOT EXISTS meeting_id     INTEGER REFERENCES meetings(id);
-ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS meeting_id     INTEGER REFERENCES meetings(id);
-ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS resolution_id  INTEGER REFERENCES resolutions(id);
-ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS legislation_id INTEGER REFERENCES legislation(id);
+-- FKs added as named constraints below (after the backfill), not inline here:
+-- inline REFERENCES inside ADD COLUMN IF NOT EXISTS silently no-ops if the
+-- column already exists, and these need ON DELETE SET NULL (see the
+-- fk_votes_*/fk_meeting_actions_* block below) so re-ingest's
+-- delete_structured_rows (which deletes parent resolution/meeting rows before
+-- re-inserting) doesn't hit an FK violation.
+ALTER TABLE votes           ADD COLUMN IF NOT EXISTS resolution_id  INTEGER;
+ALTER TABLE votes           ADD COLUMN IF NOT EXISTS meeting_id     INTEGER;
+ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS meeting_id     INTEGER;
+ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS resolution_id  INTEGER;
+ALTER TABLE meeting_actions ADD COLUMN IF NOT EXISTS legislation_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_votes_resolution_id       ON votes(resolution_id);
 CREATE INDEX IF NOT EXISTS idx_votes_meeting_id          ON votes(meeting_id);
 CREATE INDEX IF NOT EXISTS idx_meeting_actions_meeting   ON meeting_actions(meeting_id);
@@ -545,5 +558,34 @@ DO $$ BEGIN
     ALTER TABLE documents ADD CONSTRAINT fk_documents_doctype
       FOREIGN KEY (document_type) REFERENCES document_type_registry(type_name)
       ON UPDATE CASCADE ON DELETE SET NULL NOT VALID;
+  END IF;
+END $$;
+
+-- ---- Legislative surrogate FKs, NOT VALID (won't fail on legacy orphans) ----
+-- votes/meeting_actions -> resolutions/meetings/legislation; ON DELETE SET NULL
+-- so re-ingest's delete_structured_rows (which deletes parent resolution/meeting
+-- rows before re-inserting) doesn't hit an FK violation on the surviving votes /
+-- meeting_actions rows. resolutions/meetings/legislation are base-schema tables
+-- (no to_regclass guard needed, unlike the document_chunks-targeting blocks above).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_votes_resolution') THEN
+    ALTER TABLE votes ADD CONSTRAINT fk_votes_resolution
+      FOREIGN KEY (resolution_id) REFERENCES resolutions(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_votes_meeting') THEN
+    ALTER TABLE votes ADD CONSTRAINT fk_votes_meeting
+      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_meeting_actions_meeting') THEN
+    ALTER TABLE meeting_actions ADD CONSTRAINT fk_meeting_actions_meeting
+      FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_meeting_actions_resolution') THEN
+    ALTER TABLE meeting_actions ADD CONSTRAINT fk_meeting_actions_resolution
+      FOREIGN KEY (resolution_id) REFERENCES resolutions(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_meeting_actions_legislation') THEN
+    ALTER TABLE meeting_actions ADD CONSTRAINT fk_meeting_actions_legislation
+      FOREIGN KEY (legislation_id) REFERENCES legislation(id) ON DELETE SET NULL NOT VALID;
   END IF;
 END $$;
