@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import Optional, get_args
 
 from src.llm.client import TrackedAnthropic
 
@@ -16,6 +16,39 @@ from src.config import Settings, get_settings
 from src.models import QueryPlan
 
 logger = logging.getLogger(__name__)
+
+
+def _data_driven_schema_block() -> str:
+    """List approved data-driven tables (+ columns) from the live registry so the router
+    can generate SQL against them. Empty string when there are none (built-ins only)."""
+    try:
+        from src.ingestion.registry import data_driven_types
+        lines = []
+        for dt in data_driven_types():
+            if dt.extraction_schema is None:
+                continue
+            for table, field in dt.extraction_schema.model_fields.items():
+                args = get_args(field.annotation)
+                row_model = args[0] if args else None
+                domain = [c for c in (row_model.model_fields if row_model else {})
+                          if c not in ("source_text", "confidence")]
+                cols = ", ".join(["id"] + domain + ["source_chunk_id", "source_file"])
+                lines.append(f"- {table}({cols}) — data-driven type '{dt.name}'.")
+            if dt.description:                       # per-type usage guidance for the router
+                lines.append(f"  usage: {dt.description}")
+        return "\n".join(lines)
+    except Exception as e:  # never let registry issues break query routing
+        logger.warning("could not build data-driven schema block: %s", e)
+        return ""
+
+
+def build_classify_prompt(question: str, history: Optional[list[dict]] = None) -> str:
+    """Format the router prompt, injecting approved data-driven tables and any prior turns."""
+    return _CLASSIFY_PROMPT.format(
+        question=question,
+        data_driven_tables=_data_driven_schema_block(),
+        prior_conversation=_build_prior_conversation(history),
+    )
 
 _CLASSIFY_PROMPT = """You are the query router for a city government knowledge base.
 
@@ -34,28 +67,32 @@ Given the user's question, produce a retrieval plan as JSON:
   "vector_query": "search terms ...",   // semantic search string, or null
   "graph_query": "MATCH ...",           // Cypher query, or null
   "metadata_filters": {{}},              // department/quarter/year filters extracted from the question
-  "reasoning": "..."
+  "reasoning": "...",
+  "resolved_question": "the question rewritten as a fully standalone question, or the original question unchanged if it is already self-contained"
 }}
 
 SQL schema reference:
 - expenditures(id, department, sub_department, account_number, line_item, revised_budget, ytd_expended, quarter, year, source_file)
 - metrics(id, department, metric_name, metric_value, metric_unit, quarter, year, source_file)
 - grants(id, department, grant_name, grant_number, amount, start_date, end_date, status, source_file)
-- vacancies(id, department, position_title, status, quarter, year)
+- vacancies(id, department, position_title, status, quarter, year) — DEPARTMENT STAFFING vacancies (unfilled jobs, e.g. 'Patrol Officer, 30 open') from quarterly reports. NOT board/commission appointed seats — those are in the data-driven board tables below (see their usage note).
 - resolutions(id, resolution_number, title, amount, vendor, department, adopted_date, status, source_file) — City Council resolutions (authorizations of contracts/spending/policy). `amount` is the authorized dollar figure (may be NULL). `status` e.g. 'Passed'.
 - votes(id, resolution_number, council_member, vote, source_file) — per-member votes on a resolution ('yes'|'no'|'abstain').
 - legislation(id, bill_number, title, sponsor, amount, adopted_date, status, source_file) — ordinances/bills. `status` e.g. 'Introduced','Signed','Vetoed','Approved'.
 - meetings(id, meeting_date, session_type, president, members_present, members_present_names, members_absent_names, call_to_order, adjourned, source_file) — one row per council legislative session (from minutes).
 - meeting_actions(id, meeting_date, item_type, item_number, title, action, committee, source_file) — what happened to each resolution/ordinance at a session (item_type 'resolution'|'ordinance'; action e.g. 'read into record','referred to committee','final passage').
+- legislative_item_status(item_kind, item_key, display_number, title, current_stage, stage_date, days_in_stage, first_event_date, last_event_date, meetings_touched, latest_committee, passed_ayes, passed_nays) — VIEW: current lifecycle stage per resolution/ordinance. current_stage one of: 'introduced','in_committee','awaiting_final_vote','tabled','withdrawn','failed','passed','signed','vetoed','veto_overridden'. item_key has no 'Bill'/'Res.' prefix (e.g. '3-2026').
+- legislative_item_trail(item_kind, item_key, display_number, title, event, event_date, origin, committee, ayes, nays, note, source_file) — VIEW: ordered event history for an item across meetings.
 - goals(id, department, year, quarter, goal_title, description, target, status, source_file) — department goals stated in quarterly reports.
 - appropriations(id, department, fiscal_year, fund, category, amount, source_file) — department budget appropriations from the annual budget.
-
+{data_driven_tables}
 Column notes (MUST follow exactly):
 - `quarter` is a STRING like 'Q1', 'Q2', 'Q3', 'Q4' — always quote it: `quarter = 'Q1'`. Never write `quarter = 1`.
 - `year` is an INTEGER: `year = 2026` (no quotes). `appropriations` uses `fiscal_year` (INTEGER), NOT `year`.
-- Only expenditures, metrics, vacancies, and goals have `quarter`/`year`. `grants`, `resolutions`, `legislation`, `meetings`, `meeting_actions`, `appropriations` have NO `quarter`/`year` — never reference them there. Filter grants by `department`/`status`/dates; resolutions & legislation by `adopted_date`/`status`/text; meetings by `meeting_date`.
+- Only expenditures, metrics, vacancies, and goals have `quarter`/`year`. `grants`, `resolutions`, `legislation`, `meetings`, `meeting_actions`, `appropriations`, `legislative_item_status`, `legislative_item_trail` have NO `quarter`/`year` — never reference them there. Filter grants by `department`/`status`/dates; resolutions & legislation by `adopted_date`/`status`/text; meetings by `meeting_date`.
 - For "which resolutions authorized spending / how much", query `resolutions` (e.g. `SELECT resolution_number, title, amount, vendor FROM resolutions WHERE amount IS NOT NULL ORDER BY amount DESC`).
 - For "what bills/ordinances passed", query `legislation`. For "what happened at the <date> meeting" or "which resolutions were read/referred", query `meeting_actions` (join on item_number) and/or `meetings`.
+- For "where is Bill X" / "status of Resolution Y", query `legislative_item_status` (match `item_key` WITHOUT 'Bill'/'Res.' prefixes, e.g. item_key = '3-2026'). For "what happened to it at each meeting", query `legislative_item_trail` ordered by event_date. For "what's stuck in committee", `SELECT display_number, title, latest_committee, days_in_stage FROM legislative_item_status WHERE current_stage = 'in_committee'`.
 
 Graph schema:
 - Nodes: Person(name, title, department), Department(name), Project(name, status), Grant(name, grant_number, amount), Document(filename, quarter, year)
@@ -63,6 +100,7 @@ Graph schema:
 
 Query generation rules (MUST follow exactly):
 - `sql_query` and `graph_query` are executed verbatim with NO parameter binding. Use literal values inline.
+- CITATIONS: every `sql_query` MUST return a `source_file` column so the answer can cite the source PDF (users know documents, not the database). For row-level queries, add `source_file` to the SELECT list. For aggregate queries (GROUP BY / SUM / COUNT / AVG), include `STRING_AGG(DISTINCT source_file, '; ') AS source_file` so the originating documents are still returned. Example: `SELECT resolution_number, title, amount, vendor, source_file FROM resolutions WHERE amount IS NOT NULL ORDER BY amount DESC`.
 - `graph_query` (Cypher): never use `$parameters` (e.g. `$department_name`) — they will not be bound and the query will fail. Inline the literal value: `MATCH (p:Person)-[:DIRECTS]->(d:Department {{name: 'Public Works'}}) RETURN p.name, p.title`.
 
 Rules:
@@ -73,11 +111,24 @@ Rules:
 - Cross-store questions → parallel with both required stores
 - If the question mentions a specific department, add it to metadata_filters
 - If the question mentions a specific quarter/year, add it to metadata_filters
+- FOLLOW-UPS: If a "Prior conversation" section is present AND the user question depends on it (pronouns like "that"/"those"/"it", ellipsis, "what about <X>", "break that down"), rewrite the question into a fully self-contained question in `resolved_question` and build the store queries from that rewrite. If the question is already self-contained or is a fresh unrelated topic, set `resolved_question` to the original question and ignore the prior conversation.
 
-User question: {question}
+{prior_conversation}User question: {question}
 
 Return ONLY the JSON object, no explanation.
 """
+
+
+def _build_prior_conversation(history: Optional[list[dict]]) -> str:
+    """Render prior turns as a delimited prompt block, or '' when none."""
+    if not history:
+        return ""
+    lines = ["Prior conversation (most recent last):"]
+    for turn in history:
+        q = str(turn.get("question", "")).strip()
+        a = str(turn.get("answer", "")).strip()
+        lines.append(f"- Q: {q}\n  A: {a}")
+    return "\n".join(lines) + "\n\n"
 
 
 class QueryClassifier:
@@ -85,7 +136,12 @@ class QueryClassifier:
         self.cfg = settings or get_settings()
         self.client = llm or TrackedAnthropic(self.cfg, call_site="query.classifier")
 
-    def classify(self, question: str, query_id: Optional[str] = None) -> QueryPlan:
+    def classify(
+        self,
+        question: str,
+        history: Optional[list[dict]] = None,
+        query_id: Optional[str] = None,
+    ) -> QueryPlan:
         """Classify the question and return a retrieval plan."""
         try:
             msg = self.client.messages.create(
@@ -94,7 +150,7 @@ class QueryClassifier:
                 query_id=query_id,
                 messages=[{
                     "role": "user",
-                    "content": _CLASSIFY_PROMPT.format(question=question),
+                    "content": build_classify_prompt(question, history),
                 }],
             )
             raw = msg.content[0].text
@@ -128,4 +184,5 @@ def _parse_plan(raw: str) -> QueryPlan:
         graph_query=data.get("graph_query"),
         metadata_filters=data.get("metadata_filters", {}),
         reasoning=data.get("reasoning", ""),
+        resolved_question=data.get("resolved_question"),
     )
