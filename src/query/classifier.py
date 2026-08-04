@@ -81,15 +81,18 @@ SQL schema reference:
 - legislation(id, bill_number, title, sponsor, amount, adopted_date, status, source_file) — ordinances/bills. `status` e.g. 'Introduced','Signed','Vetoed','Approved'.
 - meetings(id, meeting_date, session_type, president, members_present, members_present_names, members_absent_names, call_to_order, adjourned, source_file) — one row per council legislative session (from minutes).
 - meeting_actions(id, meeting_date, item_type, item_number, title, action, committee, source_file) — what happened to each resolution/ordinance at a session (item_type 'resolution'|'ordinance'; action e.g. 'read into record','referred to committee','final passage').
+- legislative_item_status(item_kind, item_key, display_number, title, current_stage, stage_date, days_in_stage, first_event_date, last_event_date, meetings_touched, latest_committee, passed_ayes, passed_nays) — VIEW: current lifecycle stage per resolution/ordinance. current_stage one of: 'introduced','in_committee','awaiting_final_vote','tabled','withdrawn','failed','passed','signed','vetoed','veto_overridden'. item_key has no 'Bill'/'Res.' prefix (e.g. '3-2026').
+- legislative_item_trail(item_kind, item_key, display_number, title, event, event_date, origin, committee, ayes, nays, note, source_file) — VIEW: ordered event history for an item across meetings.
 - goals(id, department, year, quarter, goal_title, description, target, status, source_file) — department goals stated in quarterly reports.
 - appropriations(id, department, fiscal_year, fund, category, amount, source_file) — department budget appropriations from the annual budget.
 {data_driven_tables}
 Column notes (MUST follow exactly):
 - `quarter` is a STRING like 'Q1', 'Q2', 'Q3', 'Q4' — always quote it: `quarter = 'Q1'`. Never write `quarter = 1`.
 - `year` is an INTEGER: `year = 2026` (no quotes). `appropriations` uses `fiscal_year` (INTEGER), NOT `year`.
-- Only expenditures, metrics, vacancies, and goals have `quarter`/`year`. `grants`, `resolutions`, `legislation`, `meetings`, `meeting_actions`, `appropriations` have NO `quarter`/`year` — never reference them there. Filter grants by `department`/`status`/dates; resolutions & legislation by `adopted_date`/`status`/text; meetings by `meeting_date`.
+- Only expenditures, metrics, vacancies, and goals have `quarter`/`year`. `grants`, `resolutions`, `legislation`, `meetings`, `meeting_actions`, `appropriations`, `legislative_item_status`, `legislative_item_trail` have NO `quarter`/`year` — never reference them there. Filter grants by `department`/`status`/dates; resolutions & legislation by `adopted_date`/`status`/text; meetings by `meeting_date`.
 - For "which resolutions authorized spending / how much", query `resolutions` (e.g. `SELECT resolution_number, title, amount, vendor FROM resolutions WHERE amount IS NOT NULL ORDER BY amount DESC`).
 - For "what bills/ordinances passed", query `legislation`. For "what happened at the <date> meeting" or "which resolutions were read/referred", query `meeting_actions` (join on item_number) and/or `meetings`.
+- For "where is Bill X" / "status of Resolution Y", query `legislative_item_status` (match `item_key` WITHOUT 'Bill'/'Res.' prefixes, e.g. item_key = '3-2026'). For "what happened to it at each meeting", query `legislative_item_trail` ordered by event_date. For "what's stuck in committee", `SELECT display_number, title, latest_committee, days_in_stage FROM legislative_item_status WHERE current_stage = 'in_committee'`.
 
 Graph schema:
 - Nodes: Person(name, title, department), Department(name), Project(name, status), Grant(name, grant_number, amount), Document(filename, quarter, year)
