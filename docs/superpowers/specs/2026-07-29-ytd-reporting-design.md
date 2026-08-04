@@ -33,10 +33,15 @@ PDF generation (browser print covers it), any LLM involvement.
 
 ### Data semantics
 
-- `expenditures.ytd_expended` is already cumulative within a year. YTD spend
-  for year Y = the snapshot at the **latest quarter of Y** (not a SUM across
-  quarters, which double-counts). Quarter-over-quarter increments = successive
-  differences between snapshots.
+- `expenditures.ytd_expended` is already cumulative within a year — never a SUM
+  across quarters (that double-counts). Departments don't all file every
+  quarter (verified against live data: FY2025 Q4 had fewer filers than Q3), so
+  the year total is the sum of **each department's latest snapshot in the
+  year**, and each department row carries its own `as_of_quarter` (surfaced in
+  the UI when it lags the citywide as-of). Quarter-over-quarter increments =
+  successive differences between citywide snapshots, each row carrying a
+  departments-filing count; a negative increment is flagged as a coverage
+  artifact, not savings.
 - Resolutions/ordinances are counted by `adopted_date` calendar year, from the
   `resolutions` and `legislation` tables (consistent with the rest of the
   dashboard). Rows without `adopted_date` are excluded from YTD counts (they
@@ -77,8 +82,8 @@ ytd: {
     },
     spending: {
       ytd_expended, revised_budget, pct_used, expected_pct,
-      by_quarter: [{quarter, ytd_expended, increment}],
-      by_department: [{department, revised_budget, ytd_expended, pct}],
+      by_quarter: [{quarter, ytd_expended, increment, departments}],
+      by_department: [{department, as_of_quarter, revised_budget, ytd_expended, pct}],
     },
     grants: {
       new_count, new_amount, active_count,

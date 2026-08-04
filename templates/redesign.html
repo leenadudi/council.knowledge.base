@@ -129,6 +129,12 @@
   .stagechip{font-family:inherit;font-size:12.5px;font-weight:600;color:#4a4744;background:#fff;border:1px solid rgba(28,27,25,.14);border-radius:99px;padding:6px 13px;cursor:pointer;transition:background .12s,border-color .12s}
   .stagechip:hover{border-color:rgba(22,52,79,.35)}
   .stagechip.on{background:#16344f;color:#fff;border-color:#16344f}
+  /* Year-to-date prints as a clean report: hide chrome, keep the active view */
+  @media print{
+    aside,header,.skip,#ytd-controls,#coverage-note{display:none!important}
+    body{background:#fff}
+    main{padding:0}
+  }
 </style>
 </head>
 <body>
@@ -149,6 +155,7 @@
       <div class="navitem" data-tab="ask"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l3 3"/></svg><span>Ask a question</span></div>
       <div class="grouplbl">Explore</div>
       <div class="navitem" data-tab="overview"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg><span>City at a glance</span></div>
+      <div class="navitem" data-tab="ytd"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg><span>Year to date</span></div>
       <div class="navitem" data-tab="goals"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/></svg><span>Goals</span></div>
       <div class="navitem" data-tab="people"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/><path d="M11 4.2a2.2 2.2 0 0 1 0 4.1M12 13.5c0-2 -1-3.3-2.5-3.8"/></svg><span>People</span></div>
       <div class="navitem" data-tab="activity"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h3l1.5-4 3 9 1.5-5H14"/></svg><span>Council activity</span></div>
@@ -311,6 +318,18 @@
         <div id="proj-admin" style="margin-top:26px"></div>
       </div>
 
+      <!-- YEAR TO DATE (cross-quarter aggregation per year) -->
+      <div class="view" id="v-ytd">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap">
+          <div><h1 class="page">Year to date</h1><p class="psub" id="ytd-asof">Council activity aggregated across quarters.</p></div>
+          <div id="ytd-controls" style="display:none;gap:10px;align-items:center">
+            <select class="filter" id="ytd-year" onchange="state.ytdYear=+this.value;renderYTD()"></select>
+            <button class="btn-ghost" onclick="window.print()" style="padding:8px 14px;font-size:12.5px">Print report</button>
+          </div>
+        </div>
+        <div id="ytd-body"></div>
+      </div>
+
       <!-- NEXT QUARTER (generated questions) -->
       <div class="view" id="v-questions">
         <div style="margin-bottom:22px"><h1 class="page">Questions for next quarter</h1><p class="psub">Data-grounded follow-ups to put into each department's next quarterly report — built from prior goals, open vacancies, active grants, budget pace, and departments behind on filing.</p></div>
@@ -396,7 +415,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let D = {};                 // /dashboard/data payload
-let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null, projType:'All', projDept:'All', projStatus:'All', projSearch:'' };
+let state = { tab:'ask', money:'budget', dept:'All', mtg:null, deptName:null, goalsDept:'All', goalsPeriod:'All', goalsSearch:'', activitySeg:'timeline', activityStage:'all', mtgStage:'all', qDept:null, ytdYear:null, projType:'All', projDept:'All', projStatus:'All', projSearch:'' };
 
 // ---- helpers ----
 const DEPT_ALIASES={'planning bureau':'planning','harrisburg city council':'city council','city of harrisburg city council':'city council','finance':'budget & finance','park maintenance':'parks & recreation','economic development & building & housing':'building & housing development','codes health department':'codes'};
@@ -424,12 +443,12 @@ function firstNum(s){ if(!s) return null; const m=String(s).replace(/,/g,'').mat
 function goalProgress(g){ const t=firstNum(g.target)||firstNum(g.goal_title); const a=firstNum(g.status); if(t&&a!=null) return {known:true,pct:Math.min(100,Math.round(a/t*100)),a,t}; return {known:false}; }
 
 // ---- nav ----
-const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],activity:['Explore','Council activity'],money:['Explore','Finances'],projects:['Explore','Projects'],questions:['Explore','Next quarter'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
+const CRUMB={ask:['Council Knowledge Base','Ask a question'],overview:['Explore','City at a glance'],ytd:['Explore','Year to date'],activity:['Explore','Council activity'],money:['Explore','Finances'],projects:['Explore','Projects'],questions:['Explore','Next quarter'],meeting:['Explore','Session record'],goals:['Explore','Goals'],people:['Explore','People'],documents:['Staff tools','Documents'],add:['Staff tools','Add documents']};
 function go(tab){ if(state.tab==='ask' && tab!=='ask') resetAskThread(false); state.tab=tab; render(); }
 function render(){
   const t=state.tab;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
-  const map={ask:'v-ask',overview:'v-overview',activity:'v-activity',money:'v-money',projects:'v-projects',questions:'v-questions',meeting:'v-meeting',goals:'v-goals',people:'v-people',documents:'v-documents',add:'v-add'};
+  const map={ask:'v-ask',overview:'v-overview',ytd:'v-ytd',activity:'v-activity',money:'v-money',projects:'v-projects',questions:'v-questions',meeting:'v-meeting',goals:'v-goals',people:'v-people',documents:'v-documents',add:'v-add'};
   const el=$('#'+map[t]); if(el) el.classList.add('on');
   document.querySelectorAll('.navitem[data-tab]').forEach(n=>{
     const nt=n.getAttribute('data-tab');
@@ -635,6 +654,73 @@ function setMoney(v){ state.money=v;
   if(state.tab!=='money'){state.tab='money';render();} }
 function applyDept(v){ state.dept=v; renderMoney(); }
 
+// ---- Year to date (cross-quarter aggregation per year) ----
+function renderYTD(){
+  const Y=D.ytd||{}, years=Y.years||[];
+  const ctl=$('#ytd-controls'), body=$('#ytd-body');
+  if(!years.length){
+    ctl.style.display='none';
+    $('#ytd-asof').textContent='Council activity aggregated across quarters.';
+    body.innerHTML='<div class="empty">No year-scoped data yet — this view fills in as quarterly reports, resolutions, and minutes are ingested.</div>';
+    return;
+  }
+  if(!state.ytdYear||!years.includes(state.ytdYear)) state.ytdYear=years[0];
+  const sel=$('#ytd-year');
+  sel.innerHTML=years.map(y=>`<option value="${y}"${y===state.ytdYear?' selected':''}>FY ${y}</option>`).join('');
+  sel.style.display=years.length>1?'':'none';
+  ctl.style.display='flex';
+  const r=(Y.reports||{})[String(state.ytdYear)]||{};
+  const L=r.legislative||{}, S=r.spending||{}, G=r.grants||{}, GO=r.goals||{};
+  $('#ytd-asof').textContent=`What Council has done in FY ${state.ytdYear}`+(r.as_of_quarter?` through ${r.as_of_quarter}`:'')+' — aggregated across quarters, not a single-quarter snapshot.';
+  const pace=(S.pct_used||0)-(S.expected_pct||0);
+  const kpi=(lbl,val,sub,bar)=>`<div class="kpi"><div class="bar" style="background:${bar}"></div><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="sub">${sub}</div></div>`;
+  const kpis =
+    kpi('Resolutions adopted',L.resolutions_adopted??0,'this year','#16344f')+
+    kpi('Ordinances adopted',L.ordinances_adopted??0,'this year','#16344f')+
+    kpi('Sessions held',L.meetings_held??0,'legislative sessions','#16344f')+
+    kpi('Council-authorized',money(L.council_authorized||0),'via resolutions','#0f6e63')+
+    kpi('Budget used',(S.pct_used??0)+'%',S.expected_pct?`vs ~${S.expected_pct}% expected by ${r.as_of_quarter}`:'of revised budget',pace>10?'#c4691e':'#16344f');
+  // quarter-by-quarter: merge legislative counts with spending increments
+  const qmap={};
+  (L.by_quarter||[]).forEach(q=>{qmap[q.quarter]=Object.assign(qmap[q.quarter]||{},q);});
+  (S.by_quarter||[]).forEach(q=>{qmap[q.quarter]=Object.assign(qmap[q.quarter]||{quarter:q.quarter},{spent:q.increment,cum:q.ytd_expended});});
+  const qrows=Object.keys(qmap).sort().map(q=>{const x=qmap[q];
+    // a negative "spent in quarter" means fewer departments filed than the
+    // quarter before — flag it instead of presenting it as real savings
+    const neg=x.spent!=null&&x.spent<0;
+    return `<tr><td class="mono" style="font-weight:600;color:#16344f">${q}</td><td class="num mono">${x.resolutions??'—'}</td><td class="num mono">${x.ordinances??'—'}</td><td class="num mono">${x.meetings??'—'}</td><td class="num mono">${x.authorized!=null?money(x.authorized):'—'}</td><td class="num mono"${neg?' style="color:#c4691e" title="Lower than the prior quarter’s cumulative — a different set of departments filed"':''}>${x.spent!=null?money(x.spent):'—'}${neg?' ⚠':''}</td><td class="num mono" style="color:#6f6b64">${x.cum!=null?money(x.cum):'—'}</td><td class="num mono" style="color:#a7a298">${x.departments??'—'}</td></tr>`;}).join('');
+  const drows=(S.by_department||[]).map(d=>{const p=d.pct||0, hot=S.expected_pct&&p>S.expected_pct+10;
+    const stale=d.as_of_quarter&&r.as_of_quarter&&d.as_of_quarter<r.as_of_quarter;
+    return `<tr><td style="font-weight:500">${cell(d.department)}${hot?' <span class="pill p-amber">ahead of pace</span>':''}${stale?` <span class="pill p-grey" title="No newer filing — figures are as of ${d.as_of_quarter}">as of ${d.as_of_quarter}</span>`:''}</td><td class="num mono" style="color:#6f6b64">${money(d.revised_budget)}</td><td class="num mono">${money(d.ytd_expended)}</td><td><div style="display:flex;align-items:center;gap:10px"><div class="barbg" style="flex:1"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744;width:34px;text-align:right">${p}%</span></div></td></tr>`;}).join('');
+  const grows=(G.new_grants||[]).map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.start_date)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span></td><td class="num mono">${money(g.amount)}</td></tr>`).join('');
+  const gtot=GO.total||0;
+  const gseg=(n,c)=>n?`<div style="width:${Math.round(n/gtot*100)}%;background:${c};height:100%"></div>`:'';
+  const grow=(lbl,n,c)=>`<div style="display:flex;justify-content:space-between"><span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:7px"></span>${lbl}</span><span class="mono">${n}</span></div>`;
+  body.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:26px">${kpis}</div>
+    <h2 class="sec" style="margin-bottom:12px">Quarter by quarter</h2>
+    <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Quarter</th><th class="num">Resolutions</th><th class="num">Ordinances</th><th class="num">Sessions</th><th class="num">Authorized</th><th class="num">Spent in quarter</th><th class="num">Cumulative YTD</th><th class="num">Depts filing</th></tr></thead><tbody>${qrows||'<tr><td colspan="8" class="empty">No quarterly activity recorded for this year.</td></tr>'}</tbody></table></div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec">Spending vs budget — by department</h2><span style="font-size:12.5px;color:#8a867d">${r.as_of_quarter?'through '+r.as_of_quarter:''}</span></div>
+    <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Department</th><th class="num">Revised budget</th><th class="num">YTD spent</th><th style="width:200px">% used</th></tr></thead><tbody>${drows||'<tr><td colspan="4" class="empty">No expenditure data for this year.</td></tr>'}</tbody></table></div>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:22px;align-items:start">
+      <div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;gap:12px"><h2 class="sec">Grants received this year</h2><span style="font-size:12.5px;color:#8a867d">${G.new_count||0} new · ${money(G.new_amount||0)} · ${G.active_count||0} active overall</span></div>
+        <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Start</th><th>Status</th><th class="num">Award</th></tr></thead><tbody>${grows||'<tr><td colspan="5" class="empty">No new grant awards recorded this year.</td></tr>'}</tbody></table></div>
+      </div>
+      <div>
+        <h2 class="sec" style="margin-bottom:12px">Goal progress</h2>
+        <div class="card" style="padding:16px 18px">
+          ${gtot?`<div style="display:flex;height:10px;border-radius:99px;overflow:hidden;background:rgba(28,27,25,.08);margin-bottom:14px">${gseg(GO.completed,'#2d6a4f')}${gseg(GO.in_progress,'#0f6e63')}${gseg(GO.not_started,'#c8c3b8')}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+            ${grow('Completed',GO.completed,'#2d6a4f')}${grow('In progress',GO.in_progress,'#0f6e63')}${grow('Not started',GO.not_started,'#c8c3b8')}
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(28,27,25,.08);padding-top:8px;font-weight:600"><span>Total goals</span><span class="mono">${gtot}</span></div>
+          </div>`:'<div class="empty" style="padding:0">No goals recorded for this year.</div>'}
+        </div>
+        ${L.undated_items?`<div style="margin-top:12px;font-size:12px;color:#a7a298">${L.undated_items} resolution${L.undated_items===1?'':'s'}/ordinance${L.undated_items===1?'':'s'} without an adoption date excluded from year counts.</div>`:''}
+      </div>
+    </div>`;
+}
+
 function renderMeetingDetail(){
   const m=(D.meetings||[])[state.mtg]; if(!m){go('activity');return;}
   const d=parseDate(m.meeting_date);
@@ -683,7 +769,7 @@ function renderMeetingDetail(){
 
 function updateCoverageNote(){
   const el=$('#coverage-note'); if(!el) return;
-  const show=['overview','money','activity','goals'].includes(state.tab);
+  const show=['overview','money','activity','goals','ytd'].includes(state.tab);
   const k=D.kpis||{}; const lp=k.latest_period; const cov=k.report_coverage;
   if(!show || !dataLoaded || !lp){ el.style.display='none'; return; }
   const bits=[`Latest data: ${esc(lp.quarter||'')} FY ${lp.year}.`];
@@ -1396,7 +1482,7 @@ $('#ask-input').addEventListener('keydown',e=>{ if(e.key==='Enter') runAsk(); })
 // re-render data views whenever we enter them
 const _render=render;
 render=function(){ _render();
-  const dataTab=['overview','activity','money','projects','questions','goals','people'].includes(state.tab);
+  const dataTab=['overview','activity','money','projects','questions','goals','people','ytd'].includes(state.tab);
   const veil=$('#loading-veil');
   if(dataTab && !dataLoaded){
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
@@ -1406,6 +1492,7 @@ render=function(){ _render();
   if(veil) veil.style.display='none';
   updateCoverageNote();
   if(state.tab==='overview') renderOverview();
+  if(state.tab==='ytd') renderYTD();
   if(state.tab==='activity') renderActivity();
   if(state.tab==='money'){ renderMoney(); }
   if(state.tab==='meeting') renderMeetingDetail();
