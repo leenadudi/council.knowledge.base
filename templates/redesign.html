@@ -487,11 +487,15 @@ const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First read
 const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red'};
 function isLeg(t){t=(t||'').toLowerCase();return t.includes('resolution')||t.includes('ordinance');}
 function legType(t){return (t||'').toLowerCase().includes('ordinance')?'Ordinance':'Resolution';}
+// Minutes extractions are inconsistent per document ("Resolution 24-2026" vs "24-2026" vs
+// "Ordinance Bill 2-2026"); canonicalize so one item never splits into several pipeline entries.
+function normNum(n){let s=String(n||'').trim(),p;do{p=s;s=s.replace(/^(?:resolution|ordinance|bill|no\.?|#)\s+/i,'');}while(s!==p);return s||String(n||'').trim();}
 // Collapse the noisy raw actions into clean lifecycle milestones (first date each).
 const MS_ORDER=['First reading','Referred to committee','Reported out','Amended','Passed','Tabled'];
 function milestone(a){const s=(a||'').toLowerCase();
   if(/tabl/.test(s))return'Tabled';
   if(/final passage/.test(s))return'Passed';
+  if(/passed[^;]*as amended/.test(s))return'Passed';   // "Passed as amended 6-0; amendment passed 6-0" is passage, not amendment-only work
   if(/amendment/.test(s))return'Amended';
   if(/passed|stand approved|approved/.test(s))return'Passed';
   if(/reported out/.test(s))return'Reported out';
@@ -507,8 +511,8 @@ function activityItems(){
   const items={};
   (D.meetings||[]).forEach(m=>{(m.actions||[]).forEach(a=>{
     if(!isLeg(a.item_type)||!a.item_number)return;
-    const type=legType(a.item_type), key=type+' '+a.item_number;
-    const it=items[key]||(items[key]={type,number:a.item_number,title:'',events:[]});
+    const type=legType(a.item_type), num=normNum(a.item_number), key=type+' '+num;
+    const it=items[key]||(items[key]={type,number:num,title:'',events:[]});
     if(a.title&&String(a.title).length>it.title.length) it.title=a.title;
     it.events.push({date:m.meeting_date,action:a.action,stage:actStage(a.action)});
   });});
@@ -548,7 +552,7 @@ function renderActivity(){
   }).join(''):'<div class="empty">No sessions ingested yet.</div>';
   $('#act-timeline').querySelectorAll('.mtg-row').forEach(el=>el.onclick=()=>{state.mtg=+el.dataset.i;state.mtgStage='all';go('meeting');renderMeetingDetail();});
   // legislation pipeline (grouped by furthest stage reached)
-  const resNums=new Set((D.resolutions||[]).map(r=>String(r.resolution_number)));
+  const resNums=new Set((D.resolutions||[]).map(r=>normNum(r.resolution_number)));
   const itemCard=(it)=>{
     const trail=milestoneTrail(it.events).map(x=>`<span style="white-space:nowrap">${esc(x.label)} <span style="color:#b3aea3">${esc(parseDate(x.date).date.replace(/,\s*\d{4}/,''))}</span></span>`).join('<span style="color:#c8c3b8"> → </span>');
     const isRes=it.type==='Resolution' && resNums.has(String(it.number));
