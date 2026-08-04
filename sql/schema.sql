@@ -484,6 +484,16 @@ CREATE TABLE IF NOT EXISTS meeting_attendance (
 );
 
 -- ---- document_type_registry becomes a real FK target -----------------------
+-- Dedup before enforcing the constraint. The seed INSERT above uses ON CONFLICT
+-- DO NOTHING, which is a silent no-op until this unique constraint exists — so a
+-- schema re-apply before that point could accumulate duplicate 'quarterly_report'
+-- rows. Collapse them keeping the lowest type_id; FKs reference type_name (which
+-- survives), so this is safe and idempotent (a no-op once already unique).
+DELETE FROM document_type_registry a
+  USING document_type_registry b
+  WHERE a.type_name = b.type_name
+    AND a.type_id   > b.type_id;
+
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_doc_type_registry_name') THEN
     ALTER TABLE document_type_registry ADD CONSTRAINT uq_doc_type_registry_name UNIQUE (type_name);
