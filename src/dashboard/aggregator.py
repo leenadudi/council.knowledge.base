@@ -438,6 +438,27 @@ class DashboardAggregator:
                 r["adopted_date"] = r["adopted_date"].isoformat()
         return rows
 
+    # -- Legislation lifecycle status (from the legislative_item_status view) --
+    def _build_legislation_status(self) -> list[dict]:
+        """Authoritative current stage per bill/resolution, straight from the
+        legislative_item_status view: one row per canonical item_key (double-
+        ingested rows collapsed) with a date-independent, max-rank-wins stage, so
+        stale committee referrals no longer inflate the pipeline. The dashboard
+        counts these instead of re-deriving stages client-side from raw actions."""
+        with self.sql.cursor() as cur:
+            cur.execute(
+                "SELECT item_kind, item_key, display_number, title, current_stage, "
+                "days_in_stage, latest_committee, meetings_touched, "
+                "passed_ayes, passed_nays "
+                "FROM legislative_item_status ORDER BY current_stage, item_key")
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            d = r.get("days_in_stage")
+            # (CURRENT_DATE - date) comes back as an int day-count on psycopg2, but
+            # a timedelta on some drivers — normalize either to a plain int.
+            r["days_in_stage"] = (d.days if hasattr(d, "days") else int(d)) if d is not None else None
+        return rows
+
     # -- Meetings (minutes) ---------------------------------------------------
     def _build_meetings(self) -> list[dict]:
         with self.sql.cursor() as cur:
@@ -690,6 +711,7 @@ class DashboardAggregator:
             "resolutions": self._safe("resolutions", self._build_resolutions, errors),
             "goals": self._safe("goals", self._build_goals, errors),
             "legislation": self._safe("legislation", self._build_legislation, errors),
+            "legislation_status": self._safe("legislation_status", self._build_legislation_status, errors),
             "meetings": self._safe("meetings", self._build_meetings, errors),
             "budget": self._safe("budget", self._build_budget, errors),
             "vacancies": self._safe("vacancies", self._build_vacancies, errors),

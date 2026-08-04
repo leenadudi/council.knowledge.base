@@ -514,8 +514,8 @@ function actStage(a){const s=(a||'').toLowerCase();
   if(/refer|committee|reported out|moved to|moved into/.test(s))return'committee';
   if(/read|first reading|introduc/.test(s))return'introduced';
   return'introduced';}
-const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First reading',tabled:'Tabled'};
-const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red'};
+const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First reading',tabled:'Tabled',awaiting:'Awaiting vote',closed:'Closed'};
+const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red',awaiting:'teal',closed:'red'};
 function isLeg(t){t=(t||'').toLowerCase();return t.includes('resolution')||t.includes('ordinance');}
 function legType(t){return (t||'').toLowerCase().includes('ordinance')?'Ordinance':'Resolution';}
 // Minutes extractions are inconsistent per document ("Resolution 24-2026" vs "24-2026" vs
@@ -560,11 +560,35 @@ function activityItems(){
   });
   return Object.values(items);
 }
+// Authoritative lifecycle stage per item comes from the server's
+// legislative_item_status view: deduped by canonical key, date-independent
+// (max-rank-wins) so a stale committee referral can't outrank a later passage,
+// and "reported out" reads as awaiting-vote rather than still-in-committee.
+// Falls back to the client-side derivation when the view isn't present.
+const LEG_STAGE={introduced:'introduced',in_committee:'committee',awaiting_final_vote:'awaiting',
+  passed:'passed',signed:'passed',veto_overridden:'passed',
+  tabled:'closed',withdrawn:'closed',failed:'closed',vetoed:'closed'};
+function legItems(){
+  const trailByKey={};
+  activityItems().forEach(it=>{trailByKey[normNum(it.number)]={events:it.events,title:it.title};});
+  const rows=D.legislation_status;
+  if(Array.isArray(rows)&&rows.length){
+    return rows.map(r=>{const key=normNum(r.item_key),t=trailByKey[key]||{};
+      return {type:r.item_kind==='ordinance'?'Ordinance':'Resolution',
+        number:key, display:r.display_number||r.item_key, title:r.title||t.title||'',
+        status:LEG_STAGE[r.current_stage]||'introduced',
+        days:r.days_in_stage, committee:r.latest_committee, events:t.events||[]};});
+  }
+  // fallback: legacy client-side items; fold old keys into the shared buckets
+  const map={passed:'passed',committee:'committee',introduced:'introduced',tabled:'closed'};
+  return activityItems().map(it=>({type:it.type,number:it.number,display:it.number,title:it.title,
+    status:map[it.status]||'introduced',days:null,committee:null,events:it.events}));
+}
 function renderActivity(){
-  const items=activityItems();
+  const items=legItems();
   const byStatus=s=>items.filter(i=>i.status===s);
-  const order=['introduced','committee','passed','tabled'];
-  const bars={passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a'};
+  const order=['introduced','committee','awaiting','passed','closed'];
+  const bars={passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a',awaiting:'#0f6e63',closed:'#a0302a'};
   $('#act-pipeline').innerHTML=order.map(s=>`<div class="kpi click" onclick="setActivity('items')"><div class="bar" style="background:${bars[s]}"></div><div class="lbl">${STAGE_LBL[s]}</div><div class="val">${byStatus(s).length}</div></div>`).join('');
   // session timeline (reverse chronological)
   const ms=(D.meetings||[]).map((m,i)=>({m,i})).sort((a,b)=>String(b.m.meeting_date).localeCompare(String(a.m.meeting_date)));
@@ -573,7 +597,9 @@ function renderActivity(){
     const acts=(m.actions||[]).filter(a=>isLeg(a.item_type));
     const cnt={passed:0,committee:0,introduced:0,tabled:0};
     acts.forEach(a=>{cnt[actStage(a.action)]++;});
-    const summ=order.filter(k=>cnt[k]).map(k=>`${cnt[k]} ${STAGE_LBL[k].toLowerCase()}`).join(' · ')||`${acts.length} items`;
+    // per-meeting summary is a rough count of that day's raw actions (its own 4 buckets)
+    const tlOrder=['introduced','committee','passed','tabled'];
+    const summ=tlOrder.filter(k=>cnt[k]).map(k=>`${cnt[k]} ${STAGE_LBL[k].toLowerCase()}`).join(' · ')||`${acts.length} items`;
     return `<div class="card mtg-row" data-i="${i}" style="padding:16px 20px;display:flex;align-items:center;gap:20px;cursor:pointer">
       <div style="text-align:center;flex-shrink:0;width:56px"><div class="serif" style="font-size:22px;font-weight:600;color:#16344f;line-height:1">${d.day}</div><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a7a298;margin-top:3px">${d.mon}</div></div>
       <div style="width:1px;align-self:stretch;background:rgba(28,27,25,.08)"></div>
@@ -587,15 +613,18 @@ function renderActivity(){
   const itemCard=(it)=>{
     const trail=milestoneTrail(it.events).map(x=>`<span style="white-space:nowrap">${esc(x.label)} <span style="color:#b3aea3">${esc(parseDate(x.date).date.replace(/,\s*\d{4}/,''))}</span></span>`).join('<span style="color:#c8c3b8"> → </span>');
     const isRes=it.type==='Resolution' && resNums.has(String(it.number));
+    // committee/days context is meaningful only while an item is still in the pipeline
+    const stuck=(it.status==='committee'||it.status==='awaiting')&&(it.committee||it.days!=null);
+    const ctx=stuck?`<div style="font-size:11px;color:#a7a298;margin-top:6px">${it.committee?esc(it.committee):''}${it.committee&&it.days!=null?' · ':''}${it.days!=null?esc(it.days)+'d in stage':''}</div>`:'';
     return `<div class="card${isRes?' res-row':''}"${isRes?` data-rn="${esc(it.number)}"`:''} style="padding:13px 16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
         <div style="min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${esc(it.type)} ${esc(it.number)}</span><span class="${pill(STAGE_PILL[it.status])}">${STAGE_LBL[it.status]}</span></div>
         <div style="font-weight:600;font-size:13.5px;line-height:1.35">${cell(it.title)}</div></div>
         ${isRes?'<span style="color:#c8c3b8;font-size:16px;flex-shrink:0">›</span>':''}</div>
-      <div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
+      ${ctx}<div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
   };
   const bynum=(a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true});
-  const present=['introduced','committee','passed','tabled'].filter(s=>byStatus(s).length);
+  const present=order.filter(s=>byStatus(s).length);
   const stg=state.activityStage||'all';
   // stage filter tabs
   const chip=(v,l,n)=>`<button class="stagechip${stg===v?' on':''}" onclick="setActivityStage('${v}')">${l} <span style="opacity:.55">${n}</span></button>`;
