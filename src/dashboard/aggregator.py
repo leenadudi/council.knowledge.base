@@ -438,6 +438,27 @@ class DashboardAggregator:
                 r["adopted_date"] = r["adopted_date"].isoformat()
         return rows
 
+    # -- Legislation lifecycle status (from the legislative_item_status view) --
+    def _build_legislation_status(self) -> list[dict]:
+        """Authoritative current stage per bill/resolution, straight from the
+        legislative_item_status view: one row per canonical item_key (double-
+        ingested rows collapsed) with a date-independent, max-rank-wins stage, so
+        stale committee referrals no longer inflate the pipeline. The dashboard
+        counts these instead of re-deriving stages client-side from raw actions."""
+        with self.sql.cursor() as cur:
+            cur.execute(
+                "SELECT item_kind, item_key, display_number, title, current_stage, "
+                "days_in_stage, latest_committee, meetings_touched, "
+                "passed_ayes, passed_nays "
+                "FROM legislative_item_status ORDER BY current_stage, item_key")
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            d = r.get("days_in_stage")
+            # (CURRENT_DATE - date) comes back as an int day-count on psycopg2, but
+            # a timedelta on some drivers — normalize either to a plain int.
+            r["days_in_stage"] = (d.days if hasattr(d, "days") else int(d)) if d is not None else None
+        return rows
+
     # -- Meetings (minutes) ---------------------------------------------------
     def _build_meetings(self) -> list[dict]:
         with self.sql.cursor() as cur:
@@ -669,6 +690,64 @@ class DashboardAggregator:
         from src.dashboard.ytd import YTDReport
         return YTDReport(self.sql, now=self.now).build()
 
+    # -- Grant status rollup (per-grant lifecycle summary; deterministic) -----
+    def _build_grant_rollup(self) -> dict:
+        """Per-grant status rollup: one row per deduplicated grant with awarded
+        amount, funding window, normalized status, and time-derived flags
+        (expiring within 120 days / expired). The grants table carries no
+        spent/drawdown figures, so this reports the AWARDED amount only — it never
+        invents a spend. Totals are grouped by normalized status."""
+        from src.dashboard.projects import normalize_grant_status
+        today = self.now.date()
+        horizon = today + datetime.timedelta(days=120)
+        with self.sql.cursor() as cur:
+            cur.execute("SELECT id, grant_name, grant_number, department, amount, "
+                        "start_date, end_date, status FROM grants")
+            rows = self._dedupe_grants([dict(r) for r in cur.fetchall()])
+
+        def _iso(d):
+            return d.isoformat() if hasattr(d, "isoformat") else d
+
+        grants = []
+        for r in rows:
+            name = (r.get("grant_name") or "").strip()
+            if not name:
+                continue
+            amount = float(r["amount"]) if r.get("amount") is not None else None
+            status = normalize_grant_status(r.get("status"))
+            end = r.get("end_date")
+            dated = hasattr(end, "toordinal")
+            expired = bool(dated and end < today and status != "Closed")
+            expiring = bool(dated and today <= end <= horizon and status != "Closed")
+            grants.append({
+                "id": r.get("id"), "grant_name": name,
+                "grant_number": r.get("grant_number"), "department": r.get("department"),
+                "amount": amount, "status": status,
+                "start_date": _iso(r.get("start_date")), "end_date": _iso(end),
+                "expiring": expiring, "expired": expired,
+            })
+
+        # attention first (expired, then expiring), then by status, then largest award
+        rank = {"Active": 0, "Awarded": 1, "Proposed": 2, "Closed": 3}
+        grants.sort(key=lambda g: (0 if g["expired"] else 1 if g["expiring"] else 2,
+                                   rank.get(g["status"], 9), -(g["amount"] or 0),
+                                   g["grant_name"].lower()))
+
+        by_status: dict = {}
+        for g in grants:
+            s = by_status.setdefault(g["status"], {"status": g["status"], "count": 0, "amount": 0.0})
+            s["count"] += 1
+            s["amount"] += g["amount"] or 0
+        summary = {
+            "total": len(grants),
+            "total_awarded": sum(g["amount"] or 0 for g in grants),
+            "active_funding": sum(g["amount"] or 0 for g in grants if g["status"] in ("Active", "Awarded")),
+            "expiring": sum(1 for g in grants if g["expiring"]),
+            "expired": sum(1 for g in grants if g["expired"]),
+            "by_status": [by_status[k] for k in ("Active", "Awarded", "Proposed", "Closed") if k in by_status],
+        }
+        return {"grants": grants, "summary": summary}
+
     # -- Error isolation helper -----------------------------------------------
     def _safe(self, name: str, fn, errors: dict):
         try:
@@ -690,6 +769,7 @@ class DashboardAggregator:
             "resolutions": self._safe("resolutions", self._build_resolutions, errors),
             "goals": self._safe("goals", self._build_goals, errors),
             "legislation": self._safe("legislation", self._build_legislation, errors),
+            "legislation_status": self._safe("legislation_status", self._build_legislation_status, errors),
             "meetings": self._safe("meetings", self._build_meetings, errors),
             "budget": self._safe("budget", self._build_budget, errors),
             "vacancies": self._safe("vacancies", self._build_vacancies, errors),
@@ -701,6 +781,7 @@ class DashboardAggregator:
             "review_questions": self._safe("review_questions", self._build_review_questions, errors),
             "projects": self._safe("projects", self._build_projects, errors),
             "ytd": self._safe("ytd", self._build_ytd, errors),
+            "grant_rollup": self._safe("grant_rollup", self._build_grant_rollup, errors),
         }
         if errors:
             out["errors"] = errors

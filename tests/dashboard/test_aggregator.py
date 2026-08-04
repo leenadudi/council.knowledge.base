@@ -240,6 +240,74 @@ def test_build_votes_rollcall_and_member_records():
     assert v["by_member"][0]["total"] >= v["by_member"][-1]["total"]
 
 
+_LEGIS_STATUS = "FROM legislative_item_status"
+
+
+def _legis_status_rows():
+    return [
+        {"item_kind": "resolution", "item_key": "51-2026", "display_number": "51-2026",
+         "title": "A Resolution authorizing X", "current_stage": "in_committee",
+         "days_in_stage": 12, "latest_committee": "Public Works Committee",
+         "meetings_touched": 1, "passed_ayes": None, "passed_nays": None},
+        {"item_kind": "ordinance", "item_key": "3-2026", "display_number": "Bill 3-2026",
+         "title": "An Ordinance amending Y", "current_stage": "passed",
+         # some drivers return (CURRENT_DATE - date) as a timedelta, others as an int
+         "days_in_stage": datetime.timedelta(days=40), "latest_committee": None,
+         "meetings_touched": 3, "passed_ayes": 6, "passed_nays": 1},
+    ]
+
+
+def test_build_legislation_status_passes_view_rows_and_normalizes_days():
+    rows = DashboardAggregator(_FakeStore({_LEGIS_STATUS: _legis_status_rows()}))._build_legislation_status()
+    assert [r["current_stage"] for r in rows] == ["in_committee", "passed"]
+    # days_in_stage collapses to a plain int whether the driver hands back int or timedelta
+    assert rows[0]["days_in_stage"] == 12 and isinstance(rows[0]["days_in_stage"], int)
+    assert rows[1]["days_in_stage"] == 40 and isinstance(rows[1]["days_in_stage"], int)
+    assert rows[0]["latest_committee"] == "Public Works Committee"
+    assert rows[1]["passed_ayes"] == 6
+
+
+def test_legislation_status_is_wired_into_build():
+    # Guard: the view-backed stage list must reach the dashboard payload, not just
+    # live in its own method. build() isolates each panel with _safe, so a missing
+    # wiring would silently drop the key rather than error.
+    out = DashboardAggregator(_FakeStore({_LEGIS_STATUS: _legis_status_rows()})).build()
+    assert "legislation_status" in out
+    assert [r["current_stage"] for r in out["legislation_status"]] == ["in_committee", "passed"]
+
+
+def test_build_grant_rollup_flags_expiry_sums_and_orders_attention_first():
+    now = datetime.datetime(2026, 7, 1, tzinfo=datetime.timezone.utc)  # fixed "today"
+    store = _FakeStore({"FROM grants": [
+        {"id": 1, "grant_name": "CDBG", "grant_number": "B-26", "department": "Community Dev",
+         "amount": decimal.Decimal("500000"), "start_date": datetime.date(2025, 1, 1),
+         "end_date": datetime.date(2026, 3, 1), "status": "active"},     # ended -> expired
+        {"id": 2, "grant_name": "BUILD Grant", "grant_number": "D-9", "department": "Engineering",
+         "amount": decimal.Decimal("3000000"), "start_date": datetime.date(2026, 1, 1),
+         "end_date": datetime.date(2026, 9, 1), "status": "awarded"},    # within 120d -> expiring
+        {"id": 3, "grant_name": "Tree Canopy", "grant_number": None, "department": "Parks",
+         "amount": decimal.Decimal("120000"), "start_date": datetime.date(2026, 1, 1),
+         "end_date": datetime.date(2027, 12, 1), "status": "active"},    # healthy
+        {"id": 4, "grant_name": "Old Sidewalks", "grant_number": None, "department": "Public Works",
+         "amount": decimal.Decimal("50000"), "start_date": datetime.date(2023, 1, 1),
+         "end_date": datetime.date(2024, 1, 1), "status": "closed"},     # past end but Closed
+    ]})
+    out = DashboardAggregator(store, now=now)._build_grant_rollup()
+    g = {x["grant_name"]: x for x in out["grants"]}
+    assert g["CDBG"]["expired"] is True and g["CDBG"]["expiring"] is False
+    assert g["BUILD Grant"]["expiring"] is True and g["BUILD Grant"]["expired"] is False
+    assert g["Tree Canopy"]["expired"] is False and g["Tree Canopy"]["expiring"] is False
+    assert g["Old Sidewalks"]["expired"] is False   # Closed grants are never flagged expired
+    # awarded-only: no fabricated spend/remaining fields anywhere
+    assert "spent" not in g["CDBG"] and "remaining" not in g["CDBG"]
+    s = out["summary"]
+    assert s["total"] == 4 and s["expired"] == 1 and s["expiring"] == 1
+    assert s["total_awarded"] == 3670000.0
+    assert s["active_funding"] == 3620000.0          # Active + Awarded, excludes the Closed grant
+    # attention-first ordering: expired, then expiring, then the rest
+    assert [x["grant_name"] for x in out["grants"][:2]] == ["CDBG", "BUILD Grant"]
+
+
 def test_build_metrics_keeps_latest_per_metric_and_groups_by_dept():
     import decimal
     store = _FakeStore({"FROM metrics": [
@@ -327,9 +395,9 @@ def test_build_never_raises_records_errors():
     assert out["departments"] is None and out["resolutions"] is None
     assert set(out["errors"].keys()) == {
         "kpis", "timeline", "tables", "departments", "resolutions",
-        "goals", "legislation", "meetings", "budget", "vacancies", "boards",
+        "goals", "legislation", "legislation_status", "meetings", "budget", "vacancies", "boards",
         "votes", "metrics", "vendor_spend", "commitments", "review_questions", "projects",
-        "ytd",
+        "ytd", "grant_rollup",
     }
 
 

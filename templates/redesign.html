@@ -259,10 +259,11 @@
           <div class="card" style="overflow:hidden"><table><thead><tr><th>Department</th><th class="num">Council-authorized</th><th class="num">YTD spent</th></tr></thead><tbody id="ft-auth"></tbody></table></div>
         </div>
         <div id="money-grants-wrap" style="display:none">
+          <div id="grant-rollup-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px"></div>
           <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants expiring soon</h2>
           <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Grant</th><th>Department</th><th class="num">Days left</th><th>End date</th><th class="num">Award</th></tr></thead><tbody id="ft-grants"></tbody></table></div>
-          <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants — external awards</h2>
-          <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>End date</th></tr></thead><tbody id="money-grants"></tbody></table></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec" style="font-size:18px">Grant status rollup</h2><span style="font-size:12px;color:#a7a298">awarded amounts — source data has no spend/drawdown figures</span></div>
+          <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>Window</th></tr></thead><tbody id="money-grants"></tbody></table></div>
         </div>
         <div id="money-vendors-wrap" style="display:none">
           <h2 class="sec" style="font-size:18px;margin-bottom:12px">Spend by vendor</h2>
@@ -442,7 +443,7 @@ function pctColor(p){ return p>=95?'#a0302a':p>=85?'#c4691e':'#16344f'; }
 function pill(kind){ return 'pill p-'+kind; }
 function statusPill(s){
   const k={adopted:'green',passed:'green',approved:'green',active:'green',awarded:'green','on track':'green',met:'teal',
-    signed:'green',pending:'amber',applied:'amber',introduced:'amber','in committee':'amber',tabled:'amber','at risk':'amber',
+    signed:'green',pending:'amber',applied:'amber',proposed:'amber',introduced:'amber','in committee':'amber',tabled:'amber','at risk':'amber',
     behind:'red',vetoed:'red',closed:'grey'};
   return pill(k[String(s||'').toLowerCase()]||'grey');
 }
@@ -514,8 +515,8 @@ function actStage(a){const s=(a||'').toLowerCase();
   if(/refer|committee|reported out|moved to|moved into/.test(s))return'committee';
   if(/read|first reading|introduc/.test(s))return'introduced';
   return'introduced';}
-const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First reading',tabled:'Tabled'};
-const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red'};
+const STAGE_LBL={passed:'Passed',committee:'In committee',introduced:'First reading',tabled:'Tabled',awaiting:'Awaiting vote',closed:'Closed'};
+const STAGE_PILL={passed:'green',committee:'amber',introduced:'grey',tabled:'red',awaiting:'teal',closed:'red'};
 function isLeg(t){t=(t||'').toLowerCase();return t.includes('resolution')||t.includes('ordinance');}
 function legType(t){return (t||'').toLowerCase().includes('ordinance')?'Ordinance':'Resolution';}
 // Minutes extractions are inconsistent per document ("Resolution 24-2026" vs "24-2026" vs
@@ -560,11 +561,35 @@ function activityItems(){
   });
   return Object.values(items);
 }
+// Authoritative lifecycle stage per item comes from the server's
+// legislative_item_status view: deduped by canonical key, date-independent
+// (max-rank-wins) so a stale committee referral can't outrank a later passage,
+// and "reported out" reads as awaiting-vote rather than still-in-committee.
+// Falls back to the client-side derivation when the view isn't present.
+const LEG_STAGE={introduced:'introduced',in_committee:'committee',awaiting_final_vote:'awaiting',
+  passed:'passed',signed:'passed',veto_overridden:'passed',
+  tabled:'closed',withdrawn:'closed',failed:'closed',vetoed:'closed'};
+function legItems(){
+  const trailByKey={};
+  activityItems().forEach(it=>{trailByKey[normNum(it.number)]={events:it.events,title:it.title};});
+  const rows=D.legislation_status;
+  if(Array.isArray(rows)&&rows.length){
+    return rows.map(r=>{const key=normNum(r.item_key),t=trailByKey[key]||{};
+      return {type:r.item_kind==='ordinance'?'Ordinance':'Resolution',
+        number:key, display:r.display_number||r.item_key, title:r.title||t.title||'',
+        status:LEG_STAGE[r.current_stage]||'introduced',
+        days:r.days_in_stage, committee:r.latest_committee, events:t.events||[]};});
+  }
+  // fallback: legacy client-side items; fold old keys into the shared buckets
+  const map={passed:'passed',committee:'committee',introduced:'introduced',tabled:'closed'};
+  return activityItems().map(it=>({type:it.type,number:it.number,display:it.number,title:it.title,
+    status:map[it.status]||'introduced',days:null,committee:null,events:it.events}));
+}
 function renderActivity(){
-  const items=activityItems();
+  const items=legItems();
   const byStatus=s=>items.filter(i=>i.status===s);
-  const order=['introduced','committee','passed','tabled'];
-  const bars={passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a'};
+  const order=['introduced','committee','awaiting','passed','closed'];
+  const bars={passed:'#2d6a4f',committee:'#c4691e',introduced:'#16344f',tabled:'#a0302a',awaiting:'#0f6e63',closed:'#a0302a'};
   $('#act-pipeline').innerHTML=order.map(s=>`<div class="kpi click" onclick="setActivity('items')"><div class="bar" style="background:${bars[s]}"></div><div class="lbl">${STAGE_LBL[s]}</div><div class="val">${byStatus(s).length}</div></div>`).join('');
   // session timeline (reverse chronological)
   const ms=(D.meetings||[]).map((m,i)=>({m,i})).sort((a,b)=>String(b.m.meeting_date).localeCompare(String(a.m.meeting_date)));
@@ -573,7 +598,9 @@ function renderActivity(){
     const acts=(m.actions||[]).filter(a=>isLeg(a.item_type));
     const cnt={passed:0,committee:0,introduced:0,tabled:0};
     acts.forEach(a=>{cnt[actStage(a.action)]++;});
-    const summ=order.filter(k=>cnt[k]).map(k=>`${cnt[k]} ${STAGE_LBL[k].toLowerCase()}`).join(' · ')||`${acts.length} items`;
+    // per-meeting summary is a rough count of that day's raw actions (its own 4 buckets)
+    const tlOrder=['introduced','committee','passed','tabled'];
+    const summ=tlOrder.filter(k=>cnt[k]).map(k=>`${cnt[k]} ${STAGE_LBL[k].toLowerCase()}`).join(' · ')||`${acts.length} items`;
     return `<div class="card mtg-row" data-i="${i}" style="padding:16px 20px;display:flex;align-items:center;gap:20px;cursor:pointer">
       <div style="text-align:center;flex-shrink:0;width:56px"><div class="serif" style="font-size:22px;font-weight:600;color:#16344f;line-height:1">${d.day}</div><div style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a7a298;margin-top:3px">${d.mon}</div></div>
       <div style="width:1px;align-self:stretch;background:rgba(28,27,25,.08)"></div>
@@ -587,15 +614,18 @@ function renderActivity(){
   const itemCard=(it)=>{
     const trail=milestoneTrail(it.events).map(x=>`<span style="white-space:nowrap">${esc(x.label)} <span style="color:#b3aea3">${esc(parseDate(x.date).date.replace(/,\s*\d{4}/,''))}</span></span>`).join('<span style="color:#c8c3b8"> → </span>');
     const isRes=it.type==='Resolution' && resNums.has(String(it.number));
+    // committee/days context is meaningful only while an item is still in the pipeline
+    const stuck=(it.status==='committee'||it.status==='awaiting')&&(it.committee||it.days!=null);
+    const ctx=stuck?`<div style="font-size:11px;color:#a7a298;margin-top:6px">${it.committee?esc(it.committee):''}${it.committee&&it.days!=null?' · ':''}${it.days!=null?esc(it.days)+'d in stage':''}</div>`:'';
     return `<div class="card${isRes?' res-row':''}"${isRes?` data-rn="${esc(it.number)}"`:''} style="padding:13px 16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
         <div style="min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="mono" style="font-size:11px;color:#0f6e63;background:#e7f2f0;padding:1px 7px;border-radius:5px">${esc(it.type)} ${esc(it.number)}</span><span class="${pill(STAGE_PILL[it.status])}">${STAGE_LBL[it.status]}</span></div>
         <div style="font-weight:600;font-size:13.5px;line-height:1.35">${cell(it.title)}</div></div>
         ${isRes?'<span style="color:#c8c3b8;font-size:16px;flex-shrink:0">›</span>':''}</div>
-      <div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
+      ${ctx}<div style="font-size:11.5px;color:#8a867d;margin-top:8px;line-height:1.5">${trail}</div></div>`;
   };
   const bynum=(a,b)=>String(a.number).localeCompare(String(b.number),undefined,{numeric:true});
-  const present=['introduced','committee','passed','tabled'].filter(s=>byStatus(s).length);
+  const present=order.filter(s=>byStatus(s).length);
   const stg=state.activityStage||'all';
   // stage filter tabs
   const chip=(v,l,n)=>`<button class="stagechip${stg===v?' on':''}" onclick="setActivityStage('${v}')">${l} <span style="opacity:.55">${n}</span></button>`;
@@ -647,8 +677,24 @@ function renderMoney(){
   }
   $('#money-attention').innerHTML=att;
   $('#money-budget').innerHTML = bd.length?bd.sort((a,b)=>b.revised_budget-a.revised_budget).map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<tr><td style="font-weight:500">${cell(b.department)}</td><td class="num mono" style="color:#6f6b64">${money(b.revised_budget)}</td><td class="num mono">${money(b.ytd_expended)}</td><td><div style="display:flex;align-items:center;gap:10px"><div class="barbg" style="flex:1"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744;width:34px;text-align:right">${p}%</span></div></td></tr>`;}).join(''):'<tr><td colspan="4" class="empty">No budget data for this department.</td></tr>';
-  const gr=grantsList().filter(g=>deptMatch(g.department));
-  $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span></td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
+  // Grant status rollup: prefer the deduped, expiry-flagged server rollup; fall
+  // back to the raw grants table when the panel is absent (older payloads).
+  const roll=(D.grant_rollup&&Array.isArray(D.grant_rollup.grants))?D.grant_rollup.grants:null;
+  const gr=(roll||grantsList()).filter(g=>deptMatch(g.department));
+  // summary chips are computed from the shown (dept-filtered) set so they always
+  // match the list below — never a citywide total sitting over a filtered table.
+  const gAward=gr.reduce((s,g)=>s+(g.amount||0),0);
+  const gActive=gr.reduce((s,g)=>s+((g.status==='Active'||g.status==='Awarded')?(g.amount||0):0),0);
+  const gChip=(l,v,c)=>`<div class="kpi" style="flex:1;min-width:148px"><div class="bar" style="background:${c}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+  $('#grant-rollup-summary').innerHTML = roll?(
+    gChip('Grants',gr.length,'#0f6e63')+gChip('Total awarded',money(gAward),'#16344f')
+    +gChip('Active funding',money(gActive),'#0f6e63')
+    +gChip('Expiring ≤120d',gr.filter(g=>g.expiring).length,gr.some(g=>g.expiring)?'#c4691e':'#16344f')
+    +gChip('Expired',gr.filter(g=>g.expired).length,gr.some(g=>g.expired)?'#a0302a':'#16344f')):'';
+  const gFlag=g=>g.expired?'<span class="pill p-red" style="margin-left:6px">Expired</span>'
+    :g.expiring?'<span class="pill p-amber" style="margin-left:6px">Expiring</span>':'';
+  const gWin=g=>{const a=g.start_date?cell(g.start_date):'',b=g.end_date?cell(g.end_date):'';return (a||b)?`${a||'—'} → ${b||'—'}`:'—';};
+  $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span>${roll?gFlag(g):''}</td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${roll?gWin(g):cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
   // authorized vs. spent (respects the department filter)
   const c=D.commitments||{authorized_vs_spent:[],grants_expiring:[]};
   const av=(c.authorized_vs_spent||[]).filter(d=>deptMatch(d.department));
