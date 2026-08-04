@@ -17,10 +17,17 @@ def test_prompt_states_quarter_is_quoted_string():
 
 
 def test_prompt_warns_grants_has_no_quarter_year():
-    # The per-table warning was consolidated (commit 248776a) to cover grants +
-    # resolutions + legislation + …; grants must still be named as having no quarter/year.
+    # Wording drifted when the warning grew to cover more tables; the intent
+    # stands: the prompt must say grants has no quarter/year columns.
     assert "`grants`" in _CLASSIFY_PROMPT
-    assert "have NO `quarter`/`year`" in _CLASSIFY_PROMPT
+    assert "NO `quarter`/`year`" in _CLASSIFY_PROMPT
+
+
+def test_prompt_documents_legislative_status_views():
+    assert "legislative_item_status" in _CLASSIFY_PROMPT
+    assert "legislative_item_trail" in _CLASSIFY_PROMPT
+    assert "current_stage" in _CLASSIFY_PROMPT
+    assert "in_committee" in _CLASSIFY_PROMPT
 
 
 def test_prompt_requires_source_file_for_citations():

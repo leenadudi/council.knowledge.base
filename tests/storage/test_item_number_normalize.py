@@ -53,6 +53,7 @@ def test_insert_meeting_action_rows_normalizes_item_number():
     # extracted "24-2026" for the same resolution, splitting one item into two
     # on the dashboard pipeline. The insert must store the canonical form.
     store = SQLStore.__new__(SQLStore)
+    store._legis_enabled = False  # legacy path — this test only checks item-number normalization
     cur = _CaptureCursor()
 
     @contextmanager
