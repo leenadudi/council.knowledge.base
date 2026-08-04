@@ -14,6 +14,9 @@ import psycopg2
 import psycopg2.extras
 
 from src.config import Settings, get_settings
+from src.ingestion.entity_keys import (
+    department_key, member_key, vendor_key, infer_dept_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,23 @@ def _dumps(obj: Any) -> str:
 
 
 _VOTE_MAXLEN = 50
+
+# alias-table FK column + (canonical_name/alias width, canonical_key width) per
+# dimension table, mirroring the VARCHAR limits in sql/schema.sql. Enforced in
+# _resolve_entity so a pathologically long extracted value can't blow past ANY of
+# those column widths and raise "value too long" mid-resolve. canonical_key is
+# often NARROWER than canonical_name (departments: 120 vs 150), so it needs its
+# own bound — a long, punctuation-sparse name yields an equally long key.
+_ALIAS_FK = {
+    "departments": ("department_aliases", "department_id", 150, 120),
+    "council_members": ("council_member_aliases", "member_id", 150, 150),
+    "vendors": ("vendor_aliases", "vendor_id", 200, 200),
+}
+_NEAR_DUP_THRESHOLD = 0.6  # pg_trgm similarity; one tunable constant
+_DEPT_FK_TABLES = [
+    "expenditures", "metrics", "grants", "vacancies", "documents", "resolutions",
+    "appropriations", "goals", "document_chunks", "evaluation_suite",
+]
 
 
 def sanitize_vote(value) -> str | None:
@@ -156,18 +176,27 @@ class SQLStore:
         sql = """
             INSERT INTO expenditures
                 (department, sub_department, account_number, line_item,
-                 revised_budget, ytd_expended, quarter, year, source_chunk_id, source_file)
+                 revised_budget, ytd_expended, quarter, year, source_chunk_id, source_file,
+                 department_id)
             VALUES
                 (%(department)s, %(sub_department)s, %(account_number)s, %(line_item)s,
                  %(revised_budget)s, %(ytd_expended)s, %(quarter)s, %(year)s,
-                 %(source_chunk_id)s, %(source_file)s)
+                 %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # Resolve FKs BEFORE opening the insert cursor (not per-row inside it).
+        # resolve_department_id opens its own self.cursor(); OUTSIDE a transaction that
+        # path calls _get_live_conn(), whose "reconnect if idle" defensive rollback would
+        # discard rows already cur.execute()'d earlier in this same batch. Resolving up
+        # front (here and in EVERY resolver-using insert method) makes each method
+        # self-safe whether or not the caller wrapped a sql_store.transaction().
+        for row in rows:
+            row.setdefault("sub_department", None)
+            row.setdefault("account_number", None)
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("sub_department", None)
-                row.setdefault("account_number", None)
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
         logger.debug("Inserted %d expenditure rows from chunk %s", len(rows), source_chunk_id)
 
@@ -175,26 +204,31 @@ class SQLStore:
         sql = """
             INSERT INTO metrics
                 (department, metric_name, metric_value, metric_unit, quarter, year,
-                 source_chunk_id, source_file)
+                 source_chunk_id, source_file, department_id)
             VALUES
                 (%(department)s, %(metric_name)s, %(metric_value)s, %(metric_unit)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            row.setdefault("metric_unit", None)
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("metric_unit", None)
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
 
     def insert_grant_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO grants
                 (department, grant_name, grant_number, amount, start_date, end_date,
-                 status, source_chunk_id, source_file)
+                 status, source_chunk_id, source_file, department_id)
             VALUES
                 (%(department)s, %(grant_name)s, %(grant_number)s, %(amount)s,
-                 %(start_date)s, %(end_date)s, %(status)s, %(source_chunk_id)s, %(source_file)s)
+                 %(start_date)s, %(end_date)s, %(status)s, %(source_chunk_id)s, %(source_file)s,
+                 %(department_id)s)
         """
         def _norm_date(v):
             # accept only full YYYY-MM-DD; coerce year-only / garbage to NULL
@@ -206,52 +240,67 @@ class SQLStore:
             except (ValueError, TypeError):
                 return None
 
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            row.setdefault("grant_number", None)
+            row.setdefault("status", None)
+            row["start_date"] = _norm_date(row.get("start_date"))
+            row["end_date"] = _norm_date(row.get("end_date"))
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                row.setdefault("grant_number", None)
-                row.setdefault("status", None)
-                row["start_date"] = _norm_date(row.get("start_date"))
-                row["end_date"] = _norm_date(row.get("end_date"))
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
 
     def insert_vacancy_rows(self, rows: list[dict[str, Any]], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO vacancies
-                (department, position_title, status, open_count, quarter, year,
-                 source_chunk_id, source_file)
+                (department, position_title, status, open_count, quarter, year, source_chunk_id,
+                 source_file, department_id)
             VALUES
                 (%(department)s, %(position_title)s, %(status)s, %(open_count)s,
-                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s)
+                 %(quarter)s, %(year)s, %(source_chunk_id)s, %(source_file)s, %(department_id)s)
         """
+        # See insert_expenditure_rows: resolve before opening the cursor (this path
+        # also runs outside sql_store.transaction()).
+        for row in rows:
+            # extractor emits "count"; the column is open_count. Tolerate either.
+            row.setdefault("open_count", row.get("count"))
+            row["source_chunk_id"] = uuid.UUID(source_chunk_id)
+            row["source_file"] = source_file
+            row["department_id"] = self.resolve_department_id(row.get("department"))
         with self.cursor() as cur:
             for row in rows:
-                # extractor emits "count"; the column is open_count. Tolerate either.
-                row.setdefault("open_count", row.get("count"))
-                row["source_chunk_id"] = uuid.UUID(source_chunk_id)
-                row["source_file"] = source_file
                 cur.execute(sql, _clip(row))
 
     def record_document(self, source_file: str, department: str, document_type: str,
                         quarter: str, year: int, parser_used: str, total_chunks: int) -> None:
+        # Not called inside a rows loop (one document per call) and not nested inside
+        # any other open cursor, so resolving before the upsert is always safe here.
+        self.ensure_document_type(document_type)
+        department_id = self.resolve_department_id(department)
         sql = """
-            INSERT INTO documents (source_file, department, document_type, quarter, year, parser_used, total_chunks)
+            INSERT INTO documents (source_file, department, document_type, quarter, year, parser_used,
+                                    total_chunks, department_id)
             VALUES (%(source_file)s, %(department)s, %(document_type)s, %(quarter)s, %(year)s,
-                    %(parser_used)s, %(total_chunks)s)
+                    %(parser_used)s, %(total_chunks)s, %(department_id)s)
             ON CONFLICT (source_file) DO UPDATE
             SET reingested_at = NOW(), total_chunks = EXCLUDED.total_chunks,
                 parser_used = EXCLUDED.parser_used,
                 document_type = EXCLUDED.document_type,
                 department = EXCLUDED.department,
                 quarter = EXCLUDED.quarter,
-                year = EXCLUDED.year
+                year = EXCLUDED.year,
+                department_id = EXCLUDED.department_id
         """
         with self.cursor() as cur:
             cur.execute(sql, {
                 "source_file": source_file, "department": department,
                 "document_type": document_type, "quarter": quarter, "year": year,
                 "parser_used": parser_used, "total_chunks": total_chunks,
+                "department_id": department_id,
             })
 
     def insert_review_flag(self, source_file: str, stage: str, reason: str, detail: str = "") -> None:
@@ -261,6 +310,140 @@ class SQLStore:
                 "VALUES (%s, %s, %s, %s)",
                 (source_file, stage, reason, detail),
             )
+
+    # ------------------------------------------------------------------
+    # Entity resolvers
+    # ------------------------------------------------------------------
+
+    def _flag(self, cur, stage, reason, detail):
+        cur.execute(
+            "INSERT INTO review_flags (source_file, stage, reason, detail) "
+            "VALUES ('entity-resolver', %s, %s, %s)", (stage, reason, detail))
+
+    def _flag_near_dup(self, cur, table, key, raw):
+        cur.execute(
+            f"SELECT canonical_name FROM {table} "
+            f"WHERE similarity(canonical_key, %s) > %s AND canonical_key <> %s "
+            f"ORDER BY similarity(canonical_key, %s) DESC LIMIT 1",
+            (key, _NEAR_DUP_THRESHOLD, key, key))
+        row = cur.fetchone()
+        if row:
+            self._flag(cur, "validate", f"possible_duplicate_{table[:-1]}",
+                       f"'{raw}' resembles existing '{row['canonical_name']}'")
+
+    def _resolve_entity(self, table, raw, key, display, *, create, extra_cols=None):
+        if not key:
+            return None
+        alias_table, fk, maxlen, key_maxlen = _ALIAS_FK[table]
+        # Truncate BEFORE any lookup or INSERT: an over-long value would otherwise
+        # exceed the canonical_name/alias/canonical_key VARCHAR width and raise
+        # "value too long", aborting whatever batch/transaction called this resolver.
+        # `key` is bounded ONCE here so the canonical_key SELECTs and the INSERT all
+        # use the same value — a name that would overflow can't crash, and two names
+        # sharing the truncated prefix resolve to one entity (fine for pathological
+        # inputs).
+        raw = raw[:maxlen]
+        display = display[:maxlen]
+        key = key[:key_maxlen]
+        with self.cursor() as cur:
+            cur.execute(
+                f"SELECT {fk} AS id FROM {alias_table} WHERE LOWER(alias) = LOWER(%s)", (raw,))
+            row = cur.fetchone()
+            if row:
+                return row["id"]
+            cur.execute(f"SELECT id FROM {table} WHERE canonical_key = %s", (key,))
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    f"INSERT INTO {alias_table} ({fk}, alias) VALUES (%s, %s) "
+                    f"ON CONFLICT (alias) DO NOTHING", (row["id"], raw))
+                return row["id"]
+            if not create:
+                self._flag(cur, "validate", f"unmapped_{table[:-1]}", raw)
+                return None
+            self._flag_near_dup(cur, table, key, raw)
+            cols = ["canonical_name", "canonical_key"] + list((extra_cols or {}).keys())
+            vals = [display, key] + list((extra_cols or {}).values())
+            ph = ", ".join(["%s"] * len(vals))
+            cur.execute(
+                f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({ph}) "
+                f"ON CONFLICT (canonical_key) DO NOTHING RETURNING id", vals)
+            row = cur.fetchone()
+            if row is None:  # concurrent create won the race
+                cur.execute(f"SELECT id FROM {table} WHERE canonical_key = %s", (key,))
+                row = cur.fetchone()
+            entity_id = row["id"]
+            cur.execute(
+                f"INSERT INTO {alias_table} ({fk}, alias) VALUES (%s, %s) "
+                f"ON CONFLICT (alias) DO NOTHING", (entity_id, raw))
+            return entity_id
+
+    def resolve_department_id(self, name, *, create=True):
+        return self._resolve_entity(
+            "departments", name, department_key(name), (name or "").strip(),
+            create=create, extra_cols={"dept_type": infer_dept_type(name)})
+
+    def resolve_member_id(self, name, *, create=True):
+        from src.ingestion.names import normalize_person_name
+        display = normalize_person_name(name)
+        return self._resolve_entity(
+            "council_members", name, member_key(name), display, create=create)
+
+    def resolve_vendor_id(self, name, *, create=True):
+        return self._resolve_entity(
+            "vendors", name, vendor_key(name), (name or "").strip(), create=create)
+
+    def _merge_simple(self, cur, dim_table, alias_table, alias_fk, fk_targets, dup_id, keep_id):
+        """Repoint aliases + all FK columns to keep_id, then deactivate dup_id.
+
+        Args:
+            cur: Database cursor.
+            dim_table: Main dimension table (e.g., 'departments').
+            alias_table: Alias table for this dimension (e.g., 'department_aliases').
+            alias_fk: FK column name in alias_table (e.g., 'department_id').
+            fk_targets: List of (table, column) tuples referencing this dimension.
+            dup_id: ID of the duplicate row to merge away.
+            keep_id: ID of the canonical row to keep.
+        """
+        if dup_id == keep_id:
+            return
+        cur.execute(
+            f"UPDATE {alias_table} SET {alias_fk} = %s WHERE {alias_fk} = %s", (keep_id, dup_id))
+        for tbl, col in fk_targets:
+            cur.execute(f"UPDATE {tbl} SET {col} = %s WHERE {col} = %s", (keep_id, dup_id))
+        cur.execute(f"UPDATE {dim_table} SET active = FALSE WHERE id = %s", (dup_id,))
+
+    def merge_department(self, dup_id, keep_id):
+        """Merge a duplicate department into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "departments", "department_aliases", "department_id",
+                [(t, "department_id") for t in _DEPT_FK_TABLES], dup_id, keep_id)
+
+    def merge_member(self, dup_id, keep_id):
+        """Merge a duplicate council member into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "council_members", "council_member_aliases", "member_id",
+                [("votes", "member_id"), ("meetings", "president_id"),
+                 ("legislation", "sponsor_id"), ("meeting_attendance", "member_id")],
+                dup_id, keep_id)
+
+    def merge_vendor(self, dup_id, keep_id):
+        """Merge a duplicate vendor into the canonical one."""
+        with self.cursor() as cur:
+            self._merge_simple(
+                cur, "vendors", "vendor_aliases", "vendor_id",
+                [("resolutions", "vendor_id")], dup_id, keep_id)
+
+    def ensure_document_type(self, type_name):
+        if not type_name:
+            return
+        with self.cursor() as cur:
+            cur.execute(
+                "INSERT INTO document_type_registry (type_name, display_name, added_by) "
+                "VALUES (%s, %s, 'auto') ON CONFLICT (type_name) DO NOTHING",
+                (type_name, type_name))
 
     def get_unresolved_review_flags(self) -> list[dict[str, Any]]:
         with self.cursor() as cur:
@@ -360,9 +543,17 @@ class SQLStore:
         sql = """
             INSERT INTO resolutions
               (resolution_number, title, amount, vendor, department, adopted_date,
-               status, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               status, source_chunk_id, source_file, department_id, vendor_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Resolve ALL FKs BEFORE opening the insert cursor: a resolver opens its own
+        # self.cursor(), and outside a transaction that path pings+rolls back the shared
+        # connection (see insert_expenditure_rows), which would discard rows already
+        # inserted earlier in this batch. Resolving up front makes this self-safe whether
+        # or not the caller wrapped a transaction.
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
+            r["vendor_id"] = self.resolve_vendor_id(r.get("vendor"))
         with self.cursor() as cur:
             for r in rows:
                 _clip(r)
@@ -370,20 +561,24 @@ class SQLStore:
                     r.get("resolution_number"), r.get("title"), r.get("amount"),
                     r.get("vendor"), r.get("department"), r.get("adopted_date") or None,
                     r.get("status"), source_chunk_id, source_file,
+                    r.get("department_id"), r.get("vendor_id"),
                 ))
 
     def insert_vote_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO votes
-              (resolution_number, council_member, vote, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s)
+              (resolution_number, council_member, vote, source_chunk_id, source_file, member_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
         """
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        for r in rows:
+            r["member_id"] = self.resolve_member_id(r.get("council_member"))
         with self.cursor() as cur:
             for r in rows:
                 _clip(r)
                 cur.execute(sql, (
                     r.get("resolution_number"), r.get("council_member"),
-                    sanitize_vote(r.get("vote")), source_chunk_id, source_file,
+                    sanitize_vote(r.get("vote")), source_chunk_id, source_file, r.get("member_id"),
                 ))
 
     def insert_meeting_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
@@ -391,18 +586,63 @@ class SQLStore:
             INSERT INTO meetings
               (meeting_date, session_type, president, members_present,
                members_present_names, members_absent_names, call_to_order, adjourned,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, president_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
         """
+        # Resolve ALL member FKs (president + attendance) BEFORE opening the insert
+        # cursor — self-safe (see insert_resolution_rows). meeting_id comes from
+        # RETURNING id inside the cursor, so we can't pre-insert attendance, but we CAN
+        # pre-resolve every (member_id, status) pair; the in-cursor step is then pure
+        # junction INSERTs with no resolver calls. prepped[i] =
+        # (row, president_id, attendance_pairs, expected_present).
+        prepped = [
+            (r,
+             self.resolve_member_id(r.get("president")),
+             self._resolve_attendance(r.get("members_present_names"), r.get("members_absent_names")),
+             r.get("members_present"))
+            for r in rows
+        ]
         with self.cursor() as cur:
-            for r in rows:
+            for r, president_id, pairs, expected_present in prepped:
                 _clip(r)
                 cur.execute(sql, (
                     r.get("meeting_date") or None, r.get("session_type"), r.get("president"),
                     r.get("members_present"), r.get("members_present_names"),
                     r.get("members_absent_names"), r.get("call_to_order"), r.get("adjourned"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, president_id,
                 ))
+                meeting_id = cur.fetchone()["id"]
+                self._write_attendance(cur, meeting_id, pairs, expected_present)
+
+    def _resolve_attendance(self, present_names, absent_names):
+        """Parse the comma-separated present/absent name lists into resolved
+        (member_id, status) pairs. Calls resolve_member_id (which opens its own
+        cursor), so this MUST run OUTSIDE the meetings insert cursor."""
+        from src.ingestion.names import normalize_person_name
+        pairs = []
+        for names, status in ((present_names, "present"), (absent_names, "absent")):
+            for raw in (names or "").split(","):
+                clean = normalize_person_name(raw)
+                if not clean:
+                    continue
+                pairs.append((self.resolve_member_id(clean), status))
+        return pairs
+
+    def _write_attendance(self, cur, meeting_id, pairs, expected_present):
+        """Insert PRE-RESOLVED (member_id, status) attendance pairs for one meeting.
+        No resolver calls here, so it is safe to run inside the meetings insert cursor."""
+        seen = 0
+        for member_id, status in pairs:
+            cur.execute(
+                "INSERT INTO meeting_attendance (meeting_id, member_id, status) "
+                "VALUES (%s, %s, %s) ON CONFLICT (meeting_id, member_id) DO NOTHING",
+                (meeting_id, member_id, status))
+            if status == "present":
+                seen += 1
+        if expected_present is not None and seen != expected_present:
+            self._flag(cur, "validate", "attendance_count_mismatch",
+                       f"meeting {meeting_id}: parsed {seen} present vs stated {expected_present}")
 
     def insert_meeting_action_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
@@ -424,45 +664,58 @@ class SQLStore:
         sql = """
             INSERT INTO legislation
               (bill_number, title, sponsor, amount, adopted_date, status,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, sponsor_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        # match-only (create=False): a "sponsor" may be a committee name, which must
+        # NOT be auto-created as a council member.
+        for r in rows:
+            r["sponsor_id"] = self.resolve_member_id(r.get("sponsor"), create=False)
         with self.cursor() as cur:
             for r in rows:
                 _clip(r)
                 cur.execute(sql, (
                     r.get("bill_number"), r.get("title"), r.get("sponsor"), r.get("amount"),
                     r.get("adopted_date") or None, r.get("status"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, r.get("sponsor_id"),
                 ))
 
     def insert_appropriation_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO appropriations
-              (department, fiscal_year, fund, category, amount, source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+              (department, fiscal_year, fund, category, amount, source_chunk_id, source_file,
+               department_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
         with self.cursor() as cur:
             for r in rows:
                 _clip(r)
                 cur.execute(sql, (
                     r.get("department"), r.get("fiscal_year"), r.get("fund"),
                     r.get("category"), r.get("amount"), source_chunk_id, source_file,
+                    r.get("department_id"),
                 ))
 
     def insert_goal_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
         sql = """
             INSERT INTO goals
               (department, year, quarter, goal_title, description, target, status,
-               source_chunk_id, source_file)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               source_chunk_id, source_file, department_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
+        # Resolve before opening the cursor — self-safe (see insert_resolution_rows).
+        for r in rows:
+            r["department_id"] = self.resolve_department_id(r.get("department"))
         with self.cursor() as cur:
             for r in rows:
                 cur.execute(sql, (
                     r.get("department"), r.get("year"), r.get("quarter"),
                     r.get("goal_title"), r.get("description"), r.get("target"), r.get("status"),
-                    source_chunk_id, source_file,
+                    source_chunk_id, source_file, r.get("department_id"),
                 ))
 
     def insert_project_rows(self, rows: list[dict], source_chunk_id: str, source_file: str) -> None:
