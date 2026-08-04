@@ -276,6 +276,38 @@ def test_legislation_status_is_wired_into_build():
     assert [r["current_stage"] for r in out["legislation_status"]] == ["in_committee", "passed"]
 
 
+def test_build_grant_rollup_flags_expiry_sums_and_orders_attention_first():
+    now = datetime.datetime(2026, 7, 1, tzinfo=datetime.timezone.utc)  # fixed "today"
+    store = _FakeStore({"FROM grants": [
+        {"id": 1, "grant_name": "CDBG", "grant_number": "B-26", "department": "Community Dev",
+         "amount": decimal.Decimal("500000"), "start_date": datetime.date(2025, 1, 1),
+         "end_date": datetime.date(2026, 3, 1), "status": "active"},     # ended -> expired
+        {"id": 2, "grant_name": "BUILD Grant", "grant_number": "D-9", "department": "Engineering",
+         "amount": decimal.Decimal("3000000"), "start_date": datetime.date(2026, 1, 1),
+         "end_date": datetime.date(2026, 9, 1), "status": "awarded"},    # within 120d -> expiring
+        {"id": 3, "grant_name": "Tree Canopy", "grant_number": None, "department": "Parks",
+         "amount": decimal.Decimal("120000"), "start_date": datetime.date(2026, 1, 1),
+         "end_date": datetime.date(2027, 12, 1), "status": "active"},    # healthy
+        {"id": 4, "grant_name": "Old Sidewalks", "grant_number": None, "department": "Public Works",
+         "amount": decimal.Decimal("50000"), "start_date": datetime.date(2023, 1, 1),
+         "end_date": datetime.date(2024, 1, 1), "status": "closed"},     # past end but Closed
+    ]})
+    out = DashboardAggregator(store, now=now)._build_grant_rollup()
+    g = {x["grant_name"]: x for x in out["grants"]}
+    assert g["CDBG"]["expired"] is True and g["CDBG"]["expiring"] is False
+    assert g["BUILD Grant"]["expiring"] is True and g["BUILD Grant"]["expired"] is False
+    assert g["Tree Canopy"]["expired"] is False and g["Tree Canopy"]["expiring"] is False
+    assert g["Old Sidewalks"]["expired"] is False   # Closed grants are never flagged expired
+    # awarded-only: no fabricated spend/remaining fields anywhere
+    assert "spent" not in g["CDBG"] and "remaining" not in g["CDBG"]
+    s = out["summary"]
+    assert s["total"] == 4 and s["expired"] == 1 and s["expiring"] == 1
+    assert s["total_awarded"] == 3670000.0
+    assert s["active_funding"] == 3620000.0          # Active + Awarded, excludes the Closed grant
+    # attention-first ordering: expired, then expiring, then the rest
+    assert [x["grant_name"] for x in out["grants"][:2]] == ["CDBG", "BUILD Grant"]
+
+
 def test_build_metrics_keeps_latest_per_metric_and_groups_by_dept():
     import decimal
     store = _FakeStore({"FROM metrics": [
@@ -365,7 +397,7 @@ def test_build_never_raises_records_errors():
         "kpis", "timeline", "tables", "departments", "resolutions",
         "goals", "legislation", "legislation_status", "meetings", "budget", "vacancies", "boards",
         "votes", "metrics", "vendor_spend", "commitments", "review_questions", "projects",
-        "ytd",
+        "ytd", "grant_rollup",
     }
 
 

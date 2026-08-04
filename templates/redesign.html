@@ -259,10 +259,11 @@
           <div class="card" style="overflow:hidden"><table><thead><tr><th>Department</th><th class="num">Council-authorized</th><th class="num">YTD spent</th></tr></thead><tbody id="ft-auth"></tbody></table></div>
         </div>
         <div id="money-grants-wrap" style="display:none">
+          <div id="grant-rollup-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px"></div>
           <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants expiring soon</h2>
           <div class="card" style="overflow:hidden;margin-bottom:30px"><table><thead><tr><th>Grant</th><th>Department</th><th class="num">Days left</th><th>End date</th><th class="num">Award</th></tr></thead><tbody id="ft-grants"></tbody></table></div>
-          <h2 class="sec" style="font-size:18px;margin-bottom:12px">Grants — external awards</h2>
-          <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>End date</th></tr></thead><tbody id="money-grants"></tbody></table></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px"><h2 class="sec" style="font-size:18px">Grant status rollup</h2><span style="font-size:12px;color:#a7a298">awarded amounts — source data has no spend/drawdown figures</span></div>
+          <div class="card" style="overflow:hidden"><table><thead><tr><th>Grant</th><th>Department</th><th>Status</th><th class="num">Award</th><th>Window</th></tr></thead><tbody id="money-grants"></tbody></table></div>
         </div>
         <div id="money-vendors-wrap" style="display:none">
           <h2 class="sec" style="font-size:18px;margin-bottom:12px">Spend by vendor</h2>
@@ -442,7 +443,7 @@ function pctColor(p){ return p>=95?'#a0302a':p>=85?'#c4691e':'#16344f'; }
 function pill(kind){ return 'pill p-'+kind; }
 function statusPill(s){
   const k={adopted:'green',passed:'green',approved:'green',active:'green',awarded:'green','on track':'green',met:'teal',
-    signed:'green',pending:'amber',applied:'amber',introduced:'amber','in committee':'amber',tabled:'amber','at risk':'amber',
+    signed:'green',pending:'amber',applied:'amber',proposed:'amber',introduced:'amber','in committee':'amber',tabled:'amber','at risk':'amber',
     behind:'red',vetoed:'red',closed:'grey'};
   return pill(k[String(s||'').toLowerCase()]||'grey');
 }
@@ -676,8 +677,24 @@ function renderMoney(){
   }
   $('#money-attention').innerHTML=att;
   $('#money-budget').innerHTML = bd.length?bd.sort((a,b)=>b.revised_budget-a.revised_budget).map(b=>{const p=b.revised_budget?Math.round(b.ytd_expended/b.revised_budget*100):0;return `<tr><td style="font-weight:500">${cell(b.department)}</td><td class="num mono" style="color:#6f6b64">${money(b.revised_budget)}</td><td class="num mono">${money(b.ytd_expended)}</td><td><div style="display:flex;align-items:center;gap:10px"><div class="barbg" style="flex:1"><div style="width:${Math.min(p,100)}%;background:${pctColor(p)}"></div></div><span class="mono" style="font-size:12px;color:#4a4744;width:34px;text-align:right">${p}%</span></div></td></tr>`;}).join(''):'<tr><td colspan="4" class="empty">No budget data for this department.</td></tr>';
-  const gr=grantsList().filter(g=>deptMatch(g.department));
-  $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span></td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
+  // Grant status rollup: prefer the deduped, expiry-flagged server rollup; fall
+  // back to the raw grants table when the panel is absent (older payloads).
+  const roll=(D.grant_rollup&&Array.isArray(D.grant_rollup.grants))?D.grant_rollup.grants:null;
+  const gr=(roll||grantsList()).filter(g=>deptMatch(g.department));
+  // summary chips are computed from the shown (dept-filtered) set so they always
+  // match the list below — never a citywide total sitting over a filtered table.
+  const gAward=gr.reduce((s,g)=>s+(g.amount||0),0);
+  const gActive=gr.reduce((s,g)=>s+((g.status==='Active'||g.status==='Awarded')?(g.amount||0):0),0);
+  const gChip=(l,v,c)=>`<div class="kpi" style="flex:1;min-width:148px"><div class="bar" style="background:${c}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+  $('#grant-rollup-summary').innerHTML = roll?(
+    gChip('Grants',gr.length,'#0f6e63')+gChip('Total awarded',money(gAward),'#16344f')
+    +gChip('Active funding',money(gActive),'#0f6e63')
+    +gChip('Expiring ≤120d',gr.filter(g=>g.expiring).length,gr.some(g=>g.expiring)?'#c4691e':'#16344f')
+    +gChip('Expired',gr.filter(g=>g.expired).length,gr.some(g=>g.expired)?'#a0302a':'#16344f')):'';
+  const gFlag=g=>g.expired?'<span class="pill p-red" style="margin-left:6px">Expired</span>'
+    :g.expiring?'<span class="pill p-amber" style="margin-left:6px">Expiring</span>':'';
+  const gWin=g=>{const a=g.start_date?cell(g.start_date):'',b=g.end_date?cell(g.end_date):'';return (a||b)?`${a||'—'} → ${b||'—'}`:'—';};
+  $('#money-grants').innerHTML = gr.length?gr.map(g=>`<tr><td style="font-weight:500">${cell(g.grant_name)}</td><td style="color:#6f6b64">${cell(g.department)}</td><td><span class="${statusPill(g.status)}">${cell(g.status)}</span>${roll?gFlag(g):''}</td><td class="num mono">${money(g.amount)}</td><td class="mono" style="font-size:12px;color:#6f6b64">${roll?gWin(g):cell(g.end_date)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">No grants for this department.</td></tr>';
   // authorized vs. spent (respects the department filter)
   const c=D.commitments||{authorized_vs_spent:[],grants_expiring:[]};
   const av=(c.authorized_vs_spent||[]).filter(d=>deptMatch(d.department));
