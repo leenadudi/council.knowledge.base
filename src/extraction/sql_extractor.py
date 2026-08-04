@@ -15,6 +15,7 @@ from typing import Any, Optional, get_args
 from src.llm.client import TrackedAnthropic
 
 from src.config import Settings, get_settings
+from src.ingestion.entity_keys import dedupe_grant_rows
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +135,19 @@ class SQLExtractor:
                     best[k] = r
             return list(best.values())
 
+        # Grants: like projects, the same grant recurs across chunks under name
+        # variants ("CDBG (…)" vs "… (CDBG) Program"), so exact-row dedup misses
+        # it. Collapse by canonical grant key, keeping the most complete row.
         out = {}
         for k, v in merged.items():
             if not v:
                 continue
-            out[k] = _dedup_projects(_dedup(v)) if k == "projects" else _dedup(v)
+            if k == "projects":
+                out[k] = _dedup_projects(_dedup(v))
+            elif k == "grants":
+                out[k] = dedupe_grant_rows(_dedup(v))
+            else:
+                out[k] = _dedup(v)
         return out
 
     def _schema_extract_batch(self, chunks, schema_cls, attempts: int = 3,
