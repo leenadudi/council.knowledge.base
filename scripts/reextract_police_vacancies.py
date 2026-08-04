@@ -79,7 +79,7 @@ def main(write: bool):
             with store.cursor() as cur:
                 cur.execute("DELETE FROM vacancies WHERE source_chunk_id IN "
                             "(SELECT chunk_id FROM document_chunks WHERE source_file=%s)", (sf,))
-            store.insert_vacancy_rows(new_rows, rep_chunk_id)
+            store.insert_vacancy_rows(new_rows, rep_chunk_id, sf)
             print(f"    -> wrote {len(new_rows)} rows (replaced {len(before)})")
         print()
 

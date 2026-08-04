@@ -27,6 +27,12 @@ class FakeCursor:
     def fetchone(self):
         return self._next
 
+    def fetchall(self):
+        # Only delete_structured_rows' dynamic-type-registry cleanup calls fetchall()
+        # (SELECT ... FROM document_type_registry); this fixture models a registry
+        # with no data-driven types registered, so there's nothing to iterate.
+        return []
+
     def close(self):
         pass
 

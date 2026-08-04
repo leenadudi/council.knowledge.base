@@ -303,7 +303,7 @@ def test_build_never_raises_records_errors():
     assert out["departments"] is None and out["resolutions"] is None
     assert set(out["errors"].keys()) == {
         "kpis", "timeline", "tables", "departments", "resolutions",
-        "goals", "legislation", "meetings", "budget", "vacancies",
+        "goals", "legislation", "meetings", "budget", "vacancies", "boards",
         "votes", "metrics", "vendor_spend", "commitments", "review_questions", "projects",
     }
 
