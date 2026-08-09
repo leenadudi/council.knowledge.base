@@ -16,6 +16,24 @@ from collections import Counter
 from datetime import timezone
 
 from src.dashboard.aggregator import DashboardAggregator  # noqa: F401 (kept for parity/reuse)
+from src.ingestion.entity_keys import grant_key
+
+
+def _period_label(year, quarter) -> str:
+    return f"{(quarter or '').strip()} {year}".strip() if year else (quarter or "").strip()
+
+
+def _period_tuple(year, quarter):
+    return (int(year) if year is not None else 0, (quarter or "").strip())
+
+
+def _grant_completeness(r: dict) -> tuple:
+    """Rank a grant row by how much it pins down — picks which row in a rolled-up
+    group supplies the award amount and dates."""
+    filled = sum(1 for f in ("amount", "start_date", "end_date") if r.get(f) is not None)
+    if (r.get("grant_number") or "").strip():
+        filled += 1
+    return (filled, float(r["amount"]) if r.get("amount") is not None else 0.0)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +107,14 @@ class Projects:
         today = self.now.date()
         horizon = today + datetime.timedelta(days=_EXPIRING_DAYS)
         with self.sql.cursor() as cur:
-            cur.execute("SELECT id, grant_name, department, amount, start_date, "
-                        "end_date, status, source_file FROM grants")
-            grant_rows = DashboardAggregator._dedupe_grants([dict(r) for r in cur.fetchall()])
+            # Period per grant row comes from its source document (the grants table
+            # has no quarter/year); LATERAL keeps it one row per grant.
+            cur.execute("SELECT g.id, g.grant_name, g.department, g.amount, g.start_date, "
+                        "g.end_date, g.status, g.source_file, d.quarter, d.year "
+                        "FROM grants g LEFT JOIN LATERAL ("
+                        "SELECT quarter, year FROM documents WHERE source_file = g.source_file "
+                        "ORDER BY year DESC NULLS LAST, quarter DESC LIMIT 1) d ON TRUE")
+            grant_rows = [dict(r) for r in cur.fetchall()]
             cur.execute("SELECT resolution_number, title, vendor, amount, department, "
                         "adopted_date, status, source_file FROM resolutions")
             res_rows = [dict(r) for r in cur.fetchall()]
@@ -112,22 +135,38 @@ class Projects:
         projects: list[dict] = []
         administrative: list[dict] = []
 
+        # Roll grant rows up by canonical grant key: one project per real grant,
+        # carrying its quarter-by-quarter status trail. The latest report drives the
+        # status pill and display; the most complete row supplies the award amount
+        # and dates. Same grant re-extracted across reports (or under name variants,
+        # even in a renamed department) collapses into one tracked project.
+        grant_groups: dict = {}
         for r in grant_rows:
-            title = (r.get("grant_name") or "").strip()
-            if not title:
-                continue
-            amount = float(r["amount"]) if r.get("amount") is not None else None
-            status = normalize_grant_status(r.get("status"))
-            end = r.get("end_date")
+            gk = grant_key(r.get("grant_name"))
+            if not gk:
+                continue  # blank / unkeyable name — nothing to track
+            grant_groups.setdefault(gk, []).append(r)
+
+        for grp in grant_groups.values():
+            grp.sort(key=lambda r: _period_tuple(r.get("year"), r.get("quarter")))
+            latest = grp[-1]
+            richest = max(grp, key=_grant_completeness)
+            amount = float(richest["amount"]) if richest.get("amount") is not None else None
+            status = normalize_grant_status(latest.get("status"))
+            end = richest.get("end_date")
             expiring = bool(end and hasattr(end, "toordinal") and today <= end <= horizon)
             projects.append({
-                "id": f"grant-{r['id']}", "source": "grant", "type": "grant",
-                "title": title, "department": r.get("department"),
+                "id": f"grant-{latest['id']}", "source": "grant", "type": "grant",
+                "title": (latest.get("grant_name") or "").strip(),
+                "department": latest.get("department"),
                 "party": None, "amount": amount, "status": status,
-                "date": _iso(r.get("start_date")), "end_date": _iso(end),
-                "source_file": r.get("source_file"), "resolution_number": None,
+                "date": _iso(richest.get("start_date")), "end_date": _iso(end),
+                "source_file": latest.get("source_file"), "resolution_number": None,
                 "attention": expiring or status == "Stalled",
                 "group_key": None,
+                "history": [{"period": _period_label(r.get("year"), r.get("quarter")),
+                             "status": r.get("status")} for r in grp],
+                "latest_period": _period_label(latest.get("year"), latest.get("quarter")),
             })
 
         for r in res_rows:

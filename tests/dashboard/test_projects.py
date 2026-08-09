@@ -83,6 +83,39 @@ def test_build_assembles_typed_projects_and_buckets_administrative():
     assert out["counts"]["by_type"]["grant"] == 1
 
 
+def test_build_rolls_up_grant_history_across_quarters():
+    # the clerk's "grant → summary": one project per real grant, with its
+    # quarter-by-quarter status trail; latest report drives the status pill,
+    # the richest row supplies the award amount.
+    now = datetime.datetime(2026, 3, 1, tzinfo=datetime.timezone.utc)
+    store = _FakeStore({
+        "FROM grants": [
+            {"id": 3, "grant_name": "Community Development Block Grant (CDBG) Program",
+             "department": "Department of Building & Housing Development",
+             "amount": None, "start_date": None, "end_date": None,
+             "status": "awarded", "source_file": "q1-26.pdf", "quarter": "Q1", "year": 2026},
+            {"id": 1, "grant_name": "Community Development Block Grant (CDBG)",
+             "department": "Department of Building & Housing Development",
+             "amount": None, "start_date": None, "end_date": None,
+             "status": "Scoring phase completed", "source_file": "q1-25.pdf", "quarter": "Q1", "year": 2025},
+            {"id": 2, "grant_name": "CDBG (Community Development Block Grant)",
+             "department": "Department of Economic Development & Building and Housing",
+             "amount": 1800000.0, "start_date": None, "end_date": None,
+             "status": "closed", "source_file": "q4-25.pdf", "quarter": "Q4", "year": 2025},
+        ],
+        "FROM resolutions": [],
+    })
+    out = Projects(store, now=now).build()
+    grants = [p for p in out["projects"] if p["source"] == "grant"]
+    assert len(grants) == 1
+    p = grants[0]
+    assert [h["period"] for h in p["history"]] == ["Q1 2025", "Q4 2025", "Q1 2026"]
+    assert p["history"][0]["status"] == "Scoring phase completed"
+    assert p["latest_period"] == "Q1 2026"
+    assert p["status"] == "Awarded"      # from the LATEST report, not the richest row
+    assert p["amount"] == 1800000.0      # richest row still supplies the award amount
+
+
 def test_build_flags_expiring_grant_as_attention():
     now = datetime.datetime(2026, 3, 1, tzinfo=datetime.timezone.utc)  # today = 2026-03-01
     store = _FakeStore({

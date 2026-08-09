@@ -1181,7 +1181,14 @@ function openProject(id){
     ${line('Date',p.date?esc(p.date):'')}
     ${line('End date',p.end_date?esc(p.end_date):'')}
     ${line('Resolution',p.resolution_number?esc(p.resolution_number):'')}
-    ${line('Source',p.source_file?esc(p.source_file):'')}`;
+    ${line('Source',p.source_file?esc(p.source_file):'')}
+    ${(p.history&&p.history.length>1)?`
+      <div style="margin-top:18px"><div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#a7a298;margin-bottom:9px">Status history</div>
+      ${p.history.map((h,i)=>`<div style="display:flex;align-items:baseline;gap:10px;padding:7px 0;${i<p.history.length-1?'border-bottom:1px solid rgba(28,27,25,.06)':''}">
+        <span class="mono" style="font-size:11px;color:#8a867d;min-width:58px;flex-shrink:0">${esc(h.period||'—')}</span>
+        <span style="font-size:13px;color:#1c1b19">${cell(h.status)}</span>
+        ${i===p.history.length-1?'<span style="font-size:10px;color:#0f6e63;font-weight:600;margin-left:auto;flex-shrink:0">latest</span>':''}
+      </div>`).join('')}</div>`:''}`;
   $('#dossier-close').onclick=closeDossier;
   $('#dossier').classList.add('open'); $('#dossier-overlay').classList.add('open');
 }
