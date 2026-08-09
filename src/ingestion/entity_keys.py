@@ -70,6 +70,25 @@ def _alnum(s: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
 
 
+def _expansion_match(acr: str, raw_toks: list[str]) -> bool:
+    """True when `acr` plausibly abbreviates the words in raw_toks — i.e. the
+    parenthetical pairs an acronym with its expansion ("CDBG (Community
+    Development Block Grant)") rather than a qualifier ("TASA Grant
+    (Walnut St.)"). Checks word membership, initials containment, and — for
+    long phrases — a first-initial match (covers reworded expansions like
+    "CDBG-CV (Community Block Grant-Coronavirus …)")."""
+    a = re.sub(r"[^a-z0-9]", "", acr)
+    toks = [t for t in (_alnum(t) for t in raw_toks) if t]
+    if not a or not toks:
+        return False
+    if a in toks:
+        return True
+    initials = "".join(t[0] for t in toks)
+    if a in initials or initials in a:
+        return True
+    return len(toks) >= 3 and initials[0] == a[0]
+
+
 def _core_tokens(s: str) -> list[str]:
     """Whitespace tokens with trailing noise words / bare years removed."""
     toks = s.split()
@@ -91,15 +110,15 @@ def grant_key(name: str | None) -> str:
         pre, inner, post = (t.strip() for t in m.groups())
         pre_toks = _core_tokens(pre)
         inner_toks = _core_tokens(inner)
-        if len(pre_toks) == 1:
-            # acronym before the parens: "CDBG (…)", "CDBG-CV Grant (…)"
+        if len(pre_toks) == 1 and _expansion_match(pre_toks[0], inner.split()):
+            # acronym + its expansion: "CDBG (Community Development Block Grant)"
             core = _alnum(pre_toks[0])
-        elif len(inner_toks) == 1 and pre_toks:
-            # acronym inside the parens: "Community Development Block Grant (CDBG)"
+        elif len(inner_toks) == 1 and pre_toks and _expansion_match(inner_toks[0], pre.split()):
+            # expansion + its acronym: "Community Development Block Grant (CDBG)"
             core = _alnum(inner_toks[0])
         else:
-            # neither side is an acronym — the parenthetical is a distinguishing
-            # qualifier ("Park Improvement Grant (Reservoir Park)"), keep both
+            # the parenthetical is a distinguishing qualifier ("Park Improvement
+            # Grant (Reservoir Park)", "TASA Grant (Walnut St.)") — keep both
             core = (" ".join(filter(None, [_alnum(" ".join(pre_toks)),
                                            _alnum(" ".join(inner_toks))]))
                     or _alnum(pre) or _alnum(inner))
