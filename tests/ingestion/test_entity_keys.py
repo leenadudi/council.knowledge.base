@@ -100,6 +100,14 @@ def test_grant_key_keeps_non_acronym_parentheticals_as_qualifiers():
     a = grant_key("Park Improvement Projects Grant (7th & Radnor Field)")
     b = grant_key("Park Improvement Projects Grant (Reservoir Park)")
     assert a != b
+    # a parenthetical that is NOT an expansion of the leading acronym is a
+    # qualifier too — different sites must not collapse into one grant
+    assert grant_key("TASA Grant (Walnut St.)") != grant_key("TASA Grant (Front St.)")
+    assert grant_key("TASA Grant (Walnut St.)") != grant_key("TASA Grant")
+    # same for a trailing non-expansion parenthetical
+    assert grant_key("Federal Grant (Health Office)") != grant_key("Federal Grant")
+    assert grant_key("Dauphin County Local Share Grant (Gaming)") != \
+        grant_key("Dauphin County Local Share Grant (Fire Station 1)")
 
 
 def test_grant_key_blank():
