@@ -70,6 +70,13 @@ def normalize_grant_status(s: str) -> str:
     return _GRANT_STATUS.get((s or "").strip().lower(), "Active")
 
 
+def grant_status_display(status: str, live: bool) -> str:
+    """Status label for the grant rollup. Recognized lifecycle statuses map as
+    usual; free-text or blank statuses (most of this data) fall back to live-ness
+    so they don't all read as 'Active' and inflate the active count."""
+    return _GRANT_STATUS.get((status or "").strip().lower()) or ("Active" if live else "Closed")
+
+
 def normalize_resolution_status(s: str) -> str:
     for rx, val in _RES_STATUS_RULES:
         if rx.search(s or ""):

@@ -300,12 +300,36 @@ def test_build_grant_rollup_flags_expiry_sums_and_orders_attention_first():
     assert g["Old Sidewalks"]["expired"] is False   # Closed grants are never flagged expired
     # awarded-only: no fabricated spend/remaining fields anywhere
     assert "spent" not in g["CDBG"] and "remaining" not in g["CDBG"]
+    assert g["CDBG"]["live"] is True and g["Old Sidewalks"]["live"] is False
     s = out["summary"]
-    assert s["total"] == 4 and s["expired"] == 1 and s["expiring"] == 1
+    assert s["total"] == 4 and s["active"] == 3 and s["expired"] == 1 and s["expiring"] == 1
     assert s["total_awarded"] == 3670000.0
-    assert s["active_funding"] == 3620000.0          # Active + Awarded, excludes the Closed grant
+    assert s["active_funding"] == 3620000.0          # live grants only (excludes the closed one)
     # attention-first ordering: expired, then expiring, then the rest
     assert [x["grant_name"] for x in out["grants"][:2]] == ["CDBG", "BUILD Grant"]
+
+
+def test_grant_rollup_narrative_status_is_not_defaulted_active():
+    # Most real grant statuses are free text ("working with consultant…"); they must
+    # NOT all read as Active and inflate the active count — the number has to match
+    # the City-at-a-glance KPI, which counts a grant live only if its status is
+    # recognizably active or its end date hasn't passed.
+    now = datetime.datetime(2026, 7, 1, tzinfo=datetime.timezone.utc)
+    store = _FakeStore({"FROM grants": [
+        {"id": 1, "grant_name": "Alpha", "grant_number": None, "department": "PW", "amount": 100.0,
+         "start_date": None, "end_date": None, "status": "working with consultant on scope"},
+        {"id": 2, "grant_name": "Beta", "grant_number": None, "department": "PW", "amount": 200.0,
+         "start_date": None, "end_date": datetime.date(2027, 1, 1), "status": "received"},  # future end -> live
+        {"id": 3, "grant_name": "Gamma", "grant_number": None, "department": "PW", "amount": 50.0,
+         "start_date": None, "end_date": None, "status": "active"},  # recognized active -> live
+    ]})
+    out = DashboardAggregator(store, now=now)._build_grant_rollup()
+    g = {x["grant_name"]: x for x in out["grants"]}
+    assert g["Alpha"]["live"] is False and g["Alpha"]["status"] == "Closed"   # narrative, no end date
+    assert g["Beta"]["live"] is True                                          # future end date
+    assert g["Gamma"]["live"] is True and g["Gamma"]["status"] == "Active"
+    assert out["summary"]["active"] == 2
+    assert out["summary"]["active_funding"] == 250.0                          # Beta + Gamma, not Alpha
 
 
 def test_build_metrics_keeps_latest_per_metric_and_groups_by_dept():
