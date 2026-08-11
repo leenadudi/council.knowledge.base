@@ -480,8 +480,8 @@ function deptMatch(dep){ return state.dept==='All' || dkey(dep)===dkey(state.dep
 function renderOverview(){
   const k=D.kpis||{}; const usedPct=k.revised_budget?Math.round(k.ytd_spend/k.revised_budget*100):0;
   const kpis=[
-    {lbl:'Active grants',val:k.active_grants??0,sub:money(k.grant_funds_active)+' active',bar:'#0f6e63',go:()=>{state.tab='money';setMoney('grants');}},
-    {lbl:'Budget used (YTD)',val:usedPct+'%',sub:'of revised budget',bar:'#16344f',go:()=>{state.tab='money';setMoney('budget');}},
+    {lbl:'Active grants',val:k.active_grants??0,sub:money(k.grant_funds_active)+' active',bar:'#0f6e63',go:()=>setMoney('grants')},
+    {lbl:'Budget used (YTD)',val:usedPct+'%',sub:'of revised budget',bar:'#16344f',go:()=>setMoney('budget')},
     {lbl:'Resolutions',val:(D.resolutions||[]).length,sub:'this year',bar:'#16344f',go:()=>setActivity('items')},
     {lbl:'Goals tracked',val:(D.goals||[]).length,sub:'department objectives',bar:'#0f6e63',go:()=>go('goals')},
     {lbl:'Meetings',val:(D.meetings||[]).length,sub:'legislative sessions',bar:'#16344f',go:()=>setActivity('timeline')},
