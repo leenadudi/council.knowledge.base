@@ -66,6 +66,14 @@ _GRANT_PAREN_RE = re.compile(r"^([^(]*)\(([^)]*)\)(.*)$")
 ACTIVE_GRANT_STATUSES = ("active", "in_progress", "open", "pending", "awarded")
 
 
+def is_grant_live(status, end_date, today) -> bool:
+    """One definition of an 'active' grant, shared by the dashboard KPIs and the
+    Finances grant rollup so they report the same number everywhere: live if the
+    status is recognizably active, or the end date has not yet passed."""
+    st = (status or "").strip().lower()
+    return st in ACTIVE_GRANT_STATUSES or (end_date is not None and end_date >= today)
+
+
 def _alnum(s: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
 

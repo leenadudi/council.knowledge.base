@@ -684,12 +684,15 @@ function renderMoney(){
   // summary chips are computed from the shown (dept-filtered) set so they always
   // match the list below — never a citywide total sitting over a filtered table.
   const gAward=gr.reduce((s,g)=>s+(g.amount||0),0);
-  const gActive=gr.reduce((s,g)=>s+((g.status==='Active'||g.status==='Awarded')?(g.amount||0):0),0);
+  // "Active" = live grants (recognized-active status or end date not passed), the
+  // same definition as the City-at-a-glance KPI — so the two views agree.
+  const gLive=gr.filter(g=>g.live), gActiveFunds=gLive.reduce((s,g)=>s+(g.amount||0),0);
   const gChip=(l,v,c)=>`<div class="kpi" style="flex:1;min-width:148px"><div class="bar" style="background:${c}"></div><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
   $('#grant-rollup-summary').innerHTML = roll?(
-    gChip('Grants',gr.length,'#0f6e63')+gChip('Total awarded',money(gAward),'#16344f')
-    +gChip('Active funding',money(gActive),'#0f6e63')
-    +gChip('Expiring ≤120d',gr.filter(g=>g.expiring).length,gr.some(g=>g.expiring)?'#c4691e':'#16344f')
+    gChip('Active grants',gLive.length,'#0f6e63')
+    +gChip('Active funding',money(gActiveFunds),'#0f6e63')
+    +gChip('Total grants',gr.length,'#16344f')
+    +gChip('Total awarded',money(gAward),'#16344f')
     +gChip('Expired',gr.filter(g=>g.expired).length,gr.some(g=>g.expired)?'#a0302a':'#16344f')):'';
   const gFlag=g=>g.expired?'<span class="pill p-red" style="margin-left:6px">Expired</span>'
     :g.expiring?'<span class="pill p-amber" style="margin-left:6px">Expiring</span>':'';

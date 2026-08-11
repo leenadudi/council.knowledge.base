@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import timezone
 
-from src.ingestion.entity_keys import dedupe_grant_rows
+from src.ingestion.entity_keys import dedupe_grant_rows, is_grant_live
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,15 @@ class DashboardAggregator:
         with self.sql.cursor() as cur:
             # De-duplicate grants before counting/summing so KPIs aren't inflated
             # by the same grant repeating across reports.
-            cur.execute("SELECT id, grant_name, department, amount, end_date, status FROM grants")
-            grant_rows = self._dedupe_grants([dict(r) for r in cur.fetchall()])
+            # Same columns the Finances rollup selects, so _dedupe_grants (which
+            # scores on grant_number/dates) keeps the same representative row per
+            # grant — otherwise the two views can disagree on a grant's live-ness.
+            cur.execute("SELECT id, grant_name, grant_number, department, amount, "
+                        "start_date, end_date, status FROM grants")
+            # Exclude blank-name rows (bad extractions) so the KPI counts the same
+            # actionable grants the rollup shows — one "active grants" number.
+            grant_rows = [g for g in self._dedupe_grants([dict(r) for r in cur.fetchall()])
+                          if (g.get("grant_name") or "").strip()]
             # Latest reporting period only (YTD is cumulative within a year), and
             # exclude Munis subtotal/total rows — otherwise we double-count across
             # years and sum subtotals into the headline figures.
@@ -104,8 +111,7 @@ class DashboardAggregator:
         # Grant KPIs over the de-duplicated set. A grant is "live" if its status is
         # active-ish or its end date hasn't passed; "expiring" if live and ending soon.
         def _live(r) -> bool:
-            st = (r.get("status") or "").strip().lower()
-            return st in _ACTIVE_STATUSES or (r.get("end_date") is not None and r["end_date"] >= today)
+            return is_grant_live(r.get("status"), r.get("end_date"), today)
         active = sum(1 for r in grant_rows if _live(r))
         expiring = sum(1 for r in grant_rows if _live(r) and r.get("end_date") is not None and r["end_date"] <= soon)
         funds = sum(float(r["amount"]) for r in grant_rows if _live(r) and r.get("amount") is not None)
@@ -697,7 +703,7 @@ class DashboardAggregator:
         (expiring within 120 days / expired). The grants table carries no
         spent/drawdown figures, so this reports the AWARDED amount only — it never
         invents a spend. Totals are grouped by normalized status."""
-        from src.dashboard.projects import normalize_grant_status
+        from src.dashboard.projects import grant_status_display
         today = self.now.date()
         horizon = today + datetime.timedelta(days=120)
         with self.sql.cursor() as cur:
@@ -714,15 +720,16 @@ class DashboardAggregator:
             if not name:
                 continue
             amount = float(r["amount"]) if r.get("amount") is not None else None
-            status = normalize_grant_status(r.get("status"))
             end = r.get("end_date")
+            live = is_grant_live(r.get("status"), end, today)
+            status = grant_status_display(r.get("status"), live)
             dated = hasattr(end, "toordinal")
             expired = bool(dated and end < today and status != "Closed")
             expiring = bool(dated and today <= end <= horizon and status != "Closed")
             grants.append({
                 "id": r.get("id"), "grant_name": name,
                 "grant_number": r.get("grant_number"), "department": r.get("department"),
-                "amount": amount, "status": status,
+                "amount": amount, "status": status, "live": live,
                 "start_date": _iso(r.get("start_date")), "end_date": _iso(end),
                 "expiring": expiring, "expired": expired,
             })
@@ -740,8 +747,9 @@ class DashboardAggregator:
             s["amount"] += g["amount"] or 0
         summary = {
             "total": len(grants),
+            "active": sum(1 for g in grants if g["live"]),
             "total_awarded": sum(g["amount"] or 0 for g in grants),
-            "active_funding": sum(g["amount"] or 0 for g in grants if g["status"] in ("Active", "Awarded")),
+            "active_funding": sum(g["amount"] or 0 for g in grants if g["live"]),
             "expiring": sum(1 for g in grants if g["expiring"]),
             "expired": sum(1 for g in grants if g["expired"]),
             "by_status": [by_status[k] for k in ("Active", "Awarded", "Proposed", "Closed") if k in by_status],
