@@ -482,8 +482,10 @@ function renderOverview(){
   const kpis=[
     {lbl:'Active grants',val:k.active_grants??0,sub:money(k.grant_funds_active)+' active',bar:'#0f6e63',go:()=>setMoney('grants')},
     {lbl:'Budget used (YTD)',val:usedPct+'%',sub:'of revised budget',bar:'#16344f',go:()=>setMoney('budget')},
-    {lbl:'Resolutions',val:(D.resolutions||[]).length,sub:'this year',bar:'#16344f',go:()=>setActivity('items')},
-    {lbl:'Goals tracked',val:(D.goals||[]).length,sub:'department objectives',bar:'#0f6e63',go:()=>go('goals')},
+    {lbl:'Resolutions',val:(D.resolutions||[]).length,sub:'on record',bar:'#16344f',go:()=>setActivity('items')},
+    // count distinct goals (collapsed across quarters) — matches the Goals tab's
+    // "All" count, not the raw per-quarter rows, which double-count the same goal.
+    {lbl:'Goals tracked',val:collapseGoals(D.goals||[]).length,sub:'department objectives',bar:'#0f6e63',go:()=>go('goals')},
     {lbl:'Meetings',val:(D.meetings||[]).length,sub:'legislative sessions',bar:'#16344f',go:()=>setActivity('timeline')},
   ];
   $('#ov-kpis').innerHTML=kpis.map((x,i)=>`<div class="kpi click" data-kpi="${i}"><div class="bar" style="background:${x.bar}"></div><div class="arrow">↗</div><div class="lbl">${x.lbl}</div><div class="val">${x.val}</div><div class="sub">${esc(x.sub)}</div></div>`).join('');
