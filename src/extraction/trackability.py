@@ -12,7 +12,7 @@ real label, mirroring the profiler's quarantine pattern. Labels are written to
 every row of the logical goal; rows with ``trackability_source='human'`` are
 never overwritten by the classifier.
 
-Design: docs/superpowers/specs/2026-07-29-goal-trackability-design.md
+Design: docs/design/specs/2026-07-29-goal-trackability-design.md
 """
 from __future__ import annotations
 

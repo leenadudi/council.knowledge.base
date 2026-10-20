@@ -4,7 +4,7 @@ Detection is 100% deterministic SQL over already-extracted data (goals,
 expenditures) and carries NO LLM cost — it is safe to call from the always-on
 dashboard build. The optional `phrase_questions` pass (Haiku) is the ONLY part
 that spends, and it is invoked on demand per department by the /questions route,
-never from build(). See docs/superpowers/specs/2026-07-09-next-quarter-questions-design.md.
+never from build(). See docs/design/specs/2026-07-09-next-quarter-questions-design.md.
 """
 from __future__ import annotations
 

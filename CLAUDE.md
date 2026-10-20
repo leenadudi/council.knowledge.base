@@ -60,4 +60,4 @@ Three-store retrieval-augmented pipeline. There is **no FastAPI/service layer** 
 
 ## Design docs
 
-`harrisburg_knowledge_base_spec.md` is the original spec. Dated `*_buildnotes.md` / `merge_*.md` files at the root are working design notes. `docs/` also contains many design/planning `.md` files alongside the PDFs.
+All design docs live in `docs/design/`: `original-spec.md` is the original spec, `specs/` and `plans/` hold dated per-feature design specs and implementation plans, and `notes/` holds working notes (clerk-meeting build notes, merge notes). `docs/` itself holds only the source PDFs (gitignored).

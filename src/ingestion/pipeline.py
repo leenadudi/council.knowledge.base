@@ -354,7 +354,7 @@ class IngestionPipeline:
 
         # quarterly_report: ONE schema-driven pass over all chunks (no routes_to_sql
         # gate, no keyword filters) → all six structured targets. See
-        # docs/superpowers/specs/2026-07-10-quarterly-report-extraction-unification-design.md
+        # docs/design/specs/2026-07-10-quarterly-report-extraction-unification-design.md
         if doc_type.name == "quarterly_report":
             q, y = metadata._split_period(profile.period) if profile else ("", None)
             dept = (profile.department if profile else "") or ""

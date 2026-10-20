@@ -1,5 +1,5 @@
 -- Legislative status tracking (2026-07-29). Idempotent; safe to re-run.
--- Spec: docs/superpowers/specs/2026-07-29-legislative-status-tracking-design.md
+-- Spec: docs/design/specs/2026-07-29-legislative-status-tracking-design.md
 
 CREATE TABLE IF NOT EXISTS legislative_items (
     id             SERIAL PRIMARY KEY,

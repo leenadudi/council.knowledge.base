@@ -29,3 +29,12 @@ env/
 
 # Docs folder (uploaded PDFs)
 docs/*.pdf
+docs/*.html
+
+# Local AI-assistant tooling
+.agents/
+.superpowers/
+.claude/worktrees/
+.claude/skills/full-output-enforcement
+.claude/skills/redesign-existing-projects
+skills-lock.json

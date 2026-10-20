@@ -5,7 +5,7 @@ grant is a grant-funded project, and each resolution is classified by type and
 surfaced as an initiative (land development, contract, grant action) or bucketed
 as administrative (budget/appointment). Assembled fresh every build, so newly
 ingested resolutions appear automatically. See
-docs/superpowers/specs/2026-07-09-projects-phase1-design.md.
+docs/design/specs/2026-07-09-projects-phase1-design.md.
 """
 from __future__ import annotations
 

@@ -10,7 +10,7 @@ Spends LLM tokens ONLY with an explicit --yes. The intended order of use:
   python scripts/classify_trackability.py run --yes              # full classification of unlabeled goals
 
 Human labels (trackability_source='human') are never overwritten.
-Design: docs/superpowers/specs/2026-07-29-goal-trackability-design.md
+Design: docs/design/specs/2026-07-29-goal-trackability-design.md
 """
 from __future__ import annotations
 

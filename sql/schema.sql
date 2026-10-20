@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS review_flags (
 CREATE INDEX IF NOT EXISTS idx_review_flags_unresolved ON review_flags(resolved);
 
 -- Agent-proposed structured-data types/mappings for unclassified docs, awaiting human
--- review (see docs/superpowers/specs/2026-07-14-adaptive-structured-ingestion-design.md).
+-- review (see docs/design/specs/2026-07-14-adaptive-structured-ingestion-design.md).
 CREATE TABLE IF NOT EXISTS type_proposals (
     id            SERIAL PRIMARY KEY,
     source_file   VARCHAR(255) NOT NULL,
